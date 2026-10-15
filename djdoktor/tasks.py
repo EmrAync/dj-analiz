@@ -1,4 +1,4 @@
-"""Arka plan görevleri (tarama, senkron, dosya işlemleri) — sırayla tek tek çalışır."""
+"""Arka plan görevleri (tarama, taşıma, birleştirme…) — sırayla tek tek çalışır."""
 from __future__ import annotations
 
 import itertools
@@ -39,6 +39,7 @@ class TaskManager:
         self.q = queue.Queue()
         self.lock = threading.Lock()
         self.log = log
+        self.busy = False
         self.worker = threading.Thread(target=self._run, name="djd-worker", daemon=True)
         self.worker.start()
 
@@ -46,7 +47,6 @@ class TaskManager:
         t = Task(kind, title, fn)
         with self.lock:
             self.tasks[t.id] = t
-            # eski bitmiş görevleri temizle
             done = [k for k, v in self.tasks.items() if v.finished and time.time() - v.finished > 3600]
             for k in done:
                 del self.tasks[k]
@@ -60,6 +60,9 @@ class TaskManager:
     def active(self):
         return [t.to_dict() for t in self.tasks.values() if t.status in ("sirada", "calisiyor")]
 
+    def idle(self):
+        return not self.busy and self.q.empty()
+
     def cancel(self, tid):
         t = self.tasks.get(int(tid))
         if t:
@@ -68,12 +71,15 @@ class TaskManager:
         return False
 
     def _run(self):
+        from .journal import UndoNeedsForce
+        from .library import UserError
         while True:
             t = self.q.get()
             if t._cancel:
                 t.status = "iptal"
                 t.finished = time.time()
                 continue
+            self.busy = True
             t.status = "calisiyor"
             t.started = time.time()
             t.message = "Başladı…"
@@ -88,13 +94,22 @@ class TaskManager:
                 t.status = "iptal" if t._cancel else "bitti"
                 t.progress = 1.0
                 t.message = "İptal edildi" if t._cancel else "Tamamlandı"
-            except Exception as e:  # kullanıcıya anlaşılır mesaj
-                from .service import UserError
+            except UndoNeedsForce as e:
                 t.status = "hata"
-                t.error = str(e) if isinstance(e, UserError) else "Beklenmeyen hata: %s" % e
-                t.code = getattr(e, "code", None) if isinstance(e, UserError) else None
+                t.error = str(e)
+                t.code = "needs_force"
                 t.message = t.error
-                if self.log and not isinstance(e, UserError):
+            except UserError as e:
+                t.status = "hata"
+                t.error = str(e)
+                t.code = e.code
+                t.message = t.error
+            except Exception as e:  # kullanıcıya anlaşılır mesaj
+                t.status = "hata"
+                t.error = "Beklenmeyen hata: %s" % e
+                t.message = t.error
+                if self.log:
                     self.log(traceback.format_exc())
             finally:
                 t.finished = time.time()
+                self.busy = False

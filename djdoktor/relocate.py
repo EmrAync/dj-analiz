@@ -616,17 +616,21 @@ def _setup_targets(lib, root_rel, overrides, genre_map):
     return prop, targets, stats
 
 
-def setup_preview(lib, root_name="Müzik", overrides=None, genre_map=None):
+def setup_preview(lib, root_name="Müzik", overrides=None, genre_map=None, extra=()):
     root_rel = names.minimal_fix_component(root_name or "Müzik", False)
     prop, targets, stats = _setup_targets(lib, root_rel, overrides, genre_map)
     eff = G.effective_assignments(prop["folders"], overrides or {})
-    by_target = defaultdict(int)
-    for rel in targets.values():
-        parts = names.split_rel(rel)
-        by_target[parts[1] if len(parts) > 1 else ""] += 1
-    return {"root": root_rel, "folders": prop["folders"], "genres": prop["genres"], "assign": eff,
+    gm = genre_map or {}
+    names_ = [k[2:] for k, v in stats.items() if k.startswith("g:") and v]
+    for x in extra or ():
+        if x not in names_:
+            names_.append(x)
+    names_.sort(key=lambda n: (G.DISPLAY_ORDER.index(n) if n in G.DISPLAY_ORDER else 99, n))
+    genres = [{"name": n, "folder": G.genre_folder_name(gm.get(n) or n), "count": stats.get("g:" + n, 0),
+               "color": G.GENRE_COLORS.get(n) or "#64748b"} for n in names_]
+    return {"root": root_rel, "folders": prop["folders"], "genres": genres, "assign": eff,
             "moves": len(targets), "spread": stats.get("spread", 0), "ignore": stats.get("ignore", 0),
-            "stay": stats.get("stay", 0), "by_genre": dict(by_target),
+            "stay": stats.get("stay", 0), "canon": [{"name": n, "color": c} for n, c, _t, _s in G.CANON],
             "sample": [{"from": names.display(lib.catalog.file(fid)["rel"]), "to": names.display(rel)}
                        for fid, rel in list(targets.items())[:40]]}
 

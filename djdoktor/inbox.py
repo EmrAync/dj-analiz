@@ -26,6 +26,8 @@ UNSORTED_LABEL = "Türü belli değil"
 _cache = {}
 _cache_lock = threading.Lock()
 _seen_sizes = {}
+LAST = {"wait": 0}
+WAIT_STATUSES = ("nogenre", "similar", "broken", "unsupported", "held")
 
 NOISE = re.compile(r"\s*[\(\[\{][^\)\]\}]*(official|video|audio|lyric|lyrics|klip|clip|visuali[sz]er|\bhd\b|\bhq\b|"
                    r"\b4k\b|\bmv\b|şarkı sözleri|sarki sozleri|altyazı|resmi)[^\)\]\}]*[\)\]\}]", re.I)
@@ -202,6 +204,7 @@ def scan(lib, settle=2.0):
             item["status"] = status
             items.append(item)
     items.sort(key=lambda x: (x.get("genre") or "~", names.fold(x["name"])))
+    LAST["wait"] = sum(1 for i in items if i["status"] in WAIT_STATUSES)
     return {"inbox": inbox, "items": items, "exists": True}
 
 

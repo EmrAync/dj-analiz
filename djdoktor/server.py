@@ -1,6 +1,8 @@
 """Yerel web sunucusu: arayüzü tarayıcıda açar. Yalnızca bu bilgisayardan (127.0.0.1) erişilebilir."""
 from __future__ import annotations
 
+import hashlib
+import html
 import json
 import mimetypes
 import os
@@ -8,13 +10,15 @@ import re
 import secrets
 import sys
 import threading
+import time
 import traceback
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import APP_ID, APP_NAME, VERSION, exporters, names, ops, report, sync, util
+from . import (APP_ID, APP_NAME, VERSION, dedupe, engine, inbox, journal, lists, maintain, mirror, names, relocate,
+               util)
 from .config import Settings, app_dir
-from .service import Library, UserError
+from .library import STATE_DIR, Library, UserError
 from .tasks import TaskManager
 
 WEB_DIR = os.path.join(app_dir(), "web")
@@ -29,6 +33,9 @@ class App:
         self._lib = None
         self._lib_lock = threading.RLock()
         self.port = None
+        self.bg = {"engine_open": None, "serato_open": None, "last_scan": 0, "last_inbox": 0, "last_mirror": 0,
+                   "events": []}
+        self._stop = False
 
     def log(self, text):
         try:
@@ -42,11 +49,19 @@ class App:
             rec = self.settings.active_library()
             if rec is None:
                 if required:
-                    raise UserError("Henüz bir müzik kütüphanesi eklenmedi.")
+                    raise UserError("Henüz SSD seçilmedi.", "no_library")
                 return None
-            if self._lib is None or self._lib.id != rec["id"]:
+            if rec.get("v") != 2:
+                rec = self.settings.upgrade_library(rec["id"])
+            if self._lib is None or self._lib.id != rec["id"] or self._lib.root != rec["root"]:
                 if self._lib is not None:
                     self._lib.catalog.close()
+                    self._lib = None
+                if not os.path.isdir(rec["root"]):
+                    if required:
+                        raise UserError("SSD takılı değil (%s bulunamadı). SSD'yi takın ya da yeniden seçin."
+                                        % rec["root"], "no_root")
+                    return None
                 self._lib = Library(self.settings, rec)
             return self._lib
 
@@ -56,23 +71,75 @@ class App:
                 self._lib.catalog.close()
             self._lib = None
 
+    def note(self, text):
+        self.bg["events"].append({"ts": time.time(), "text": text})
+        self.bg["events"] = self.bg["events"][-20:]
+
+    # ------------------------------------------------------------------
+    # Arka plan: Engine/Serato kapanınca bakım, gelen kutusu, Serato aynası, ara tarama
+    # ------------------------------------------------------------------
+    def background_loop(self):
+        while not self._stop:
+            time.sleep(3)
+            try:
+                self._tick()
+            except Exception:
+                self.log(traceback.format_exc())
+
+    def _tick(self):
+        lib = self.lib(required=False)
+        if lib is None or not self.tasks.idle():
+            return
+        if not lib.catalog.genres():
+            return  # düzen kurulmadan otomatik hiçbir şey yapma
+        now = time.time()
+        eo, so = lib.engine_open(), lib.serato_open()
+        was_eo, was_so = self.bg["engine_open"], self.bg["serato_open"]
+        self.bg["engine_open"], self.bg["serato_open"] = eo, so
+        if not lib.lock.acquire(blocking=False):
+            return
+        try:
+            if was_eo and not eo:
+                r = maintain.background(lib)
+                if r and (r.get("added") or r.get("repaired") or r.get("relinked")):
+                    self.note("Engine kapandı: kütüphane kontrol edildi")
+            if was_so and not so:
+                r = mirror.background(lib)
+                if r and (r.get("pulled") or r.get("pushed")):
+                    self.note("Serato kapandı: listeler eşitlendi")
+            if now - self.bg["last_inbox"] > 4:
+                self.bg["last_inbox"] = now
+                r = inbox.auto_tick(lib)
+                self.bg["inbox_wait"] = inbox.LAST.get("wait", 0)
+                if r and r.get("added"):
+                    self.note("%d yeni şarkı eklendi" % r["added"])
+            if now - self.bg["last_mirror"] > 30 and not so:
+                self.bg["last_mirror"] = now
+                mirror.background(lib)
+            if now - self.bg["last_scan"] > 240:
+                self.bg["last_scan"] = now
+                res = lib.full_scan()
+                if res.get("read") or res.get("gone"):
+                    maintain.background(lib)
+        finally:
+            lib.lock.release()
+
 
 def _clean(obj):
     if isinstance(obj, dict):
         return {k: _clean(v) for k, v in obj.items() if not str(k).startswith("_")}
-    if isinstance(obj, list):
+    if isinstance(obj, (list, tuple)):
         return [_clean(x) for x in obj]
     return obj
 
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "DJDoktor/" + VERSION
-    app: App = None  # atanır
+    app: App = None
 
-    def log_message(self, fmt, *args):  # konsolu kirletme
+    def log_message(self, fmt, *args):
         pass
 
-    # ---------------------------------------------------------------
     def _host_ok(self):
         host = (self.headers.get("Host") or "").split(":")[0]
         return host in ("127.0.0.1", "localhost", "[::1]")
@@ -95,8 +162,8 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, obj, code=200):
         self._send(code, json.dumps(_clean(obj), ensure_ascii=False, default=str).encode("utf-8"))
 
-    def _err(self, msg, code=400):
-        self._json({"error": msg}, code)
+    def _err(self, msg, code=400, ecode=None):
+        self._json({"error": msg, "code": ecode}, code)
 
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
@@ -108,7 +175,6 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return {}
 
-    # ---------------------------------------------------------------
     def do_GET(self):
         self._dispatch("GET")
 
@@ -128,7 +194,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/ping":
                 return self._json({"app": APP_ID, "version": VERSION})
             if path.startswith("/api/"):
-                if path.startswith("/api/audio/"):
+                if path.startswith("/api/audio/") or path.startswith("/api/print/"):
                     if qs.get("t") != self.app.token:
                         return self._err("Yetkisiz", 401)
                 elif self.headers.get("X-DJD-Token") != self.app.token:
@@ -136,25 +202,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self._api(method, path[5:], qs)
             if path in ("/", "/index.html"):
                 return self._index()
-            if path.startswith("/print/event/") or path == "/report":
-                if qs.get("t") != self.app.token:
-                    return self._err("Yetkisiz", 401)
-                if path == "/report":
-                    return self._send(200, report.build(self.app.lib()).encode("utf-8"), "text/html; charset=utf-8")
-                eid = int(path.rsplit("/", 1)[1])
-                return self._send(200, exporters.event_print_html(self.app.lib(), eid).encode("utf-8"),
-                                  "text/html; charset=utf-8")
             return self._static(path)
         except UserError as e:
-            return self._err(str(e), 400)
+            return self._err(str(e), 400, e.code)
+        except journal.UndoNeedsForce as e:
+            return self._err(str(e), 409, "needs_force")
         except Exception as e:
             self.app.log(traceback.format_exc())
             return self._err("Beklenmeyen hata: %s" % e, 500)
 
     def _index(self):
         p = os.path.join(WEB_DIR, "index.html")
-        html = open(p, "r", encoding="utf-8").read().replace("{{TOKEN}}", self.app.token).replace("{{VERSION}}", VERSION)
-        self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
+        page = open(p, "r", encoding="utf-8").read().replace("{{TOKEN}}", self.app.token)
+        page = page.replace("{{VERSION}}", VERSION)
+        self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
 
     def _static(self, path):
         rel = path.lstrip("/")
@@ -208,7 +269,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.command == "HEAD":
             return
         try:
-            with open(p, "rb") as fh:  # yalnızca okuma
+            with open(p, "rb") as fh:
                 fh.seek(start)
                 remaining = length
                 while remaining > 0:
@@ -220,32 +281,50 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
 
-    # ---------------------------------------------------------------
     def _task(self, kind, title, fn):
         tid = self.app.tasks.submit(kind, title, fn)
         return self._json({"task": tid})
+
+    # ------------------------------------------------------------------
+    def _state(self):
+        app = self.app
+        out = {"app": APP_NAME, "version": VERSION, "platform": sys.platform, "prefs": app.settings.prefs(),
+               "libraries": app.settings.libraries(), "tasks": app.tasks.active(), "events": app.bg["events"][-5:]}
+        try:
+            lib = app.lib(required=False)
+        except UserError as e:
+            out["lib_error"] = str(e)
+            lib = None
+        rec = app.settings.active_library()
+        if lib is None:
+            out["active"] = None
+            if rec and not os.path.isdir(rec["root"]):
+                out["missing_root"] = rec
+            return out
+        info = lib.info()
+        top = lib.catalog.journal_top()
+        db = lib.engine_db()
+        estamp = engine.db_stamp(db["path"]) if db else None
+        stamp = hashlib.md5(json.dumps([lib.ver(), top["id"] if top else 0, estamp], default=str)
+                            .encode()).hexdigest()[:12]
+        out.update({"active": info, "engine_open": lib.engine_open(), "serato_open": lib.serato_open(),
+                    "inbox_wait": app.bg.get("inbox_wait", 0),
+                    "undo": {"id": top["id"], "title": top["title"], "kind": top["kind"]} if top else None,
+                    "stamp": stamp, "has_engine": bool(db)})
+        return out
 
     def _api(self, method, route, qs):
         app = self.app
         parts = route.strip("/").split("/")
         body = self._body() if method == "POST" else {}
         r0 = parts[0]
-        # ---------------- genel ----------------
-        if r0 == "ping":
-            return self._json({"app": APP_ID, "version": VERSION})
         if r0 == "state":
-            lib = app.lib(required=False)
-            return self._json({"app": APP_NAME, "version": VERSION, "workspace": app.settings.ws,
-                               "libraries": app.settings.libraries(), "active": lib.info() if lib else None,
-                               "prefs": app.settings.prefs(), "platform": sys.platform,
-                               "tasks": app.tasks.active()})
+            return self._json(self._state())
         if r0 == "browse":
             return self._json(_browse(qs.get("path")))
-        if r0 == "tasks":
-            if len(parts) == 1:
-                return self._json(app.tasks.active())
-            if len(parts) == 3 and parts[2] == "cancel":
-                return self._json({"ok": app.tasks.cancel(parts[1])})
+        if r0 == "drives":
+            return self._json(_drives())
+        if r0 == "task":
             t = app.tasks.get(parts[1])
             return self._json(t) if t else self._err("Görev yok", 404)
         if r0 == "library":
@@ -255,9 +334,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not root or not os.path.isdir(root):
                     raise UserError("Klasör bulunamadı: %s" % root)
                 app.reset_lib()
-                rec = app.settings.add_library(root, body.get("name") or "", bool(body.get("shared")),
-                                               bool(body.get("readonly", True)))
-                return self._json({"library": rec})
+                old = app.settings.active_library()
+                if old and body.get("relocate") and old.get("id") == body.get("relocate"):
+                    app.settings.relocate_library(old["id"], root)
+                else:
+                    app.settings.add_library(root, body.get("name") or "")
+                lib = app.lib()
+                return self._task("scan", "SSD taranıyor", lambda p, c: _scan_and_maintain(lib, p, c))
             if act == "select":
                 app.reset_lib()
                 app.settings.set_active(body.get("id"))
@@ -266,196 +349,266 @@ class Handler(BaseHTTPRequestHandler):
                 app.reset_lib()
                 app.settings.remove_library(body.get("id"))
                 return self._json({"ok": True})
-            if act == "update":
-                lib = app.lib()
-                kw = {}
-                if "readonly" in body:
-                    kw["readonly"] = bool(body["readonly"])
-                if body.get("name"):
-                    kw["name"] = body["name"]
-                app.settings.update_library(lib.id, **kw)
-                return self._json({"ok": True, "library": app.settings.get_library(lib.id)})
         if r0 == "prefs" and method == "POST":
             app.settings.set_prefs(**body)
             return self._json(app.settings.prefs())
         if r0 == "open" and method == "POST":
-            p = body.get("path") or ""
-            lib = app.lib(required=False)
-            allowed = [os.path.abspath(app.settings.ws)] + ([os.path.abspath(lib.root)] if lib else [])
-            ap = os.path.abspath(p)
-            if not any(os.path.normcase(ap).startswith(os.path.normcase(a)) for a in allowed):
-                raise UserError("Bu konum açılamaz.")
-            return self._json({"ok": util.open_in_file_manager(ap, bool(body.get("select")))})
-        if r0 == "backups":
-            out = []
-            base = os.path.join(app.settings.ws, "yedekler")
-            for root, _d, files in os.walk(base):
-                for f in files:
-                    full = os.path.join(root, f)
-                    out.append({"path": full, "name": os.path.relpath(full, base), "size": os.path.getsize(full),
-                                "mtime": int(os.path.getmtime(full))})
-            out.sort(key=lambda x: -x["mtime"])
-            return self._json({"items": out[:300], "count": len(out), "total": sum(x["size"] for x in out)})
+            return self._json({"ok": _open(app, body)})
 
         lib = app.lib()
-        cat = lib.catalog
-        # ---------------- tarama / analiz ----------------
-        if r0 == "scan":
-            return self._task("tarama", "Kütüphane taranıyor", lambda p, c: lib.full_scan(p, c))
-        if r0 == "reanalyze":
-            return self._task("analiz", "Analiz yenileniyor", lambda p, c: lib.reanalyze())
-        if r0 == "overview":
-            return self._json(lib.overview())
-        if r0 == "tracks":
-            return self._json(lib.tracks_payload())
-        if r0 == "track":
-            return self._json(lib.track_detail(int(parts[1])))
+        # ---------------- genel ----------------
+        if r0 == "scan" and method == "POST":
+            return self._task("scan", "SSD taranıyor", lambda p, c: _scan_and_maintain(lib, p, c))
+        if r0 == "undo" and method == "POST":
+            force = bool(body.get("force"))
+            return self._task("undo", "Geri alınıyor", lambda p, c: journal.undo_last(lib, force=force, progress=p))
+        if r0 == "journal":
+            rows = lib.catalog.journal(60)
+            return self._json([{"id": r["id"], "ts": r["ts"], "kind": r["kind"], "title": r["title"],
+                                "status": r["status"]} for r in rows])
         if r0 == "audio":
             return self._audio(int(parts[1]))
-        if r0 == "issues":
-            return self._json(lib.issues())
-        if r0 == "issue":
-            return self._json(lib.issue_files(parts[1]))
+        if r0 == "print":
+            return self._send(200, _print_list(lib, int(parts[1])).encode("utf-8"), "text/html; charset=utf-8")
+        # ---------------- müzikler ----------------
+        if r0 == "overview":
+            ov = lib.overview()
+            ov["maint"] = maintain.status(lib)
+            ov["managed"] = maintain.managed_meta(lib, lib.db_uuid()) if lib.engine_db() else {}
+            return self._json(ov)
+        if r0 == "tracks":
+            return self._json(lib.tracks(qs.get("view") or "all"))
+        if r0 == "track":
+            return self._json(lib.track_detail(int(parts[1])))
         if r0 == "dupes":
-            return self._json(lib.dupes())
-        if r0 == "folders":
-            return self._json(lib.folders())
-        # ---------------- listeler ----------------
-        if r0 == "lists":
-            if len(parts) == 1:
-                return self._json(lib.lists_tree())
-            if parts[1] == "create":
-                lid = cat.list_create(body.get("parent_id"), body.get("kind") or "list", body.get("title") or "Yeni liste",
-                                      body.get("info") or {})
-                return self._json({"id": lid})
-            lid = int(parts[1])
-            act = parts[2] if len(parts) > 2 else "items"
-            if act == "items":
-                return self._json(lib.list_items(lid))
-            if act == "suggest":
-                return self._json(lib.suggestions(lid))
+            return self._json(dedupe.groups(lib))
+        if r0 == "merge" and method == "POST":
+            picks = body.get("picks") or []
+            return self._task("merge", "Kopyalar birleştiriliyor", lambda p, c: dedupe.merge(lib, picks, p))
+        if r0 == "setup":
+            if parts[1:] == ["preview"]:
+                return self._json(relocate.setup_preview(lib, body.get("root") or "Müzik", body.get("overrides") or {},
+                                                         body.get("genre_map") or {}, body.get("extra") or []))
+            if parts[1:] == ["apply"] and method == "POST":
+                root = body.get("root") or "Müzik"
+                ov, gm, extra = body.get("overrides") or {}, body.get("genre_map") or {}, body.get("extra") or []
+                return self._task("setup", "Düzen kuruluyor",
+                                  lambda p, c: _after(lib, relocate.setup_apply(lib, root, ov, gm, extra, p)))
+            return self._json(relocate.setup_preview(lib, qs.get("root") or lib.music_root() or "Müzik"))
+        if r0 == "genre" and method == "POST":
+            act = parts[1] if len(parts) > 1 else ""
+            if act == "create":
+                gid = relocate.genre_create(lib, body.get("name"), body.get("color"))
+                inbox.ensure_dirs(lib)
+                return self._json({"id": gid})
+            if act == "rename":
+                gid, name = body.get("id"), body.get("name")
+                return self._task("rename", "Tür adı değişiyor",
+                                  lambda p, c: _after(lib, relocate.genre_rename(lib, gid, name), inbox_dirs=True))
             if act == "update":
-                info = None
-                if "info" in body:
-                    cur = cat.list_get(lid)
-                    info = dict(cur.get("info") or {}, **(body.get("info") or {}))
-                cat.list_update(lid, title=body.get("title"), info=info,
-                                parent_id=body["parent_id"] if "parent_id" in body else -1, pos=body.get("pos"))
-                return self._json({"ok": True})
-            if act == "delete":
-                return self._json({"deleted": cat.list_delete(lid)})
-            if act == "add":
-                added, skipped = cat.items_add(lid, [int(x) for x in body.get("file_ids", [])], body.get("at"))
-                return self._json({"added": added, "skipped": skipped})
-            if act == "remove":
-                cat.items_remove([int(x) for x in body.get("item_ids", [])])
+                kw = {k: body[k] for k in ("color", "engine") if k in body}
+                relocate.genre_update(lib, body.get("id"), **kw)
                 return self._json({"ok": True})
             if act == "reorder":
-                cat.items_reorder(lid, [int(x) for x in body.get("item_ids", [])])
+                relocate.genre_reorder(lib, body.get("ids") or [])
                 return self._json({"ok": True})
-            if act == "move-items":
-                cat.items_move([int(x) for x in body.get("item_ids", [])], int(body["to"]))
+            if act == "delete":
+                relocate.genre_delete(lib, body.get("id"))
                 return self._json({"ok": True})
+            if act == "merge":
+                src, dst = body.get("src"), body.get("dst")
+                return self._task("merge", "Türler birleştiriliyor",
+                                  lambda p, c: _after(lib, relocate.genre_merge(lib, src, dst, p)))
+        if r0 == "move" and method == "POST":
+            fids = [int(x) for x in body.get("fids") or []]
+            gid = body.get("gid")
+            gname = body.get("genre")
+
+            def run(p, c):
+                g = gid
+                if not g and gname:
+                    ex = next((x for x in lib.genre_rows() if x["name"] == gname), None)
+                    g = ex["id"] if ex else relocate.genre_create(lib, gname)
+                    inbox.ensure_dirs(lib)
+                return _after(lib, relocate.move_to_genre(lib, fids, g, sub=body.get("sub"), progress=p))
+            return self._task("move", "Taşınıyor", run)
+        if r0 == "folder" and method == "POST":
+            if parts[1:] == ["rename"]:
+                rel, name = body.get("rel"), body.get("name")
+                return self._task("rename", "Klasör adı değişiyor",
+                                  lambda p, c: _after(lib, relocate.rename_folder(lib, rel, name, p)))
+            if parts[1:] == ["move"]:
+                rel, parent = body.get("rel"), body.get("parent")
+                return self._task("move", "Klasör taşınıyor",
+                                  lambda p, c: _after(lib, relocate.move_folder(lib, rel, parent, p)))
+        if r0 == "quarantine" and method == "POST":
+            fids = [int(x) for x in body.get("fids") or []]
+            return self._json(_quarantine(lib, fids))
+        if r0 == "rule" and method == "POST":
+            return self._json(_set_rule(lib, body.get("rel"), body.get("action")))
+        # ---------------- listeler ----------------
+        if r0 == "lists":
+            return self._json(lists.tree(lib))
+        if r0 == "list":
+            if method == "GET":
+                return self._json(lists.items(lib, int(parts[1])))
+            act = parts[1]
+            b = body
+            if act == "create":
+                return self._json(lists.create(lib, b.get("parent") or 0, b.get("title") or "Yeni liste", b.get("before") or 0))
+            if act == "rename":
+                return self._json(lists.rename(lib, b["id"], b.get("title") or ""))
+            if act == "move":
+                return self._json(lists.move(lib, b["id"], b.get("parent") or 0, b.get("before") or 0))
+            if act == "delete":
+                return self._json(lists.delete(lib, b["id"]))
             if act == "duplicate":
-                return self._json({"id": _duplicate_list(lib, lid)})
-        if r0 == "items" and len(parts) == 3 and parts[2] == "note":
-            cat.item_note(int(parts[1]), body.get("note") or "")
-            return self._json({"ok": True})
-        if r0 == "events":
-            if parts[1] == "create":
-                return self._json({"id": lib.create_event(body)})
-            return self._json(lib.event_overview(int(parts[1])))
-        if r0 == "templates":
-            if len(parts) > 1 and parts[1] == "save":
-                cat.template_save(body["kind"], body["title"], body.get("sections") or [])
-            return self._json(cat.templates())
-        if r0 == "gigcheck":
-            return self._json(lib.gig_check(int(parts[1])))
-        # ---------------- Engine / Serato ----------------
-        if r0 == "engine":
-            act = parts[1] if len(parts) > 1 else ""
-            if not act:
-                return self._json(sync.engine_status(lib))
-            key = body.get("key") or qs.get("key") or "drive"
-            if act == "repair-plan":
-                return self._json(sync.engine_repair_plan(lib, key))
-            if act == "repair":
-                return self._task("engine", "Engine yol onarımı", lambda p, c: sync.engine_repair_apply(lib, key, p))
-            if act == "sync":
-                return self._task("engine", "Engine'e listeler gönderiliyor", lambda p, c: sync.engine_sync(lib, key, p))
-            if act == "import":
-                return self._json(sync.engine_import(lib, key, body.get("playlist_ids") or []))
+                return self._json(lists.duplicate(lib, b["id"], b.get("parent"), b.get("title")))
+            if act == "add":
+                return self._json(lists.add(lib, b["id"], b.get("fids"), b.get("refs"), b.get("at")))
+            if act == "remove":
+                return self._json(lists.remove(lib, b["id"], b.get("refs") or []))
+            if act == "reorder":
+                return self._json(lists.reorder(lib, b["id"], b.get("refs") or []))
+            if act == "move_entries":
+                return self._json(lists.move_entries(lib, b["src"], b["dst"], b.get("refs") or [], b.get("at"),
+                                                     bool(b.get("copy"))))
+            if act == "note":
+                return self._json(lists.set_note(lib, b["id"], b["ref"], b.get("note") or ""))
+        if r0 == "event" and method == "POST":
+            b = body
+            if parts[1:] == ["new"]:
+                return self._json(lists.new_event(lib, b.get("title"), b.get("date"), b.get("venue"),
+                                                  b.get("template"), b.get("base"), b.get("notes")))
+            if parts[1:] == ["set"]:
+                return self._json(lists.set_event(lib, b["id"], b.get("date"), b.get("venue"), b.get("notes")))
+        if r0 == "search":
+            return self._json(lists.search_library(lib, qs.get("q") or "", int(qs.get("limit") or 300),
+                                                   qs.get("gid") or None))
         if r0 == "serato":
             act = parts[1] if len(parts) > 1 else ""
-            if not act:
-                return self._json(sync.serato_status(lib))
-            if act == "export":
-                return self._task("serato", "Serato'ya crate yazılıyor", lambda p, c: sync.serato_export(lib, p))
-            if act == "import":
-                return self._json(sync.serato_import(lib, body.get("crates") or []))
-        # ---------------- dosya işlemleri ----------------
-        if r0 == "plan":
-            kind = parts[1]
-            if kind == "junk":
-                return self._json(ops.plan_junk(lib))
-            if kind == "rename":
-                return self._json(ops.plan_rename(lib, None, qs.get("emoji") == "1"))
-            if kind == "dupes":
-                return self._json(ops.plan_dupes(lib, body.get("selections") or []))
-        if r0 == "ops":
-            kind = parts[1]
-            if kind == "junk":
-                return self._task("dosya", "Çöp dosyalar karantinaya taşınıyor", lambda p, c: ops.apply_junk(lib, p))
-            if kind == "rename":
-                emoji = bool(body.get("emoji"))
-                ids = body.get("file_ids")
-                return self._task("dosya", "Adlar düzeltiliyor",
-                                  lambda p, c: ops.apply_rename(lib, set(map(int, ids)) if ids else None, emoji, p))
-            if kind == "dupes":
-                sel = body.get("selections") or []
-                return self._task("dosya", "Çiftler birleştiriliyor", lambda p, c: ops.apply_dupes(lib, sel, p))
+            if act == "crates":
+                return self._json(mirror.crates(lib))
+            if act == "state":
+                return self._json({str(k): v for k, v in mirror.state(lib).items()})
+            if act == "link" and method == "POST":
+                return self._json(mirror.link(lib, body["id"], bool(body.get("on", True))))
+            if act == "import" and method == "POST":
+                return self._json(mirror.import_crates(lib, body.get("names") or [], body.get("parent") or 0))
+            if act == "sync" and method == "POST":
+                prefer = {int(k): v for k, v in (body.get("prefer") or {}).items()}
+                if lib.serato_open():
+                    raise UserError("Serato açık. Eşitlemek için Serato'yu kapatın.", "serato_open")
+                op = journal.Op(lib, "serato", "Serato ile eşitlendi")
+                res = mirror.sync(lib, op=op, prefer=prefer)
+                op.commit()
+                return self._json(res)
+        # ---------------- gelen kutusu ----------------
         if r0 == "inbox":
-            if parts[1] == "scan":
-                src = body.get("source") or ""
-                return self._task("gelen", "Yeni müzikler inceleniyor", lambda p, c: ops.inbox_scan(lib, src, p, c))
-            if parts[1] == "import":
-                b = body
-                return self._task("gelen", "Yeni müzikler ekleniyor",
-                                  lambda p, c: ops.inbox_import(lib, b.get("sources") or [], b.get("dest") or "",
-                                                                b.get("keep_turkish", True), b.get("strip_emoji", True),
-                                                                b.get("list_id"), p))
-        if r0 == "undo":
-            jid = int(body.get("journal_id"))
-            force = bool(body.get("force"))
-            return self._task("geri", "Geri alınıyor", lambda p, c: ops.undo(lib, jid, p, force=force))
-        if r0 == "journal":
-            return self._json(cat.journal())
-        if r0 == "export":
-            ids = body.get("list_ids") or []
-            if not ids:
-                raise UserError("Önce en az bir liste seçin.")
-            if parts[1] == "rekordbox":
-                return self._json(exporters.rekordbox_xml(lib, ids, bool(body.get("cues", True))))
-            if parts[1] == "m3u":
-                return self._json(exporters.m3u(lib, ids))
-        if r0 == "report" and parts[1:] == ["save"]:
-            return self._json({"path": report.save(lib)})
+            act = parts[1] if len(parts) > 1 else ""
+            if method == "GET" and not act:
+                ib, ar = inbox.dirs(lib)
+                if lib.catalog.genres():
+                    inbox.ensure_dirs(lib)
+                s = inbox.scan(lib)
+                return self._json({"inbox": ib, "archive": ar, "items": s["items"], "downloads": inbox.downloads(lib),
+                                   "log": lib.catalog.inbox_log(40), "auto": lib.prefs().get("auto_inbox", True),
+                                   "genres": [{"id": g["id"], "name": g["name"], "color": g["color"]}
+                                              for g in lib.genre_rows()]})
+            if act == "ingest" and method == "POST":
+                entries = body.get("entries") or []
+                return self._task("inbox", "Şarkılar ekleniyor", lambda p, c: inbox.ingest(lib, entries, p))
+            if act == "aside" and method == "POST":
+                return self._json(inbox.set_aside(lib, body["path"]))
+            if act == "archive" and method == "POST":
+                return self._json(inbox.archive_existing(lib, body["path"]))
+            if act == "take" and method == "POST":
+                return self._json(inbox.take_download(lib, body["path"], body["gid"]))
+            if act == "ignore" and method == "POST":
+                return self._json(inbox.ignore_download(lib, body["path"]))
+            if act == "open" and method == "POST":
+                ib, ar = inbox.ensure_dirs(lib)
+                return self._json({"ok": util.open_in_file_manager(ar if body.get("archive") else ib)})
         return self._err("Bilinmeyen istek: %s" % route, 404)
 
 
-def _duplicate_list(lib, lid):
-    cat = lib.catalog
-    src = cat.list_get(lid)
+def _after(lib, res, inbox_dirs=False):
+    if inbox_dirs:
+        try:
+            inbox.ensure_dirs(lib)
+        except OSError:
+            pass
+    return res
 
-    def copy(node_id, parent):
-        n = cat.list_get(node_id)
-        title = n["title"] + (" (kopya)" if node_id == lid else "")
-        new = cat.list_create(parent, n["kind"], title, n.get("info") or {})
-        cat.items_add(new, cat.item_file_ids(node_id))
-        for ch in cat.list_children(node_id):
-            copy(ch["id"], new)
-        return new
-    return copy(lid, src.get("parent_id"))
+
+def _scan_and_maintain(lib, progress, cancel):
+    res = lib.full_scan(lambda r, m: progress(r * 0.85, m), cancel)
+    if res.get("cancelled"):
+        return res
+    if lib.catalog.genres():
+        progress(0.9, "Engine kontrol ediliyor…")
+        res["maint"] = maintain.after_change(lib)
+    return res
+
+
+def _quarantine(lib, fids):
+    """Bozuk / istenmeyen dosyaları SSD'deki karantinaya alır (silmez). Engine'de kayıtları varsa kaldırılmaz;
+    Engine'de kırmızı görünmesinler diye yalnızca koleksiyonda olmayan dosyalar alınır."""
+    st = lib.engine_state()
+    ok = [f for f in fids if not st["by_file"].get(f)]
+    if not ok:
+        raise UserError("Bu dosyalar Engine koleksiyonunda; önce Engine'den kaldırın.")
+    op = journal.Op(lib, "karantina", "%d dosya karantinaya alındı" % len(ok))
+    with lib.lock:
+        if lib.serato_open():
+            raise UserError("Serato açık; lütfen kapatın.", "serato_open")
+        n = dedupe.quarantine_files(lib, ok, "ayiklanan", op)
+        lib.bump()
+        op.commit()
+    return {"moved": n}
+
+
+def _set_rule(lib, rel, action):
+    cat = lib.catalog
+    old = cat.folder_rules().get(rel)
+    op = journal.Op(lib, "kural", ("Dokunulmayacak: %s" if action == "ignore" else "Kural kaldırıldı: %s")
+                    % names.display(rel))
+    op.add({"k": "rule", "rel": rel, "old": old})
+    cat.set_folder_rule(rel, action or None)
+    lib.bump()
+    op.commit()
+    return {"ok": True}
+
+
+def _open(app, body):
+    lib = app.lib(required=False)
+    if body.get("fid") and lib:
+        f = lib.catalog.file(int(body["fid"]))
+        if f:
+            return util.open_in_file_manager(lib.rootinfo.os_path(f["rel"], f.get("os_rel")), True)
+    p = body.get("path") or ""
+    allowed = [os.path.abspath(app.settings.ws)]
+    if lib:
+        allowed.append(os.path.abspath(lib.root))
+        allowed.extend(os.path.abspath(x) for x in inbox.dirs(lib))
+    ap = os.path.abspath(p)
+    if not any(os.path.normcase(ap).startswith(os.path.normcase(a)) for a in allowed):
+        raise UserError("Bu konum açılamaz.")
+    return util.open_in_file_manager(ap, bool(body.get("select")))
+
+
+def _drives():
+    out = []
+    for d in util.list_drives():
+        p = d["path"]
+        mark = {"serato": False, "engine": False, "djd": False}
+        try:
+            ents = {e.lower() for e in os.listdir(p)}
+            mark = {"serato": "_serato_" in ents, "engine": "engine library" in ents, "djd": "_djdoktor_" in ents}
+        except OSError:
+            pass
+        out.append(dict(d, **mark))
+    return out
 
 
 def _browse(path):
@@ -477,12 +630,45 @@ def _browse(path):
     parent = os.path.dirname(p.rstrip("\\/"))
     if parent == p or not parent:
         parent = ""
-    audio = 0
-    try:
-        audio = sum(1 for e in os.scandir(p) if e.is_file() and os.path.splitext(e.name)[1].lower() in names.AUDIO_EXTS)
-    except OSError:
-        pass
-    return {"path": p, "parent": parent, "dirs": dirs, "audio_here": audio}
+    return {"path": p, "parent": parent, "dirs": dirs}
+
+
+def _print_list(lib, pid):
+    """Etkinlik/liste çıktısı (yazdırmak için sade sayfa)."""
+    data = lists.items(lib, pid)
+    ev = data.get("ev") or {}
+    st = lib.engine_state()
+    by_parent = {}
+    for p in st["playlists"]:
+        by_parent.setdefault(p["parent"], []).append(p)
+    blocks = [(data["title"], data["items"])]
+    for ch in by_parent.get(pid, []):
+        blocks.append((ch["title"], lists.items(lib, ch["id"])["items"]))
+    e = html.escape
+    out = ["<!doctype html><html lang='tr'><head><meta charset='utf-8'><title>%s</title>" % e(data["title"]),
+           "<style>body{font:14px/1.45 system-ui,sans-serif;margin:28px;color:#111}h1{font-size:22px;margin:0 0 4px}"
+           ".meta{color:#555;margin-bottom:18px}h2{font-size:16px;margin:22px 0 6px;border-bottom:1px solid #ccc;"
+           "padding-bottom:3px}table{border-collapse:collapse;width:100%}td{padding:3px 6px;border-bottom:1px solid #eee}"
+           "td.n{color:#888;width:28px}td.k,td.b,td.d{width:56px;color:#444}.note{color:#a15c00}"
+           "@media print{body{margin:10mm}}</style></head><body>"]
+    out.append("<h1>%s</h1><div class='meta'>%s</div>" % (e(data["title"]), e(" · ".join(
+        x for x in (ev.get("date"), ev.get("venue"), ev.get("notes")) if x))))
+    for title, items in blocks:
+        if not items:
+            continue
+        if title != data["title"]:
+            out.append("<h2>%s</h2>" % e(title))
+        out.append("<table>")
+        for i, it in enumerate(items, 1):
+            note = it.get("note") or ""
+            out.append("<tr><td class='n'>%d</td><td><b>%s</b> — %s%s</td><td class='b'>%s</td><td class='k'>%s</td>"
+                       "<td class='d'>%s</td></tr>" % (
+                           i, e(it["title"] or ""), e(it["artist"] or ""),
+                           (" <span class='note'>(%s)</span>" % e(note)) if note else "",
+                           it["bpm"] or "", e(it["key"] or ""), util.fmt_dur(it["dur"]) if it["dur"] else ""))
+        out.append("</table>")
+    out.append("<script>window.print&&setTimeout(()=>window.print(),300)</script></body></html>")
+    return "".join(out)
 
 
 def run(port=8765, open_browser=True):
@@ -501,10 +687,10 @@ def run(port=8765, open_browser=True):
     srv.daemon_threads = True
     app.port = srv.server_address[1]
     url = "http://127.0.0.1:%d/" % app.port
+    threading.Thread(target=app.background_loop, name="djd-bg", daemon=True).start()
     print("=" * 60)
     print(" %s %s" % (APP_NAME, VERSION))
     print(" Arayüz: %s" % url)
-    print(" Çalışma alanı: %s" % app.settings.ws)
     print(" Kapatmak için bu pencereyi kapatın veya Ctrl+C'ye basın.")
     print("=" * 60)
     if open_browser:
@@ -515,4 +701,8 @@ def run(port=8765, open_browser=True):
     except KeyboardInterrupt:
         pass
     finally:
+        app._stop = True
         srv.server_close()
+
+
+__all__ = ["run", "App", "Handler", "STATE_DIR"]

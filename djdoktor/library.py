@@ -236,9 +236,14 @@ class Library:
                 return res
             if progress:
                 progress(0.88, "Serato listeleri okunuyor…")
-            res["serato"] = self.analyze_serato()
-            self.compute_flags()
-            self.bump()
+            ssig = self._serato_sig()
+            changed = bool(res.get("read") or res.get("gone")) or ssig != self.catalog.get_meta("serato_sig")
+            if changed or not self.catalog.get_meta("last_scan"):
+                res["serato"] = self.analyze_serato()
+                self.catalog.set_meta("serato_sig", ssig)
+                self.compute_flags()
+                self.bump()
+            res["changed"] = changed
             if progress:
                 progress(0.95, "Engine durumu okunuyor…")
             self.engine_state(force=True)
@@ -246,6 +251,29 @@ class Library:
             if progress:
                 progress(1.0, "Tamamlandı")
             return res
+
+    def _serato_sig(self):
+        """Serato dosyalarının ucuz imzası (değiştiler mi?)."""
+        sdir = self.serato_dir()
+        if not sdir:
+            return ""
+        parts = []
+        for p in (os.path.join(sdir, "database V2"),):
+            try:
+                st = os.stat(p)
+                parts.append("%d:%d" % (st.st_size, st.st_mtime_ns))
+            except OSError:
+                parts.append("-")
+        sc = serato._subcrates_dir(sdir)
+        try:
+            for e in sorted(os.scandir(sc), key=lambda e: e.name):
+                if e.name.endswith(".crate"):
+                    st = e.stat()
+                    parts.append("%s:%d:%d" % (e.name, st.st_size, st.st_mtime_ns))
+        except OSError:
+            pass
+        import hashlib
+        return hashlib.md5("|".join(parts).encode("utf-8", "replace")).hexdigest()
 
     def analyze_serato(self):
         resolver = Resolver(self.catalog, self.root)

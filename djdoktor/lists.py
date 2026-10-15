@@ -231,7 +231,8 @@ def refs_for_files(lib, w, fids, d):
             tid = sorted(rows, key=lambda r: (not st["tracks"][r[0]].get("isAnalyzed"), r[0]))[0][0]
         if tid is None:
             f = lib.catalog.file(target)
-            if not f or not f["present"]:
+            fl = (f or {}).get("flags") or ""
+            if not f or not f["present"] or "audio_error" in fl or "audio_empty" in fl or "fmt_engine" in fl:
                 skipped.append(fid)
                 continue
             path = engine.rel_to_engine_path(f["rel"], d["lib_dir"], lib.root)
@@ -483,6 +484,9 @@ def search_library(lib, q, limit=200, gid=None):
     for f in rows:
         if f["rel"].startswith(STATE_DIR + "/"):
             continue
+        fl = f.get("flags") or ""
+        if "audio_error" in fl or "audio_empty" in fl or "fmt_engine" in fl:
+            continue  # bozuk ya da Prime 4'ün çalamayacağı dosya listeye girmesin
         kind, g = place(f["rel"])
         if kind == "ignore":
             continue

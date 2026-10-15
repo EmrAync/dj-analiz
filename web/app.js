@@ -1,1572 +1,1292 @@
-/* DJ Kütüphane Doktoru — arayüz */
-'use strict';
+/* DJ Doktor v2 — arayüz (bağımlılık yok). */
+"use strict";
 
 const TOKEN = window.DJD_TOKEN;
-const $ = (s, root = document) => root.querySelector(s);
-const $$ = (s, root = document) => Array.from(root.querySelectorAll(s));
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-function el(html) { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; }
-
-const TRMAP = { 'ı': 'i', 'İ': 'i', 'I': 'i', 'ş': 's', 'Ş': 's', 'ğ': 'g', 'Ğ': 'g', 'ü': 'u', 'Ü': 'u', 'ö': 'o', 'Ö': 'o', 'ç': 'c', 'Ç': 'c', 'â': 'a', 'Â': 'a', 'î': 'i', 'Î': 'i', 'û': 'u', 'Û': 'u', 'ß': 'ss' };
-function fold(s) {
-  s = String(s || '').normalize('NFC').replace(/[ıİIşŞğĞüÜöÖçÇâÂîÎûÛß]/g, (c) => TRMAP[c]);
-  return s.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-}
-const fmtDur = (s) => {
-  if (!s) return '';
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtN = (n) => (n || 0).toLocaleString("tr-TR");
+const fold = (s) => String(s || "").toLocaleLowerCase("tr-TR").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/ı/g, "i");
+function fmtDur(s) {
+  if (!s && s !== 0) return "";
   s = Math.round(s);
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
-  return h ? `${h}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}` : `${m}:${String(x).padStart(2, '0')}`;
-};
-const fmtLong = (s) => {
-  if (!s) return '0 dk';
-  if (s < 60) return Math.round(s) + ' sn';
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}` : `${m}:${String(x).padStart(2, "0")}`;
+}
+function fmtLong(s) {
+  s = Math.round(s || 0);
   const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
   return h ? `${h} sa ${m} dk` : `${m} dk`;
-};
-const fmtSize = (n) => {
-  if (n == null) return '';
-  const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; n = Number(n);
-  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-  return (i < 2 ? Math.round(n) : n.toFixed(1)).toString().replace('.', ',') + ' ' + u[i];
-};
-const fmtNum = (n) => Number(n || 0).toLocaleString('tr-TR');
-const fmtTime = (ts) => ts ? new Date(ts * 1000).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-const plural = (n, w) => `${fmtNum(n)} ${w}`;
+}
 
-/* ------------------------------------------------------------------ */
-/* İkonlar                                                             */
-/* ------------------------------------------------------------------ */
-const I = {
-  genel: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
-  kutuphane: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
-  sorunlar: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
-  ciftler: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
-  listeler: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
-  etkinlikler: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
-  senkron: '<path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>',
-  yeni: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/>',
-  gecmis: '<path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/>',
-  ayarlar: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
-  folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
-  list: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
-  section: '<path d="M4 6h16M4 12h10M4 18h7"/>',
-  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>',
-  x: '<path d="M18 6 6 18M6 6l12 12"/>',
-  check: '<path d="M20 6 9 17l-5-5"/>',
-  print: '<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
-  export: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/>',
-  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>',
-  scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/>',
-  open: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6M10 14 21 3"/>',
-  up: '<path d="m18 15-6-6-6 6"/>',
-  down: '<path d="m6 9 6 6 6-6"/>',
-  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
-  undo: '<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/>',
-};
-const ic = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${I[name] || ''}</svg>`;
-const PLAY = '<svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>';
-const PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>';
-
-/* ------------------------------------------------------------------ */
-/* Durum                                                               */
-/* ------------------------------------------------------------------ */
 const S = {
-  state: null, ov: null, tracks: null, lists: null, issues: null, dupes: null,
-  route: 'genel', routeArg: null,
-  lib: { q: '', quick: 'all', folder: '', bpmMin: '', bpmMax: '', key: '', sort: { key: 'folder', dir: 1 } },
-  sel: new Set(),
-  dupFilter: 'all', dupSel: {},
-  activeSection: null,
-  inbox: null,
+  st: null, tab: localStorage.getItem("djd.tab") || "music", view: "all",
+  ov: null, rows: [], sel: new Set(), lastSel: null, q: "", dupes: null, musicKey: null,
+  lists: null, cur: null, items: null, open: JSON.parse(localStorage.getItem("djd.open") || "{}"),
+  pick: { q: "", gid: null, res: [] }, inbox: null,
+  setup: null, setupData: null, setupFilter: "", stamp: null, busy: false, drag: null, editing: false,
 };
 
-const ISSUE_SEV = {
-  name_badchar: 'kritik', name_trailing: 'kritik', name_reserved: 'kritik', name_nfd: 'uyari', name_long: 'uyari', name_emoji: 'bilgi',
-  junk_appledouble: 'uyari', junk_other: 'bilgi', fmt_engine: 'uyari', fmt_aac: 'bilgi', fmt_video: 'bilgi', audio_error: 'kritik',
-  audio_empty: 'kritik', audio_lowbr: 'bilgi', audio_hires: 'bilgi', tag_none: 'bilgi', engine_copy: 'uyari', dup_exact: 'uyari',
-  dup_audio: 'uyari', dup_song: 'bilgi', missing: 'uyari',
-};
-const ISSUE_SHORT = {
-  name_badchar: "Adda Mac'e özel karakter", name_trailing: 'Ad boşluk/nokta ile bitiyor', name_reserved: 'Windows ayrılmış ad',
-  name_nfd: 'Ayrık Unicode ad', name_long: 'Yol çok uzun', name_emoji: 'Adda emoji', junk_appledouble: 'Mac çöp dosyası',
-  junk_other: 'Sistem çöp dosyası', fmt_engine: "Prime 4 çalmaz", fmt_aac: 'Ham .aac', fmt_video: 'Video', audio_error: 'Okunamıyor',
-  audio_empty: 'Boş dosya', audio_lowbr: 'Düşük kalite', audio_hires: 'Yüksek örnekleme', tag_none: 'Etiket yok',
-  engine_copy: 'Engine kopyası', dup_exact: 'Birebir kopya', dup_audio: 'Aynı ses kopyası', dup_song: 'Benzer kayıt', missing: 'Dosya yok',
-};
-const MATCH = {
-  exact: ['Doğru', 'g', 'Mac, Windows ve Prime 4\'te çalışır'],
-  case: ['Harf farkı', 'g', 'exFAT diskte çalışır'],
-  unicode: ['Türkçe harf biçimi', 'r', 'Sadece Mac\'te çalışır; Prime 4 ve Windows\'ta kırmızı'],
-  sfm: ['Mac\'e özel karakter', 'r', 'Sadece Mac\'te çalışır; Prime 4 ve Windows\'ta kırmızı'],
-  missing: ['Dosya yok', 'a', 'Dosya taşınmış ya da silinmiş'],
-  nodir: ['Klasör bu diskte yok', 'w', 'Bu klasör seçili kütüphanede bulunmuyor'],
-  outside: ['Kök dışında', 'w', 'Kütüphane klasörünün dışında'],
-};
-const worstSev = (flags) => {
-  let s = '';
-  for (const f of flags || []) {
-    const v = ISSUE_SEV[f] || 'bilgi';
-    if (v === 'kritik') return 'kritik';
-    if (v === 'uyari') s = 'uyari';
-    else if (!s) s = 'bilgi';
+// ---------------------------------------------------------------------------
+// Sunucu
+// ---------------------------------------------------------------------------
+async function api(path, body) {
+  const opt = { headers: { "X-DJD-Token": TOKEN } };
+  if (body !== undefined) {
+    opt.method = "POST";
+    opt.headers["Content-Type"] = "application/json";
+    opt.body = JSON.stringify(body);
   }
-  return s;
-};
-const ro = () => !!(S.state && S.state.active && S.state.active.readonly);
-
-/* ------------------------------------------------------------------ */
-/* API ve görevler                                                     */
-/* ------------------------------------------------------------------ */
-async function api(path, body, method) {
-  const opt = { method: method || (body !== undefined ? 'POST' : 'GET'), headers: { 'X-DJD-Token': TOKEN } };
-  if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
-  let r;
-  try { r = await fetch('/api/' + path, opt); } catch (e) { throw new Error('Program ile bağlantı kurulamadı. Programın penceresi açık mı?'); }
-  let data = {};
-  try { data = await r.json(); } catch (e) { /* boş */ }
-  // Not: görev durumu (tasks/<id>) başarılı bir yanıttır ve içinde görevin kendi 'error' alanı olabilir;
-  // yalnızca HTTP hatası istek hatasıdır.
-  if (!r.ok) throw new Error((data && data.error) || ('Sunucu hatası ' + r.status));
+  const r = await fetch(path, opt);
+  let data = null;
+  try { data = await r.json(); } catch (e) { data = null; }
+  if (!r.ok) {
+    const err = new Error((data && data.error) || ("Sunucu hatası " + r.status));
+    err.code = data && data.code;
+    throw err;
+  }
   return data;
 }
 
-function invalidate() { S.ov = null; S.tracks = null; S.lists = null; S.issues = null; S.dupes = null; }
-
-async function runTask(path, body, opts = {}) {
+async function task(path, body, opts = {}) {
   let res;
-  try { res = await api(path, body || {}); } catch (e) { showError(e.message); return null; }
-  const id = res.task;
-  const card = el(`<div class="task"><b>${esc(opts.title || 'İşlem')}</b><div class="msg">Sırada…</div><div class="bar"><i></i></div></div>`);
-  $('#taskbox').appendChild(card);
-  return new Promise((resolve) => {
-    const poll = async () => {
-      let t;
-      try { t = await api('tasks/' + id); } catch (e) { setTimeout(poll, 1200); return; }
-      $('.msg', card).textContent = t.message || '';
-      $('i', card).style.width = Math.round((t.progress || 0) * 100) + '%';
-      if (t.status === 'bitti' || t.status === 'iptal') {
-        card.remove();
-        invalidate();
-        await refreshState();
-        if (opts.done) { try { opts.done(t.result); } catch (e) { console.error(e); } }
-        if (opts.toast) toast(typeof opts.toast === 'function' ? opts.toast(t.result) : opts.toast, 'ok');
-        if (opts.rerender !== false) render();
-        resolve(t.result);
-      } else if (t.status === 'hata') {
-        card.remove();
-        invalidate();
-        if (opts.onError && opts.onError(t)) { resolve(null); return; }
-        showError(t.error || 'Bilinmeyen hata');
-        render();
-        resolve(null);
-      } else setTimeout(poll, 450);
-    };
-    poll();
-  });
+  try {
+    res = await api(path, body);
+  } catch (e) { toast(e.message, "err"); throw e; }
+  if (!res || !res.task) return res;
+  S.busy = true;
+  const bar = $("#taskbar");
+  try {
+    for (;;) {
+      const t = await api("/api/task/" + res.task);
+      bar.innerHTML = `<div class="task"><div class="tt"><span>${esc(t.title)}</span><span class="muted">${Math.round(t.progress * 100)}%</span></div>
+        <div class="msg">${esc(t.message || "")}</div><div class="prog"><i style="width:${Math.round(t.progress * 100)}%"></i></div></div>`;
+      if (t.status === "bitti") { bar.innerHTML = ""; S.busy = false; return t.result; }
+      if (t.status === "hata" || t.status === "iptal") {
+        bar.innerHTML = ""; S.busy = false;
+        if (t.code === "needs_force" && !opts.noForce) {
+          const ok = await confirmBox("Emin misin?", t.error, "Yine de geri al", true);
+          if (ok) return task(path, Object.assign({}, body, { force: true }), { noForce: true });
+          throw new Error("vazgeçildi");
+        }
+        toast(t.error || "İşlem tamamlanamadı", "err");
+        const e = new Error(t.error); e.code = t.code; throw e;
+      }
+      await sleep(t.status === "sirada" ? 300 : 450);
+    }
+  } finally { S.busy = false; }
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function act(path, body, okMsg) {
+  try {
+    const r = await api(path, body);
+    if (okMsg) toast(okMsg, "ok");
+    await refresh();
+    return r;
+  } catch (e) {
+    toast(e.message, "err");
+    throw e;
+  }
 }
 
+// ---------------------------------------------------------------------------
+// Küçük arayüz parçaları
+// ---------------------------------------------------------------------------
 function toast(msg, kind) {
-  const t = el(`<div class="toast ${kind || ''}">${esc(msg)}</div>`);
-  $('#toasts').appendChild(t);
-  setTimeout(() => t.remove(), kind === 'err' ? 8000 : 4500);
+  const el = document.createElement("div");
+  el.className = "toast " + (kind || "");
+  el.innerHTML = `<div>${esc(msg)}</div><button aria-label="Kapat">✕</button>`;
+  $("#toasts").appendChild(el);
+  const kill = () => el.remove();
+  el.querySelector("button").onclick = kill;
+  setTimeout(kill, kind === "err" ? 9000 : 4500);
 }
 
-/* ------------------------------------------------------------------ */
-/* Modal, onay, menü                                                   */
-/* ------------------------------------------------------------------ */
-function modal({ title, body, foot, wide, onClose, lead }) {
-  const bg = el(`<div class="modal-bg"><div class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true">
-    <div class="mh"><div style="flex:1"><h2>${esc(title)}</h2>${lead ? `<p class="muted" style="margin:6px 0 0">${lead}</p>` : ''}</div>
-    <button class="btn ghost icon" data-x aria-label="Kapat">${ic('x')}</button></div>
-    <div class="mb"></div><div class="mf"></div></div></div>`);
-  const close = () => { bg.remove(); document.removeEventListener('keydown', onKey); if (onClose) onClose(); };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', onKey);
-  $('[data-x]', bg).onclick = close;
-  bg.addEventListener('mousedown', (e) => { if (e.target === bg) close(); });
-  const mb = $('.mb', bg), mf = $('.mf', bg);
-  if (typeof body === 'string') mb.innerHTML = body; else if (body) mb.appendChild(body);
-  if (typeof foot === 'string') mf.innerHTML = foot; else if (foot) mf.appendChild(foot); else mf.remove();
-  $('#modal-root').appendChild(bg);
-  const first = $('input, select, textarea', mb);
-  if (first) setTimeout(() => first.focus(), 30);
-  return { root: bg, body: mb, foot: mf, close };
+function modal(html, cls = "") {
+  const root = $("#modal");
+  root.innerHTML = `<div class="overlay"><div class="dialog ${cls}">${html}</div></div>`;
+  const ov = root.firstElementChild;
+  const close = () => { root.innerHTML = ""; };
+  ov.addEventListener("mousedown", (e) => { if (e.target === ov) close(); });
+  const f = ov.querySelector("input:not([type=radio]):not([type=checkbox]), select, textarea");
+  if (f) setTimeout(() => f.focus(), 30);
+  return { el: ov, close };
 }
+function closeModal() { $("#modal").innerHTML = ""; }
 
-function confirmBox(title, html, okLabel = 'Tamam', danger = false) {
+function confirmBox(title, text, okLabel = "Tamam", danger = false) {
   return new Promise((resolve) => {
-    const m = modal({ title, body: `<div>${html}</div>`, foot: `<button class="btn" data-c>Vazgeç</button><button class="btn ${danger ? 'danger' : 'primary'}" data-ok>${esc(okLabel)}</button>`, onClose: () => resolve(false) });
-    $('[data-c]', m.root).onclick = () => { m.close(); };
-    $('[data-ok]', m.root).onclick = () => { resolve(true); m.root.remove(); };
+    const m = modal(`<div class="dh">${esc(title)}</div><div class="db">${esc(text)}</div>
+      <div class="df"><button class="btn" data-x="no">Vazgeç</button><button class="btn ${danger ? "danger" : "primary"}" data-x="yes">${esc(okLabel)}</button></div>`);
+    m.el.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-x]");
+      if (!b) return;
+      m.close(); resolve(b.dataset.x === "yes");
+    });
   });
 }
 
-function promptBox(title, label, value = '') {
+function promptBox(title, label, value = "", okLabel = "Kaydet", hint = "") {
   return new Promise((resolve) => {
-    const m = modal({ title, body: `<label class="field"><span>${esc(label)}</span><input type="text" value="${esc(value)}"></label>`,
-      foot: `<button class="btn" data-c>Vazgeç</button><button class="btn primary" data-ok>Kaydet</button>`, onClose: () => resolve(null) });
-    const inp = $('input', m.root);
-    const ok = () => { const v = inp.value.trim(); resolve(v || null); m.root.remove(); };
-    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok(); });
-    $('[data-c]', m.root).onclick = () => m.close();
-    $('[data-ok]', m.root).onclick = ok;
+    const m = modal(`<div class="dh">${esc(title)}</div><div class="db">
+      <label class="field"><span>${esc(label)}</span><input id="pv" value="${esc(value)}"></label>${hint ? `<div class="muted small">${hint}</div>` : ""}</div>
+      <div class="df"><button class="btn" data-x="no">Vazgeç</button><button class="btn primary" data-x="yes">${esc(okLabel)}</button></div>`);
+    const inp = $("#pv", m.el);
+    setTimeout(() => { inp.focus(); inp.select(); }, 40);
+    const done = (ok) => { const v = inp.value.trim(); m.close(); resolve(ok && v ? v : null); };
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") done(true); if (e.key === "Escape") done(false); });
+    m.el.addEventListener("click", (e) => { const b = e.target.closest("[data-x]"); if (b) done(b.dataset.x === "yes"); });
   });
 }
 
-function showError(msg) {
-  modal({ title: 'İşlem yapılamadı', body: `<p>${esc(msg)}</p>`, foot: `<button class="btn primary" data-x2>Tamam</button>` });
-  const b = $('#modal-root [data-x2]'); if (b) b.onclick = () => b.closest('.modal-bg').remove();
-}
-
-function closeMenu() { $('#menu-root').innerHTML = ''; }
-function openMenu(anchor, items) {
-  closeMenu();
-  const m = el('<div class="menu"></div>');
-  for (const it of items) {
-    if (it === '-') { m.appendChild(el('<hr>')); continue; }
-    if (it.head) { m.appendChild(el(`<div class="mh">${esc(it.head)}</div>`)); continue; }
-    const a = el(`<a style="padding-left:${10 + (it.depth || 0) * 14}px">${it.icon ? ic(it.icon) : ''}<span>${esc(it.label)}</span>${it.hint ? `<span class="faint small" style="margin-left:auto">${esc(it.hint)}</span>` : ''}</a>`);
-    a.onclick = () => { closeMenu(); it.action(); };
-    m.appendChild(a);
-  }
-  $('#menu-root').appendChild(m);
-  const r = anchor.getBoundingClientRect();
+function menu(ev, items) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  const root = $("#menu");
+  const html = items.map((it, i) => {
+    if (it === "-") return "<hr>";
+    if (it.label && it.head) return `<div class="lab">${esc(it.label)}</div>`;
+    return `<button data-i="${i}">${it.color ? `<span class="gdot" style="background:${esc(it.color)}"></span>` : `<span>${it.icon || ""}</span>`}${esc(it.label)}</button>`;
+  }).join("");
+  root.innerHTML = `<div class="menu">${html}</div>`;
+  const m = root.firstElementChild;
+  const anchor = ev.target && ev.target.closest ? ev.target.closest("button, .folder-chip, .chip, .nav-item, .gchip") : null;
+  const r = anchor ? anchor.getBoundingClientRect() : { left: ev.clientX, bottom: ev.clientY, top: ev.clientY };
+  let x = r.left, y = r.bottom + 4;
+  m.style.left = "0px"; m.style.top = "0px";
   const w = m.offsetWidth, h = m.offsetHeight;
-  m.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left)) + 'px';
-  m.style.top = (r.bottom + h + 8 > window.innerHeight ? Math.max(8, r.top - h - 4) : r.bottom + 4) + 'px';
-  setTimeout(() => document.addEventListener('mousedown', function h(e) { if (!m.contains(e.target)) { closeMenu(); document.removeEventListener('mousedown', h); } }), 0);
+  if (x + w > innerWidth - 8) x = innerWidth - w - 8;
+  if (y + h > innerHeight - 8) y = Math.max(8, (r.top || y) - h - 4);
+  m.style.left = x + "px"; m.style.top = y + "px";
+  m.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-i]");
+    if (!b) return;
+    root.innerHTML = "";
+    const it = items[+b.dataset.i];
+    if (it && it.fn) it.fn();
+  });
+}
+document.addEventListener("mousedown", (e) => { if (!e.target.closest(".menu")) $("#menu").innerHTML = ""; });
+document.addEventListener("focusin", (e) => { if (e.target.matches("input, textarea, select")) S.editing = true; });
+document.addEventListener("focusout", (e) => { if (e.target.matches("input, textarea, select")) S.editing = false; });
+
+function dotHtml(d, title) {
+  const t = { ready: "Hazır: Engine'de, analiz edildi", pending: "Engine'de, analiz bekliyor", none: "Engine'de değil", problem: "Sorun var" }[d] || "";
+  return `<span class="dot ${d || "none"}" title="${esc(title || t)}"></span>`;
 }
 
-async function requireWritable(what) {
-  if (!ro()) return true;
-  const ok = await confirmBox('Salt-okunur mod açık',
-    `<p>${esc(what)} için diske yazmak gerekiyor. Bu kütüphane şu anda <b>salt-okunur</b>: program hiçbir dosyayı değiştirmiyor.</p>
-     <p>İzin verirseniz yalnızca onayladığınız işlemler yapılır; her işlemden önce yedek alınır ve <b>Geçmiş</b> sayfasından geri alınabilir. Hiçbir dosya silinmez.</p>
-     <p class="muted">Öneri: Önce masaüstündeki kopya kütüphanede deneyin, sonra orijinal diskte uygulayın.</p>`, 'Değişikliklere izin ver');
-  if (!ok) return false;
-  await api('library/update', { readonly: false });
-  await refreshState();
-  renderTop();
-  return true;
-}
+function genreById(id) { return ((S.ov && S.ov.genres) || []).find((g) => g.id === +id); }
 
-/* ------------------------------------------------------------------ */
-/* Veri yükleme                                                        */
-/* ------------------------------------------------------------------ */
-async function refreshState() {
-  S.state = await api('state');
-  document.documentElement.dataset.theme = (S.state.prefs && S.state.prefs.theme) || 'dark';
-}
-
-async function loadTracks(force) {
-  if (S.tracks && !force) return S.tracks;
-  const d = await api('tracks');
-  const cols = d.cols;
-  const list = d.rows.map((r) => { const o = {}; cols.forEach((c, i) => { o[c] = r[i]; }); o.sev = worstSev(o.flags); o.qfold = o.search; return o; });
-  const byId = new Map(list.map((t) => [t.id, t]));
-  S.tracks = { list, byId };
-  return S.tracks;
-}
-async function loadLists(force) {
-  if (S.lists && !force) return S.lists;
-  S.lists = await api('lists');
-  return S.lists;
-}
-function listTree() {
-  const rows = S.lists || [];
-  const by = new Map();
-  rows.forEach((r) => { const k = r.parent_id || 0; if (!by.has(k)) by.set(k, []); by.get(k).push(r); });
-  const out = [];
-  const walk = (pid, depth) => { (by.get(pid) || []).forEach((r) => { out.push({ ...r, depth }); walk(r.id, depth + 1); }); };
-  walk(0, 0);
-  return out;
-}
-
-/* ------------------------------------------------------------------ */
-/* İskelet                                                             */
-/* ------------------------------------------------------------------ */
-const NAV = [
-  ['genel', 'Genel bakış'], ['kutuphane', 'Kütüphane'], ['sorunlar', 'Sorunlar'], ['ciftler', 'Çiftler'], '-',
-  ['etkinlikler', 'Etkinlikler'], ['listeler', 'Listeler'], '-',
-  ['senkron', 'Serato ve Engine'], ['yeni', 'Yeni müzik ekle'], ['gecmis', 'Geçmiş ve yedekler'], ['ayarlar', 'Ayarlar'],
-];
-
-function renderNav() {
-  const nav = $('#nav');
-  const ov = S.ov;
-  let crit = 0, dup = 0;
-  if (ov) {
-    crit = (ov.issues || []).filter((i) => i.severity === 'kritik').reduce((a, b) => a + b.count, 0) + (ov.engine.unicode || 0) + (ov.engine.sfm || 0);
-    dup = ov.dupe_extra || 0;
-  }
-  nav.innerHTML = NAV.map((n) => {
-    if (n === '-') return '<div class="sep"></div>';
-    const [k, label] = n;
-    let cnt = '';
-    if (k === 'sorunlar' && crit) cnt = `<span class="cnt red">${fmtNum(crit)}</span>`;
-    if (k === 'ciftler' && dup) cnt = `<span class="cnt amber">${fmtNum(dup)}</span>`;
-    const on = S.route === k || (k === 'etkinlikler' && S.route === 'etkinlik') ? 'on' : '';
-    return `<a href="#/${k}" class="${on}">${ic(k)}<span>${esc(label)}</span>${cnt}</a>`;
-  }).join('');
-  $('#side-foot').innerHTML = `Sürüm ${esc(window.DJD_VERSION)}<br>Dosyalar silinmez, her işlem geri alınabilir.`;
+// ---------------------------------------------------------------------------
+// Ana çerçeve
+// ---------------------------------------------------------------------------
+function applyPrefs(p) {
+  document.documentElement.dataset.theme = p.theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.size = p.text_size === "large" ? "large" : "normal";
 }
 
 function renderTop() {
-  const top = $('#top');
-  const st = S.state;
-  if (!st || !st.active) { top.innerHTML = '<span class="top-title">Hoş geldiniz</span>'; return; }
-  const a = st.active;
-  const libs = st.libraries || [];
-  top.innerHTML = `<div class="libsel"><select id="libsel" title="Kütüphane">${libs.map((l) => `<option value="${esc(l.id)}" ${l.id === a.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}<option value="__add">Yeni kütüphane ekle…</option></select>
-    <span class="faint small" title="${esc(a.root)}">${a.last_scan ? 'Son tarama: ' + fmtTime(+a.last_scan) : 'Henüz taranmadı'}</span></div>
-    <div class="spacer"></div>
-    <button class="ro-pill ${a.readonly ? '' : 'rw'}" id="ropill" title="Tıklayarak değiştirin"><i></i>${a.readonly ? 'Salt-okunur: diske yazılmaz' : 'Değişikliklere izinli'}</button>
-    <button class="btn" id="scanbtn">${ic('scan')}Tara</button>`;
-  $('#libsel').onchange = async (e) => {
-    const v = e.target.value;
-    if (v === '__add') { e.target.value = a.id; return addLibraryFlow(); }
-    await api('library/select', { id: v });
-    invalidate(); S.sel.clear();
-    await refreshState(); render();
-  };
-  $('#scanbtn').onclick = () => startScan();
-  $('#ropill').onclick = async () => {
-    if (a.readonly) { await requireWritable('Düzeltme ve senkron işlemleri'); render(); }
-    else {
-      await api('library/update', { readonly: true });
-      await refreshState(); renderTop(); toast('Salt-okunur mod açıldı: diske hiçbir şey yazılmayacak.', 'ok');
-    }
-  };
-}
-
-function startScan() {
-  runTask('scan', {}, { title: 'Kütüphane taranıyor', toast: (r) => r && r.files != null ? `${fmtNum(r.files)} dosya tarandı (${fmtNum(r.read)} yeni/değişmiş okundu).` : 'Tarama bitti.' });
-}
-
-/* ------------------------------------------------------------------ */
-/* Oynatıcı                                                            */
-/* ------------------------------------------------------------------ */
-const P = { id: null };
-function renderPlayer() {
-  $('#player').innerHTML = `<button class="pbtn" id="pplay" aria-label="Çal / durdur">${PLAY}</button>
-    <div class="pinfo"><b id="ptitle">Ön dinleme</b><span id="partist">Bir parçanın ▶ düğmesine basın</span></div>
-    <div class="seek"><span class="time" id="pcur">0:00</span><input type="range" id="pseek" min="0" max="1000" value="0" aria-label="Konum"><span class="time" id="pdur">0:00</span></div>
-    <input type="range" id="pvol" min="0" max="100" value="80" style="width:90px" aria-label="Ses">`;
-  const a = $('#audio');
-  a.volume = 0.8;
-  $('#pplay').onclick = () => { if (!a.src) return; if (a.paused) a.play(); else a.pause(); };
-  $('#pseek').oninput = (e) => { if (a.duration) a.currentTime = (e.target.value / 1000) * a.duration; };
-  $('#pvol').oninput = (e) => { a.volume = e.target.value / 100; };
-  a.ontimeupdate = () => {
-    $('#pcur').textContent = fmtDur(a.currentTime) || '0:00';
-    $('#pdur').textContent = fmtDur(a.duration) || '0:00';
-    if (a.duration) $('#pseek').value = Math.round((a.currentTime / a.duration) * 1000);
-  };
-  a.onplay = () => { $('#pplay').innerHTML = PAUSE; markPlaying(); };
-  a.onpause = () => { $('#pplay').innerHTML = PLAY; markPlaying(); };
-  a.onerror = () => { if (P.id) toast('Bu dosya tarayıcıda çalınamıyor (biçim desteklenmiyor olabilir).', 'err'); };
-}
-function play(id, t) {
-  const a = $('#audio');
-  if (P.id === id && a.src) { if (a.paused) a.play(); else a.pause(); return; }
-  P.id = id;
-  const tr = t || (S.tracks && S.tracks.byId.get(id)) || {};
-  $('#ptitle').textContent = tr.title || tr.name || tr.disp || 'Parça';
-  $('#partist').textContent = tr.artist || tr.folder || '';
-  a.src = `/api/audio/${id}?t=${encodeURIComponent(TOKEN)}`;
-  a.play().catch(() => {});
-}
-function markPlaying() { $$('[data-play]').forEach((b) => { b.innerHTML = (+b.dataset.play === P.id && !$('#audio').paused) ? PAUSE : PLAY; }); }
-document.addEventListener('keydown', (e) => {
-  if (e.code === 'Space' && !/INPUT|TEXTAREA|SELECT|BUTTON/.test(document.activeElement.tagName) && $('#audio').src && !$('.modal-bg')) {
-    e.preventDefault(); const a = $('#audio'); if (a.paused) a.play(); else a.pause();
+  const st = S.st || {};
+  const ready = st.active && st.active.setup_done;
+  const ov = S.ov || {};
+  const attn = (ov.unsorted || 0) + (ov.dupes || 0);
+  const inb = st.inbox_wait || 0;
+  $("#tabs").innerHTML = ready ? [
+    ["music", "Müzikler", attn ? `<span class="badge">${attn}</span>` : ""],
+    ["lists", "Listeler", ""],
+    ["inbox", "Gelen", inb ? `<span class="badge">${inb}</span>` : ""],
+  ].map(([k, l, b]) => `<button class="tab ${S.tab === k ? "on" : ""}" data-tab="${k}">${l}${b}</button>`).join("") : "";
+  let html = "";
+  if (st.active) {
+    if (!st.has_engine) html += `<span class="pill" title="Bu SSD'de Engine kütüphanesi yok">Engine kütüphanesi yok</span>`;
+    else html += st.engine_open ? `<span class="pill lock" title="Engine DJ açıkken listeler ve taşımalar kilitli"><span class="d"></span>Engine DJ açık · kilitli</span>`
+      : `<span class="pill" title="Engine DJ kapalı: program Engine kütüphanesine doğrudan yazabilir"><span class="d"></span>Engine</span>`;
+    if (st.active.has_serato) html += st.serato_open ? `<span class="pill lock"><span class="d"></span>Serato açık</span>` : `<span class="pill"><span class="d"></span>Serato</span>`;
+    const u = st.undo;
+    html += `<button class="btn undo" id="undo" ${u ? "" : "disabled"} title="${esc(u ? "Geri al: " + u.title + "  (Ctrl+Z)" : "Geri alınacak işlem yok")}">↶ Geri al ${u ? `<span class="t">${esc(u.title)}</span>` : ""}</button>`;
   }
-});
-
-/* ------------------------------------------------------------------ */
-/* Sanal tablo                                                          */
-/* ------------------------------------------------------------------ */
-function VTable(opts) {
-  const rowH = opts.rowH || 32;
-  const root = el('<div class="vt" tabindex="0"><div class="vt-head"></div><div class="vt-body"></div></div>');
-  const head = $('.vt-head', root), body = $('.vt-body', root);
-  let rows = opts.rows || [];
-  let anchor = null;
-  const sel = opts.sel || new Set();
-  const cols = opts.cols;
-  const sizeCols = () => {
-    const avail = Math.max(0, root.clientWidth - 4);
-    const fixed = cols.reduce((a, c) => a + (c.flex ? 0 : c.w), 0);
-    cols.forEach((c) => { c._w = c.flex ? Math.max(c.min || 200, avail - fixed) : c.w; });
-  };
-  const renderHead = () => {
-    sizeCols();
-    head.innerHTML = cols.map((c) => `<div style="width:${c._w}px" data-k="${c.key}" class="${opts.sort && opts.sort.key === c.key ? 'sorted' : ''}" title="${esc(c.title || c.label)}">${esc(c.label)}${opts.sort && opts.sort.key === c.key ? (opts.sort.dir > 0 ? ' ▴' : ' ▾') : ''}</div>`).join('');
-    $$('div', head).forEach((d) => {
-      const c = cols.find((x) => x.key === d.dataset.k);
-      if (!c || c.nosort || !opts.onSort) return;
-      d.onclick = () => opts.onSort(c.key);
-    });
-  };
-  const draw = () => {
-    const top = root.scrollTop - 34, h = root.clientHeight;
-    const first = Math.max(0, Math.floor(top / rowH) - 5), last = Math.min(rows.length, Math.ceil((top + h) / rowH) + 5);
-    body.style.height = rows.length * rowH + 'px';
-    let html = '';
-    for (let i = first; i < last; i++) {
-      const r = rows[i];
-      html += `<div class="vt-row ${sel.has(r.id) ? 'sel' : ''} ${r.present === 0 ? 'miss' : ''}" data-i="${i}" style="top:${i * rowH}px;height:${rowH}px" draggable="${opts.drag ? 'true' : 'false'}">${cols.map((c) => `<div style="width:${c._w}px" class="${c.cls || ''}">${c.render(r)}</div>`).join('')}</div>`;
-    }
-    body.innerHTML = html;
-    markPlaying();
-  };
-  const paintSel = () => { $$('.vt-row', body).forEach((r) => { const row = rows[+r.dataset.i]; r.classList.toggle('sel', !!row && sel.has(row.id)); }); };
-  let raf = 0;
-  root.addEventListener('scroll', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); });
-  const onResize = () => { if (!root.isConnected) { window.removeEventListener('resize', onResize); return; } cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { renderHead(); draw(); }); };
-  window.addEventListener('resize', onResize);
-  body.addEventListener('click', (e) => {
-    const pb = e.target.closest('[data-play]');
-    if (pb) { e.stopPropagation(); play(+pb.dataset.play); return; }
-    const rowEl = e.target.closest('.vt-row'); if (!rowEl) return;
-    const i = +rowEl.dataset.i, r = rows[i];
-    if (e.shiftKey && anchor != null) {
-      const [a, b] = [Math.min(anchor, i), Math.max(anchor, i)];
-      if (!(e.ctrlKey || e.metaKey)) sel.clear();
-      for (let k = a; k <= b; k++) sel.add(rows[k].id);
-    } else if (e.ctrlKey || e.metaKey) {
-      if (sel.has(r.id)) sel.delete(r.id); else sel.add(r.id);
-      anchor = i;
-    } else { sel.clear(); sel.add(r.id); anchor = i; }
-    paintSel();
-    if (opts.onSel) opts.onSel(sel);
-  });
-  body.addEventListener('dblclick', (e) => {
-    const rowEl = e.target.closest('.vt-row'); if (!rowEl || e.target.closest('[data-play]')) return;
-    if (opts.onOpen) opts.onOpen(rows[+rowEl.dataset.i]);
-  });
-  body.addEventListener('dragstart', (e) => {
-    const rowEl = e.target.closest('.vt-row'); if (!rowEl) return;
-    const r = rows[+rowEl.dataset.i];
-    if (!sel.has(r.id)) { sel.clear(); sel.add(r.id); paintSel(); if (opts.onSel) opts.onSel(sel); }
-    e.dataTransfer.setData('text/djd-files', JSON.stringify([...sel]));
-    e.dataTransfer.effectAllowed = 'copy';
-  });
-  root.addEventListener('keydown', (e) => {
-    if (!rows.length) return;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      let i = anchor == null ? 0 : anchor + (e.key === 'ArrowDown' ? 1 : -1);
-      i = Math.max(0, Math.min(rows.length - 1, i));
-      sel.clear(); sel.add(rows[i].id); anchor = i;
-      const y = i * rowH; if (y < root.scrollTop) root.scrollTop = y; else if (y + rowH * 2 > root.scrollTop + root.clientHeight) root.scrollTop = y - root.clientHeight + rowH * 2;
-      draw(); if (opts.onSel) opts.onSel(sel);
-    } else if (e.key === 'Enter' && anchor != null && opts.onOpen) opts.onOpen(rows[anchor]);
-    else if ((e.key === 'p' || e.key === 'P') && anchor != null) play(rows[anchor].id);
-    else if ((e.key === 'a' || e.key === 'A') && (e.ctrlKey || e.metaKey)) { e.preventDefault(); rows.forEach((r) => sel.add(r.id)); paintSel(); if (opts.onSel) opts.onSel(sel); }
-  });
-  renderHead();
-  return {
-    root,
-    setRows(r) { rows = r; anchor = null; renderHead(); draw(); },
-    redraw: () => { renderHead(); draw(); },
-    scrollToId(id) { const i = rows.findIndex((r) => r.id === id); if (i >= 0) { root.scrollTop = Math.max(0, i * rowH - 120); anchor = i; sel.clear(); sel.add(id); draw(); } },
-  };
+  html += `<button class="icon-btn" id="settings" title="Ayarlar">⚙</button>`;
+  $("#status").innerHTML = html;
 }
 
-/* ------------------------------------------------------------------ */
-/* Yönlendirme                                                          */
-/* ------------------------------------------------------------------ */
-function parseRoute() {
-  const h = (location.hash || '#/genel').replace(/^#\//, '');
-  const [r, arg] = h.split('/');
-  S.route = r || 'genel';
-  S.routeArg = arg ? decodeURIComponent(arg) : null;
-}
-window.addEventListener('hashchange', () => { parseRoute(); render(); });
-
-let renderSeq = 0;
-async function render() {
-  const seq = ++renderSeq;
-  renderTop();
-  const main = $('#main');
-  if (!S.state || !S.state.active) { renderNav(); return viewWelcome(main); }
-  try {
-    if (!S.ov) S.ov = await api('overview');
-  } catch (e) { main.innerHTML = `<div class="page"><div class="banner err">${esc(e.message)}</div><button class="btn" onclick="location.reload()">Yeniden dene</button></div>`; return; }
-  if (seq !== renderSeq) return;
-  renderNav();
-  const views = { genel: viewOverview, kutuphane: viewLibrary, sorunlar: viewIssues, ciftler: viewDupes, listeler: viewLists,
-    etkinlikler: viewEvents, etkinlik: viewEvent, senkron: viewSync, yeni: viewInbox, gecmis: viewHistory, ayarlar: viewSettings };
-  const fn = views[S.route] || viewOverview;
-  try { await fn(main, seq); } catch (e) { console.error(e); main.innerHTML = `<div class="page"><div class="banner err">${esc(e.message)}</div></div>`; }
-}
-
-/* ------------------------------------------------------------------ */
-/* Karşılama + kütüphane ekleme                                         */
-/* ------------------------------------------------------------------ */
-function viewWelcome(main) {
-  main.innerHTML = `<div class="welcome">
-    <h1>Müzik kütüphanenizi bir kez taratın, gerisini birlikte düzenleyelim</h1>
-    <p class="muted">Program Serato ve Engine DJ kütüphanelerinizi diskteki gerçek dosyalarla karşılaştırır: Prime 4'te neden bazı parçaların okunmadığını, hangi şarkının kaç kopyası olduğunu ve notlarınızın hangi kopyada durduğunu gösterir. Etkinlik listelerinizi burada hazırlayıp Engine'e ve Serato'ya gönderebilirsiniz.</p>
-    <div class="promise">
-      <div>${ic('check')}<span><b>İlk tarama yalnızca okur.</b> Kütüphane salt-okunur modda eklenir; siz izin vermeden diske tek bayt yazılmaz.</span></div>
-      <div>${ic('check')}<span><b>Hiçbir dosya silinmez.</b> Kaldırılan kopyalar diskteki karantina klasörüne taşınır.</span></div>
-      <div>${ic('check')}<span><b>Her değişiklik geri alınabilir.</b> Serato ve Engine dosyaları her işlemden önce yedeklenir.</span></div>
-    </div>
-    <button class="btn primary" id="addlib">${ic('folder')}Müzik klasörünü seç</button>
-    <p class="faint small" style="margin-top:14px">İpucu: Önce masaüstündeki kopyayı seçerek denemeniz en güvenlisi.</p>
-  </div>`;
-  $('#addlib').onclick = addLibraryFlow;
-}
-
-function folderPicker(title, startPath) {
-  return new Promise((resolve) => {
-    const body = el(`<div><div class="row" style="margin-bottom:10px"><input type="text" id="fbpath" style="flex:1" placeholder="Klasör yolu (ör. D:\\ veya /Volumes/Serato DJ)"><button class="btn" id="fbgo">Git</button></div>
-      <div class="row small muted" style="margin-bottom:8px"><span id="fbinfo"></span></div><div class="fb-list" id="fblist"></div></div>`);
-    const m = modal({ title, body, wide: false, foot: `<span class="left" id="fbsel"></span><button class="btn" data-c>Vazgeç</button><button class="btn primary" data-ok disabled>Bu klasörü seç</button>`, onClose: () => resolve(null) });
-    let cur = '';
-    const load = async (p) => {
-      let d;
-      try { d = await api('browse' + (p ? '?path=' + encodeURIComponent(p) : '')); } catch (e) { toast(e.message, 'err'); return; }
-      cur = d.path || '';
-      $('#fbpath', body).value = cur;
-      $('[data-ok]', m.root).disabled = !cur;
-      $('#fbsel', m.root).textContent = cur ? '' : 'Bir disk veya klasör açın';
-      $('#fbinfo', body).textContent = cur ? (d.audio_here ? `Bu klasörde doğrudan ${d.audio_here} ses dosyası var.` : 'Alt klasörlerdeki tüm müzikler taranır.') : 'Diskler ve sık kullanılan konumlar';
-      const items = [];
-      if (cur) items.push(`<a data-p="${esc(d.parent || '')}">${ic('up')}<span>Üst klasör</span></a>`);
-      for (const x of d.dirs) items.push(`<a data-p="${esc(x.path)}">${ic('folder')}<span>${esc(x.label)}</span></a>`);
-      $('#fblist', body).innerHTML = items.join('') || '<div class="empty">Alt klasör yok</div>';
-      $$('#fblist a', body).forEach((a) => { a.onclick = () => load(a.dataset.p); });
-    };
-    $('#fbgo', body).onclick = () => load($('#fbpath', body).value.trim());
-    $('#fbpath', body).addEventListener('keydown', (e) => { if (e.key === 'Enter') load(e.target.value.trim()); });
-    $('[data-c]', m.root).onclick = () => m.close();
-    $('[data-ok]', m.root).onclick = () => { resolve(cur); m.root.remove(); };
-    load(startPath || '');
-  });
-}
-
-async function addLibraryFlow() {
-  const p = await folderPicker('Müzik klasörünü seçin');
-  if (!p) return;
-  const name = p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
-  const body = el(`<div>
-    <p class="muted">Seçilen klasör: <b>${esc(p)}</b></p>
-    <label class="field"><span>Kütüphane adı</span><input type="text" id="lname" value="${esc(name)}"></label>
-    <div class="field"><span>Program kendi kataloğunu (listeler, etkinlikler) nerede tutsun?</span>
-      <label class="chk"><input type="radio" name="cat" value="pc" checked> Bu bilgisayarda (önerilen; diske hiçbir şey yazılmaz)</label>
-      <label class="chk"><input type="radio" name="cat" value="disk"> Müzik diskinde <span class="muted">(Mac ve PC aynı listeleri görür; diske "_DJDoktor_" klasörü eklenir)</span></label></div>
-    <label class="chk"><input type="checkbox" id="lro" checked> Salt-okunur başlat (önerilen)</label>
-  </div>`);
-  const m = modal({ title: 'Kütüphane ekle', body, foot: '<button class="btn" data-c>Vazgeç</button><button class="btn primary" data-ok>Ekle ve tara</button>' });
-  $('[data-c]', m.root).onclick = () => m.close();
-  $('[data-ok]', m.root).onclick = async () => {
-    try {
-      await api('library/add', { root: p, name: $('#lname', body).value, shared: $('input[name=cat]:checked', body).value === 'disk', readonly: $('#lro', body).checked });
-    } catch (e) { showError(e.message); return; }
-    m.root.remove();
-    invalidate(); S.sel.clear();
-    await refreshState();
-    location.hash = '#/genel';
-    render();
-    startScan();
-  };
-}
-
-/* ------------------------------------------------------------------ */
-/* Genel bakış                                                          */
-/* ------------------------------------------------------------------ */
-async function viewOverview(main) {
-  const o = S.ov, st = o.stats, info = o.info;
-  if (!info.last_scan) {
-    main.innerHTML = `<div class="page"><div class="empty"><h3>Bu kütüphane henüz taranmadı</h3><p>Tarama yalnızca okur: etiketler, ses imzaları, Serato crate'leri ve Engine veritabanı incelenir.</p><button class="btn primary" id="sc">${ic('scan')}Taramayı başlat</button></div></div>`;
-    $('#sc').onclick = startScan;
+document.addEventListener("click", async (e) => {
+  const t = e.target.closest("[data-tab]");
+  if (t) {
+    S.tab = t.dataset.tab; localStorage.setItem("djd.tab", S.tab);
+    await refresh(true);
     return;
   }
-  const red = (o.engine.unicode || 0) + (o.engine.sfm || 0);
-  const engTotal = Object.values(o.engine).reduce((a, b) => a + b, 0);
-  let sentence = `${plural(st.audio, 'parça')}, ${fmtSize(st.size)}, toplam ${fmtLong(st.duration)} müzik.`;
-  if (red) sentence += ` Engine kütüphanesindeki ${plural(engTotal, 'parçanın')} ${fmtNum(red)} tanesi Prime 4'te kırmızı/bulunamaz görünüyor.`;
-  else if (engTotal) sentence += ' Engine kütüphanesindeki tüm yollar diskle uyumlu.';
-  const sevCount = (sev) => (o.issues || []).filter((i) => i.severity === sev).reduce((a, b) => a + b.count, 0);
-  main.innerHTML = `<div class="page">
-    <div class="ov-head"><div><h1>${esc(info.name)}</h1><p>${esc(sentence)}</p></div><div class="spacer"></div>
-      <button class="btn" id="rep">${ic('open')}Doktor raporunu aç</button></div>
-    <div class="wave-wrap"><canvas id="wave" aria-label="Kütüphane sağlık şeridi"></canvas><div class="wave-tip hide" id="wtip"></div></div>
-    <div class="wave-legend"><span><i class="led b"></i>Sorunsuz</span><span><i class="led a"></i>Uyarı</span><span><i class="led r"></i>Kritik (Prime 4/Windows'ta çalışmaz veya okunamaz)</span><span class="faint">Her çizgi bir parça; yükseklik süreyi gösterir. Tıklayınca kütüphanede açılır.</span></div>
-    <div class="ov-cols">
-      <div class="panel"><div class="ph"><h2>Önerilen sıra</h2></div><div class="pb"><ol class="steps" id="steps"></ol></div></div>
-      <div class="panel"><div class="ph"><h2>Kütüphane özeti</h2></div><div class="pb"><dl class="facts" id="facts"></dl></div></div>
-    </div></div>`;
-  $('#rep').onclick = () => window.open('/report?t=' + encodeURIComponent(TOKEN), '_blank');
-  const act = { engine: () => engineRepairFlow(), rename: () => renameFlow(), junk: () => junkFlow(), dupes: () => { location.hash = '#/ciftler'; }, events: () => { location.hash = '#/etkinlikler'; } };
-  $('#steps').innerHTML = o.steps.map((s) => {
-    const done = s.count === 0;
-    const label = s.key === 'events' ? 'Etkinliklere git' : (s.key === 'dupes' ? 'Çiftleri gör' : 'Planı gör');
-    return `<li class="${done ? 'done' : 'todo'}"><div><b>${esc(s.title)}${s.count ? ` <span class="tag">${fmtNum(s.count)}</span>` : ''}</b><div class="d">${esc(done ? 'Sorun yok.' : s.desc)}</div></div><button class="btn sm ${done ? 'ghost' : ''}" data-k="${s.key}" ${done ? 'disabled' : ''}>${label}</button></li>`;
-  }).join('');
-  $$('#steps [data-k]').forEach((b) => { b.onclick = () => act[b.dataset.k](); });
-  const fm = Object.entries(st.formats || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k.replace('.', '').toUpperCase()} ${fmtNum(v)}`).join(', ');
-  const ser = o.serato || {};
-  const serTotal = Object.values(ser).reduce((a, b) => a + b, 0);
-  const facts = [
-    ['Kendi notunuz olan', fmtNum(st.with_note)], ['Mixed In Key bilgili', fmtNum(st.with_mik)], ['Serato cue\'lu', fmtNum(st.with_cues)],
-    ['Etiketsiz', fmtNum(st.no_tags)], ['Biçimler', fm], ['Çöp dosya', fmtNum(st.junk)],
-    ['Çift grubu', `${fmtNum(Object.values(o.dupes).reduce((a, b) => a + b, 0))} (${fmtNum(o.dupe_extra)} gereksiz kopya)`],
-    ['Kritik sorun', fmtNum(sevCount('kritik'))], ['Uyarı', fmtNum(sevCount('uyari'))],
-  ];
-  if (serTotal) facts.push(['Serato crate kayıtları', `${fmtNum(serTotal)}: ${fmtNum(ser.exact || 0)} doğru, ${fmtNum((ser.unicode || 0) + (ser.sfm || 0))} sadece Mac, ${fmtNum((ser.missing || 0) + (ser.nodir || 0))} bu diskte yok`]);
-  if (engTotal) facts.push(['Engine parçaları', `${fmtNum(engTotal)}: ${fmtNum(o.engine.exact || 0)} doğru, ${fmtNum(red)} Prime 4'te kırmızı, ${fmtNum((o.engine.missing || 0) + (o.engine.nodir || 0))} bu diskte yok`]);
-  facts.push(['Dosya sistemi', (info.fstype || 'bilinmiyor').toUpperCase()]);
-  $('#facts').innerHTML = facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
-  drawWave(o);
-  loadTracks().catch(() => {});
-}
+  if (e.target.closest("#undo")) { await undo(); return; }
+  if (e.target.closest("#settings")) { settingsDialog(); }
+});
 
-function drawWave(o) {
-  const cv = $('#wave'); if (!cv) return;
-  const strip = o.strip || [];
-  const dpr = window.devicePixelRatio || 1;
-  const W = cv.clientWidth, H = cv.clientHeight;
-  cv.width = W * dpr; cv.height = H * dpr;
-  const g = cv.getContext('2d'); g.scale(dpr, dpr);
-  const css = getComputedStyle(document.documentElement);
-  const col = { 0: css.getPropertyValue('--blue').trim(), 1: css.getPropertyValue('--amber').trim(), 2: css.getPropertyValue('--red').trim() };
-  const pad = 10, w = W - pad * 2, mid = H / 2;
-  const n = strip.length; if (!n) return;
-  const maxD = Math.max(60, ...strip.map((s) => Math.min(s[1], 1800)));
-  const cols = Math.min(n, Math.floor(w));
-  const per = n / cols, bw = w / cols;
-  const buckets = [];
-  for (let c = 0; c < cols; c++) {
-    const a = Math.floor(c * per), b = Math.max(a + 1, Math.floor((c + 1) * per));
-    let sev = 0, d = 0;
-    for (let i = a; i < b && i < n; i++) { sev = Math.max(sev, strip[i][2]); d = Math.max(d, strip[i][1]); }
-    buckets.push({ a, b, sev, d });
-  }
-  g.globalAlpha = 0.25; g.fillStyle = css.getPropertyValue('--line').trim(); g.fillRect(pad, mid - 0.5, w, 1); g.globalAlpha = 1;
-  buckets.forEach((bk, c) => {
-    const hh = Math.max(4, Math.sqrt(Math.min(bk.d, 1800) / maxD) * (H / 2 - 14));
-    g.fillStyle = col[bk.sev];
-    g.globalAlpha = bk.sev ? 1 : 0.85;
-    g.fillRect(pad + c * bw, mid - hh, Math.max(1, bw - (bw > 3 ? 1 : 0)), hh * 2);
-  });
-  g.globalAlpha = 0.5; g.fillStyle = css.getPropertyValue('--faint').trim();
-  let lastF = -1;
-  buckets.forEach((bk, c) => { const f = strip[bk.a][3]; if (f !== lastF) { g.fillRect(pad + c * bw, H - 6, 1, 6); lastF = f; } });
-  g.globalAlpha = 1;
-  const tip = $('#wtip');
-  cv.onmousemove = (e) => {
-    const r = cv.getBoundingClientRect(); const x = e.clientX - r.left - pad;
-    const c = Math.max(0, Math.min(cols - 1, Math.floor(x / bw))); const bk = buckets[c]; const s = strip[bk.a];
-    const t = S.tracks && S.tracks.byId.get(s[0]);
-    const folder = o.folders[s[3]];
-    tip.innerHTML = `<b>${esc(t ? (t.title || t.name) : folder)}</b><br><span class="muted">${esc(folder)}${bk.b - bk.a > 1 ? ` · ${bk.b - bk.a} parça` : ''}</span>`;
-    tip.style.left = (e.clientX - r.left) + 'px'; tip.style.top = (e.clientY - r.top) + 'px';
-    tip.classList.remove('hide');
-  };
-  cv.onmouseleave = () => tip.classList.add('hide');
-  cv.onclick = (e) => {
-    const r = cv.getBoundingClientRect(); const x = e.clientX - r.left - pad;
-    const c = Math.max(0, Math.min(cols - 1, Math.floor(x / bw))); const s = strip[buckets[c].a];
-    S.lib.folder = ''; S.lib.quick = 'all'; S.lib.q = ''; S.focusTrack = s[0];
-    location.hash = '#/kutuphane';
-  };
-}
-
-/* ------------------------------------------------------------------ */
-/* Kütüphane                                                            */
-/* ------------------------------------------------------------------ */
-const QUICK = [
-  ['all', 'Tüm parçalar', () => true],
-  ['issues', 'Sorunlu', (t) => t.sev === 'kritik' || t.sev === 'uyari'],
-  ['red', "Prime 4'te kırmızı", (t) => t.estat === 'unicode' || t.estat === 'sfm' || (t.flags || []).some((f) => ISSUE_SEV[f] === 'kritik')],
-  ['note', 'Kendi notu olan', (t) => !!t.note],
-  ['nonote', 'Notu olmayan', (t) => !t.note],
-  ['dupes', 'Çift kopyalar', (t) => (t.flags || []).some((f) => f.startsWith('dup_') || f === 'engine_copy')],
-  ['noengine', "Engine'de olmayan", (t) => !t.estat],
-  ['serato', 'Serato listesinde', (t) => t.serato > 0],
-  ['nolist', 'Hiçbir listede değil', (t) => !t.serato && !t.engine && !t.lists],
-  ['cues', "Cue'lu", (t) => t.cues > 0],
-  ['lowbr', 'Düşük kalite', (t) => (t.flags || []).includes('audio_lowbr')],
-];
-const CAMS = []; for (let n = 1; n <= 12; n++) { CAMS.push(n + 'A'); CAMS.push(n + 'B'); }
-
-function trackCols() {
-  return [
-    { key: 'play', label: '', w: 40, nosort: true, render: (t) => `<button class="play" data-play="${t.id}" title="Ön dinle">${PLAY}</button>` },
-    { key: 'folder', label: 'Parça ve klasörü', flex: true, min: 240, title: 'Sıralama: klasöre göre', render: (t) => `<div class="tt" title="${esc(t.disp)}"><span class="t1">${esc(t.title || t.name)}</span><span class="t3">${esc(t.folder || '(kök)')}</span></div>` },
-    { key: 'artist', label: 'Sanatçı', w: 150, render: (t) => `<span class="t2">${esc(t.artist)}</span>` },
-    { key: 'bpm', label: 'BPM', w: 52, cls: 'num', render: (t) => t.bpm ? esc(Math.round(t.bpm)) : '' },
-    { key: 'camelot', label: 'Ton', w: 50, render: (t) => t.camelot ? `<span class="cam">${esc(t.camelot)}</span>` : '' },
-    { key: 'duration', label: 'Süre', w: 56, cls: 'num', render: (t) => fmtDur(t.duration) },
-    { key: 'note', label: 'Notunuz', w: 170, render: (t) => `<span class="note-cell" title="${esc(t.comment)}">${esc(t.note)}</span>` },
-    { key: 'bitrate', label: 'Kalite', w: 64, cls: 'num', render: (t) => ['.flac', '.wav', '.aif', '.aiff'].includes(t.ext) ? esc(t.ext.slice(1).toUpperCase()) : (t.bitrate ? t.bitrate + ' k' : '') },
-    { key: 'status', label: 'Durum', w: 66, nosort: true, title: 'Serato / Engine / Sorun', render: statusLeds },
-  ];
-}
-function statusLeds(t) {
-  const s = t.serato > 0 ? ['g', `Serato'da ${t.serato} crate'te`] : ['', "Serato crate'inde değil"];
-  const em = { exact: ['g', 'Engine: doğru yol'], case: ['g', 'Engine: doğru'], unicode: ['r', "Engine: Prime 4'te kırmızı (Türkçe harf biçimi)"], sfm: ['r', "Engine: Prime 4'te kırmızı (Mac karakteri)"], missing: ['a', 'Engine: kayıp'] }[t.estat] || ['', "Engine'de yok"];
-  const iv = { kritik: 'r', uyari: 'a', bilgi: 'b' }[t.sev] || 'g';
-  const it = (t.flags || []).map((f) => ISSUE_SHORT[f] || f).join(', ') || 'Sorun yok';
-  return `<span title="${esc(s[1])}"><i class="led ${s[0]}"></i></span> <span title="${esc(em[1])}"><i class="led ${em[0]}"></i></span> <span title="${esc(it)}"><i class="led ${iv}"></i></span>`;
-}
-
-function filterTracks(list) {
-  const f = S.lib;
-  const qf = QUICK.find((q) => q[0] === f.quick) || QUICK[0];
-  const toks = fold(f.q).split(/\s+/).filter(Boolean);
-  const bmin = parseFloat(f.bpmMin), bmax = parseFloat(f.bpmMax);
-  return list.filter((t) => {
-    if (t.present === 0 && f.quick !== 'all') return false;
-    if (!qf[2](t)) return false;
-    if (f.folder && !(t.folder === f.folder || t.folder.startsWith(f.folder + '/'))) return false;
-    if (!isNaN(bmin) && !(t.bpm >= bmin)) return false;
-    if (!isNaN(bmax) && !(t.bpm <= bmax)) return false;
-    if (f.key && t.camelot !== f.key) return false;
-    for (const k of toks) if (!t.qfold.includes(k)) return false;
-    return true;
-  });
-}
-function sortTracks(rows) {
-  const { key, dir } = S.lib.sort;
-  const v = (t) => {
-    if (key === 'folder') return fold(t.folder + '/' + (t.title || t.name));
-    if (key === 'title') return fold(t.title || t.name);
-    if (['bpm', 'duration', 'bitrate'].includes(key)) return t[key] || 0;
-    if (key === 'camelot') { const m = /^(\d+)([AB])$/.exec(t.camelot || ''); return m ? (+m[1]) * 2 + (m[2] === 'B' ? 1 : 0) : 99; }
-    return fold(t[key] || '');
-  };
-  return rows.slice().sort((a, b) => { const x = v(a), y = v(b); return (x < y ? -1 : x > y ? 1 : 0) * dir; });
-}
-
-async function viewLibrary(main) {
-  main.innerHTML = '<div class="boot">Parçalar yükleniyor…</div>';
-  const T = await loadTracks();
-  const list = T.list;
-  const counts = {}; QUICK.forEach((q) => { counts[q[0]] = list.filter((t) => t.present !== 0 && q[2](t)).length; });
-  const fol = (S.ov && null) || await api('folders');
-  main.innerHTML = `<div class="lib">
-    <div class="lib-side">
-      <h3>Hızlı filtre</h3><div class="qf">${QUICK.map((q) => `<a data-q="${q[0]}" class="${S.lib.quick === q[0] ? 'on' : ''}">${esc(q[1])}<span class="n">${fmtNum(counts[q[0]])}</span></a>`).join('')}</div>
-      <h3>Klasörler</h3><div class="ft"><a data-f="" class="${!S.lib.folder ? 'on' : ''}">Tümü<span class="n">${fmtNum(fol.total)}</span></a>${fol.folders.map((x) => `<a data-f="${esc(x.path)}" class="${S.lib.folder === x.path ? 'on' : ''}" style="padding-left:${8 + x.depth * 12}px" title="${esc(x.disp)}">${esc(x.disp.split('/').pop())}<span class="n">${fmtNum(x.n)}</span></a>`).join('')}</div>
-    </div>
-    <div class="lib-main">
-      <div class="lib-tools">
-        <input type="search" id="q" placeholder="Ara: ad, sanatçı, not, tür, klasör… (Türkçe harf duyarsız)" value="${esc(S.lib.q)}">
-        <span class="bpm muted small">BPM <input type="number" id="bmin" placeholder="min" value="${esc(S.lib.bpmMin)}"> – <input type="number" id="bmax" placeholder="maks" value="${esc(S.lib.bpmMax)}"></span>
-        <select id="kf" title="Ton"><option value="">Tüm tonlar</option>${CAMS.map((c) => `<option ${S.lib.key === c ? 'selected' : ''}>${c}</option>`).join('')}</select>
-        <span class="spacer"></span><span class="muted small" id="cnt"></span>
-      </div>
-      <div id="tbl" style="flex:1;min-height:0;display:flex;flex-direction:column"></div>
-      <div class="selbar hide" id="selbar"><b id="selcnt"></b><button class="btn sm primary" id="addto">${ic('plus')}Listeye / etkinliğe ekle</button><button class="btn sm" id="detail">Ayrıntılar</button><button class="btn sm" id="showf">${ic('folder')}Klasörde göster</button><span class="spacer"></span><button class="btn sm ghost" id="clr">Seçimi temizle</button></div>
-    </div></div>`;
-  const vt = VTable({
-    cols: trackCols(), rows: [], sel: S.sel, drag: true, sort: S.lib.sort, rowH: 42,
-    onSort: (k) => { S.lib.sort = { key: k, dir: S.lib.sort.key === k ? -S.lib.sort.dir : 1 }; refresh(); },
-    onSel: () => updSel(), onOpen: (t) => openTrack(t.id),
-  });
-  vt.root.style.flex = '1';
-  $('#tbl').appendChild(vt.root);
-  const refresh = () => {
-    const rows = sortTracks(filterTracks(list));
-    $('#cnt').textContent = `${fmtNum(rows.length)} parça`;
-    vt.setRows(rows);
-  };
-  const updSel = () => {
-    const n = S.sel.size;
-    $('#selbar').classList.toggle('hide', !n);
-    $('#selcnt').textContent = `${fmtNum(n)} parça seçili`;
-  };
-  $$('.qf a').forEach((a) => { a.onclick = () => { S.lib.quick = a.dataset.q; $$('.qf a').forEach((x) => x.classList.toggle('on', x === a)); refresh(); }; });
-  $$('.ft a').forEach((a) => { a.onclick = () => { S.lib.folder = a.dataset.f; $$('.ft a').forEach((x) => x.classList.toggle('on', x === a)); refresh(); }; });
-  let qt = 0;
-  $('#q').oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => { S.lib.q = e.target.value; refresh(); }, 120); };
-  $('#bmin').oninput = (e) => { S.lib.bpmMin = e.target.value; refresh(); };
-  $('#bmax').oninput = (e) => { S.lib.bpmMax = e.target.value; refresh(); };
-  $('#kf').onchange = (e) => { S.lib.key = e.target.value; refresh(); };
-  $('#addto').onclick = (e) => addToMenu(e.currentTarget, [...S.sel]);
-  $('#detail').onclick = () => { const id = [...S.sel][0]; if (id) openTrack(id); };
-  $('#showf').onclick = async () => { const id = [...S.sel][0]; if (!id) return; const d = await api('track/' + id); api('open', { path: d.file.abs, select: true }).catch((e) => toast(e.message, 'err')); };
-  $('#clr').onclick = () => { S.sel.clear(); vt.redraw(); updSel(); };
-  refresh(); updSel();
-  if (S.focusTrack) { const id = S.focusTrack; S.focusTrack = null; setTimeout(() => { vt.scrollToId(id); updSel(); openTrack(id); }, 30); }
-  vt.root.focus();
-}
-
-async function addToMenu(anchor, fileIds) {
-  if (!fileIds.length) return;
-  await loadLists();
-  const tree = listTree().filter((r) => r.kind !== 'folder' || true);
-  const items = [{ label: 'Yeni liste oluştur ve ekle…', icon: 'plus', action: async () => {
-    const name = await promptBox('Yeni liste', 'Liste adı', 'Yeni liste'); if (!name) return;
-    const r = await api('lists/create', { kind: 'list', title: name });
-    await addFiles(r.id, fileIds, name);
-  } }, '-'];
-  if (!tree.length) items.push({ head: 'Henüz liste yok' });
-  for (const r of tree) {
-    if (r.kind === 'folder' || r.kind === 'event') { items.push({ label: r.title, icon: r.kind === 'event' ? 'etkinlikler' : 'folder', depth: r.depth, hint: r.kind === 'event' ? 'etkinlik' : '', action: () => { if (r.kind === 'event') { location.hash = '#/etkinlik/' + r.id; } } }); continue; }
-    items.push({ label: r.title, icon: r.kind === 'section' ? 'section' : 'list', depth: r.depth, hint: String(r.n), action: () => addFiles(r.id, fileIds, r.title) });
-  }
-  openMenu(anchor, items);
-}
-async function addFiles(listId, fileIds, title) {
+async function undo() {
+  if (!S.st || !S.st.undo) return;
   try {
-    const r = await api(`lists/${listId}/add`, { file_ids: fileIds });
-    S.lists = null;
-    toast(`${fmtNum(r.added)} parça "${title}" listesine eklendi${r.skipped ? ` (${r.skipped} tanesi zaten vardı)` : ''}.`, 'ok');
-  } catch (e) { showError(e.message); }
+    const r = await task("/api/undo", {});
+    toast("Geri alındı: " + r.title, "ok");
+    (r.notes || []).forEach((n) => toast(n));
+  } catch (e) { /* bildirildi */ }
+  await refresh(true);
 }
 
-/* ------------------------------------------------------------------ */
-/* Parça ayrıntısı                                                      */
-/* ------------------------------------------------------------------ */
-async function openTrack(id) {
-  let d;
-  try { d = await api('track/' + id); } catch (e) { toast(e.message, 'err'); return; }
-  const f = d.file;
-  const root = $('#drawer-root');
-  const stem = (f.name || '').replace(/\.[^.]+$/, '');
-  const issues = d.issues.map((i) => `<div style="margin-bottom:8px"><span class="sev ${i.severity}">${esc(i.title)}</span><div class="small muted" style="margin-top:3px">${esc(i.desc)}</div>${i.fix ? `<div class="small" style="margin-top:2px">Çözüm: ${esc(i.fix)}</div>` : ''}</div>`).join('') || '<p class="muted">Sorun yok.</p>';
-  const cues = d.markers && d.markers.cues && d.markers.cues.length ? d.markers.cues.map((c) => `<span class="cue"><i style="background:${esc(c.color)}"></i>${c.i + 1}: ${fmtDur(c.ms / 1000) || '0:00'}${c.name ? ' ' + esc(c.name) : ''}</span>`).join('') : '<span class="muted">Serato cue noktası yok.</span>';
-  const refs = d.ext_refs.map((r) => {
-    const m = MATCH[r.match] || [r.match, '', ''];
-    const src = r.src === 'serato' ? 'Serato veritabanı' : (r.src === 'engine:drive' ? 'Engine (disk)' : 'Engine (bilgisayar)');
-    const extra = r.info && r.info.comment && r.info.comment !== f.comment ? `<div class="small muted">Oradaki yorum: ${esc(r.info.comment)}</div>` : '';
-    return `<div style="margin-bottom:8px"><i class="led ${m[1]}"></i> <b>${esc(src)}</b>: ${esc(m[0])} <span class="muted small">(${esc(m[2])})</span>${extra}</div>`;
-  }).join('') || '<p class="muted">Serato veritabanında veya Engine\'de kaydı yok.</p>';
-  const mem = d.membership.map((m) => `<div><span class="tag">${m.src === 'serato' ? 'Serato' : 'Engine'}</span> ${esc(m.path)}</div>`).join('') + d.lists.map((l) => `<div><span class="tag">Liste</span> ${esc(l)}</div>`).join('') || '<p class="muted">Hiçbir listede değil.</p>';
-  let dup = '';
-  if (d.dupe_group) {
-    const g = d.dupe_group;
-    const kind = { exact: 'Birebir aynı kopyalar', audio: 'Aynı ses, farklı etiketli kopyalar', song: 'Muhtemelen aynı şarkının başka kayıtları' }[g.kind];
-    dup = `<section><h3>${esc(kind)}</h3>${g.members.map((m) => `<div style="margin-bottom:6px" class="${m.id === f.id ? '' : ''}"><span class="led ${m.keeper ? 'g' : 'w'}"></span> <span class="path">${esc(m.rel)}</span><div class="small muted">${m.keeper ? 'Önerilen (tutulacak) · ' : ''}${esc(m.reasons.join(', ') || '—')}</div></div>`).join('')}<button class="btn sm" id="godup">Çiftler sayfasında aç</button></section>`;
-  }
-  const lossless = ['.flac', '.wav', '.aif', '.aiff'].includes(f.ext);
-  root.innerHTML = `<div class="drawer" role="dialog" aria-label="Parça ayrıntısı">
-    <div class="dh"><button class="pbtn btn primary icon" id="dplay" style="border-radius:50%;width:38px;height:38px;justify-content:center">${PLAY}</button>
-      <div style="flex:1;min-width:0"><h2>${esc(f.title || stem)}</h2><div class="muted">${esc(f.artist || 'Sanatçı etiketi yok')}</div></div>
-      <button class="btn ghost icon" id="dclose" aria-label="Kapat">${ic('x')}</button></div>
-    <div class="db">
-      <section><h3>Notunuz</h3>${f.note ? `<div class="mynote">${esc(f.note)}</div>` : '<p class="muted">Bu kopyada kendi notunuz yok.</p>'}
-        <dl class="kv" style="margin-top:8px"><dt>Yorum alanı</dt><dd>${esc(f.comment || '—')}</dd>${f.mik_key ? `<dt>Mixed In Key</dt><dd>${esc(f.mik_key)}${f.mik_energy ? ', enerji ' + f.mik_energy : ''}</dd>` : ''}</dl></section>
-      <section><h3>Bilgiler</h3><dl class="kv">
-        <dt>BPM</dt><dd>${f.bpm ? Math.round(f.bpm * 10) / 10 : '—'}</dd><dt>Ton</dt><dd>${esc(f.camelot || '—')} ${f.key_raw && f.key_raw !== f.camelot ? `<span class="muted">(${esc(f.key_raw)})</span>` : ''}</dd>
-        <dt>Süre</dt><dd>${fmtDur(f.duration) || '—'}</dd><dt>Kalite</dt><dd>${lossless ? 'Kayıpsız ' : ''}${f.bitrate ? f.bitrate + ' kbps' : ''} ${f.sample_rate ? (f.sample_rate / 1000).toString().replace('.', ',') + ' kHz' : ''} ${esc((f.ext || '').slice(1).toUpperCase())} ${fmtSize(f.size)}</dd>
-        <dt>Albüm</dt><dd>${esc(f.album || '—')}</dd><dt>Tür</dt><dd>${esc(f.genre || '—')}</dd>${f.year ? `<dt>Yıl</dt><dd>${f.year}</dd>` : ''}
-        <dt>Konum</dt><dd class="path">${esc(f.disp)}</dd></dl>
-        <div class="row" style="margin-top:10px"><button class="btn sm" id="dshow">${ic('folder')}Klasörde göster</button><button class="btn sm" id="dadd">${ic('plus')}Listeye ekle</button></div></section>
-      <section><h3>Serato cue noktaları</h3>${cues}</section>
-      <section><h3>Sorunlar</h3>${issues}</section>
-      ${dup}
-      <section><h3>DJ programlarındaki kaydı</h3>${refs}</section>
-      <section><h3>Bulunduğu listeler</h3>${mem}</section>
-    </div></div>`;
-  const close = () => { root.innerHTML = ''; document.removeEventListener('keydown', esck); };
-  const esck = (e) => { if (e.key === 'Escape' && !$('.modal-bg')) close(); };
-  document.addEventListener('keydown', esck);
-  $('#dclose').onclick = close;
-  $('#dplay').onclick = () => play(f.id, f);
-  $('#dshow').onclick = () => api('open', { path: f.abs, select: true }).catch((e) => toast(e.message, 'err'));
-  $('#dadd').onclick = (e) => addToMenu(e.currentTarget, [f.id]);
-  const gd = $('#godup'); if (gd) gd.onclick = () => { close(); location.hash = '#/ciftler'; };
-}
-
-/* ------------------------------------------------------------------ */
-/* Sorunlar                                                             */
-/* ------------------------------------------------------------------ */
-async function viewIssues(main) {
-  if (!S.issues) S.issues = await api('issues');
-  const items = S.issues.items;
-  const o = S.ov;
-  const red = (o.engine.unicode || 0) + (o.engine.sfm || 0);
-  const actions = {
-    name_badchar: ['Ad düzeltme planı', renameFlow], name_trailing: ['Ad düzeltme planı', renameFlow], name_reserved: ['Ad düzeltme planı', renameFlow], name_nfd: ['Ad düzeltme planı', renameFlow],
-    name_emoji: ['Emojileri temizle', () => renameFlow(true)], junk_appledouble: ['Karantina planı', junkFlow], junk_other: ['Karantina planı', junkFlow],
-    dup_exact: ['Çiftlere git', () => { location.hash = '#/ciftler'; }], dup_audio: ['Çiftlere git', () => { location.hash = '#/ciftler'; }], dup_song: ['Çiftlere git', () => { location.hash = '#/ciftler'; }], engine_copy: ['Çiftlere git', () => { location.hash = '#/ciftler'; }],
-  };
-  let html = `<div class="page"><div class="page-head"><div><h1>Sorunlar</h1><p class="lead">Kritik olanlar parçanın Prime 4'te veya Windows'ta çalmamasına yol açar. Her başlığın altında nedeni ve çözümü yazıyor.</p></div></div>`;
-  if (red) html += `<div class="banner err"><i class="led r"></i><div style="flex:1"><b>Prime 4'te ${fmtNum(red)} parça kırmızı/bulunamaz görünür.</b> Engine veritabanındaki yollar Mac'in yazdığı biçimde; diskteki adlarla bayt bayt aynı değil.</div><button class="btn sm primary" id="erep">Onarım planı</button></div>`;
-  if (!items.length) html += '<div class="empty"><h3>Sorun bulunamadı</h3><p>Kütüphaneniz temiz görünüyor.</p></div>';
-  html += items.map((it, i) => `<div class="panel" style="margin-bottom:12px"><div class="ph"><span class="sev ${it.severity}">${{ kritik: 'Kritik', uyari: 'Uyarı', bilgi: 'Bilgi' }[it.severity]}</span><h3 style="flex:1">${esc(it.title)}</h3><span class="tag">${fmtNum(it.count)} dosya</span>${actions[it.code] ? `<button class="btn sm primary" data-a="${it.code}">${esc(actions[it.code][0])}</button>` : ''}<button class="btn sm" data-show="${it.code}" data-i="${i}">Dosyaları göster</button></div>
-    <div class="pb"><p>${esc(it.desc)}</p>${it.fix ? `<p class="muted small">Çözüm: ${esc(it.fix)}</p>` : ''}<div class="hide" id="iss-${i}"></div></div></div>`).join('');
-  html += '</div>';
-  main.innerHTML = html;
-  const er = $('#erep'); if (er) er.onclick = () => engineRepairFlow();
-  $$('[data-a]', main).forEach((b) => { b.onclick = () => actions[b.dataset.a][1](); });
-  $$('[data-show]', main).forEach((b) => {
-    b.onclick = async () => {
-      const box = $('#iss-' + b.dataset.i);
-      if (!box.classList.contains('hide')) { box.classList.add('hide'); return; }
-      const files = await api('issue/' + b.dataset.show);
-      box.innerHTML = `<div class="scrollbox"><table class="t"><tbody>${files.map((f) => `<tr><td>${f.kind === 'audio' ? `<button class="btn ghost icon sm" data-play="${f.id}">${PLAY}</button>` : ''}</td><td class="path">${esc(f.disp)}</td><td class="num muted">${fmtSize(f.size)}</td><td>${f.kind === 'audio' ? `<button class="btn sm ghost" data-open="${f.id}">Ayrıntı</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`;
-      box.classList.remove('hide');
-      $$('[data-play]', box).forEach((p) => { p.onclick = () => play(+p.dataset.play); });
-      $$('[data-open]', box).forEach((p) => { p.onclick = () => openTrack(+p.dataset.open); });
-    };
-  });
-}
-
-/* ------------------------------------------------------------------ */
-/* Düzeltme akışları (plan → onay → görev)                              */
-/* ------------------------------------------------------------------ */
-async function engineRepairFlow() {
-  let plan;
-  try { plan = await api('engine/repair-plan?key=drive'); } catch (e) { showError(e.message); return; }
-  const fx = plan.fixes;
-  if (!fx.length) { modal({ title: 'Engine yol onarımı', body: '<p>Onarılacak yol yok. Engine veritabanındaki tüm bulunabilen parçaların yolu diskle birebir aynı.</p>' }); return; }
-  const cls = { unicode: 'Türkçe harf biçimi', sfm: "Mac'e özel karakter", case: 'Büyük/küçük harf' };
-  const body = `<p><b>${fmtNum(fx.length)} parçanın</b> Engine'deki yolu, diskteki gerçek adla aynı olacak şekilde yeniden yazılacak. Müzik dosyalarına dokunulmaz; yalnızca <code>Engine Library/Database2/m.db</code> değişir ve önce bilgisayarınıza yedeklenir.</p>
-    <p class="muted small">${Object.entries(plan.by_class).filter((x) => x[1]).map(([k, v]) => `${cls[k]}: ${fmtNum(v)}`).join(' &nbsp; ')}${plan.conflicts.length ? ` &nbsp; Çakışma nedeniyle atlanacak: ${plan.conflicts.length}` : ''}</p>
-    <div class="scrollbox"><table class="t"><thead><tr><th>Parça</th><th>Sorun</th></tr></thead><tbody>${fx.slice(0, 400).map((f) => `<tr><td><b>${esc(f.title || f.new_disp.split('/').pop())}</b><div class="path">${esc(f.new_disp.replace(/^\.\.\//, ''))}</div></td><td><span class="sev kritik">${esc(cls[f.match] || f.match)}</span></td></tr>`).join('')}</tbody></table></div>
-    <p class="small muted" style="margin-top:10px">Onarımdan önce Engine DJ'i tamamen kapatın. Mac'te Engine DJ bu yolları yine açar; Prime 4 ve Windows ise artık bulur.</p>`;
-  const m = modal({ title: 'Engine yol onarımı', body, wide: true, foot: `<button class="btn" data-c>Vazgeç</button><button class="btn primary" data-ok>Onarımı uygula</button>` });
-  $('[data-c]', m.root).onclick = () => m.close();
-  $('[data-ok]', m.root).onclick = async () => {
-    m.root.remove();
-    if (!(await requireWritable('Engine yol onarımı'))) return;
-    runTask('engine/repair', { key: 'drive' }, { title: 'Engine yolları onarılıyor', toast: (r) => r ? `${fmtNum(r.fixed)} yol onarıldı. Yedek alındı; Geçmiş sayfasından geri alabilirsiniz.` : 'Bitti' });
-  };
-}
-
-async function renameFlow(emoji) {
-  let plan;
-  try { plan = await api('plan/rename' + (emoji ? '?emoji=1' : '')); } catch (e) { showError(e.message); return; }
-  if (!plan.renames.length) { modal({ title: 'Güvenli ad düzeltme', body: '<p>Düzeltilecek ad yok.</p>' }); return; }
-  const body = `<p><b>${fmtNum(plan.renames.length)} ad</b> düzeltilecek; bundan <b>${fmtNum(plan.files.length)} dosyanın</b> yolu etkilenir. Türkçe harfler korunur, sadece sorunlu işaretler değişir. Serato crate'leri, Serato veritabanı ve Engine veritabanındaki yollar birlikte güncellenir (önce yedek alınır).</p>
-    <div class="scrollbox"><table class="t"><thead><tr><th>Klasör</th><th>Eski ad</th><th>Yeni ad</th></tr></thead><tbody>${plan.renames.map((r) => `<tr><td class="path">${esc(r.parent || '(kök)')}</td><td>${esc(r.old)}</td><td><b>${esc(r.new)}</b></td></tr>`).join('')}</tbody></table></div>
-    <label class="chk" style="margin-top:12px"><input type="checkbox" id="remoji" ${emoji ? 'checked' : ''}> Adlardaki emojileri de temizle</label>
-    <p class="small muted" style="margin-top:10px">Serato DJ ve Engine DJ kapalı olmalı. Geçmiş sayfasından tek tıkla geri alınabilir.</p>`;
-  const m = modal({ title: 'Güvenli ad düzeltme', body, wide: true, foot: `<button class="btn" data-c>Vazgeç</button><button class="btn primary" data-ok>Adları düzelt</button>` });
-  $('#remoji', m.root).onchange = (e) => { m.root.remove(); renameFlow(e.target.checked); };
-  $('[data-c]', m.root).onclick = () => m.close();
-  $('[data-ok]', m.root).onclick = async () => {
-    const em = $('#remoji', m.root).checked;
-    m.root.remove();
-    if (!(await requireWritable('Ad düzeltme'))) return;
-    runTask('ops/rename', { emoji: em }, { title: 'Adlar düzeltiliyor', toast: (r) => r ? `${fmtNum(r.renamed)} ad düzeltildi, ${fmtNum(r.files)} dosyanın yolu güncellendi.` : 'Bitti' });
-  };
-}
-
-async function junkFlow() {
-  let plan;
-  try { plan = await api('plan/junk'); } catch (e) { showError(e.message); return; }
-  if (!plan.files.length) { modal({ title: 'Çöp dosyalar', body: '<p>Çöp dosya yok.</p>' }); return; }
-  const body = `<p><b>${fmtNum(plan.files.length)} dosya</b> (${fmtSize(plan.total_size)}) diskteki <code>_DJDoktor_Karantina</code> klasörüne taşınacak. Silinmez; Geçmiş sayfasından geri alınabilir ya da karantina klasörünü inceledikten sonra kendiniz silebilirsiniz.</p>
-    <div class="scrollbox"><table class="t"><tbody>${plan.files.slice(0, 500).map((f) => `<tr><td class="path">${esc(f.disp)}</td><td class="num muted">${fmtSize(f.size)}</td></tr>`).join('')}</tbody></table></div>`;
-  const m = modal({ title: 'Mac çöp dosyaları', body, wide: true, foot: `<button class="btn" data-c>Vazgeç</button><button class="btn primary" data-ok>Karantinaya taşı</button>` });
-  $('[data-c]', m.root).onclick = () => m.close();
-  $('[data-ok]', m.root).onclick = async () => {
-    m.root.remove();
-    if (!(await requireWritable('Çöp dosyaları taşıma'))) return;
-    runTask('ops/junk', {}, { title: 'Çöp dosyalar taşınıyor', toast: (r) => r ? `${fmtNum(r.moved)} dosya karantinaya taşındı.` : 'Bitti' });
-  };
-}
-
-/* ------------------------------------------------------------------ */
-/* Çiftler                                                              */
-/* ------------------------------------------------------------------ */
-async function viewDupes(main) {
-  if (!S.dupes) S.dupes = await api('dupes');
-  const groups = S.dupes;
-  const KIND = { exact: 'Birebir aynı dosya', audio: 'Aynı ses, farklı etiket', song: 'Muhtemelen aynı şarkı (farklı kayıt)' };
-  const counts = { all: groups.length, exact: 0, audio: 0, song: 0 };
-  groups.forEach((g) => counts[g.kind]++);
-  const vis = groups.filter((g) => S.dupFilter === 'all' || g.kind === S.dupFilter);
-  const selN = Object.keys(S.dupSel).length;
-  const rmN = Object.values(S.dupSel).reduce((a, s) => a + s.remove.length, 0);
-  main.innerHTML = `<div class="page"><div class="page-head"><div><h1>Çiftler</h1><p class="lead">Her grupta yeşil satır önerilen (tutulacak) kopyadır: Serato/Engine listelerinde kullanılan, notu ve cue'su olan kopya öne çıkar. Diğerleri karantinaya taşınır; listeler otomatik olarak tutulan kopyaya yönlenir.</p></div></div>
-    <div class="row" style="margin-bottom:14px">
-      <select id="dk">${['all', 'exact', 'audio', 'song'].map((k) => `<option value="${k}" ${S.dupFilter === k ? 'selected' : ''}>${k === 'all' ? 'Tüm gruplar' : KIND[k]} (${counts[k]})</option>`).join('')}</select>
-      <button class="btn" id="dauto">Kesin çiftlerde önerileri işaretle</button><button class="btn ghost" id="dnone">İşaretleri kaldır</button>
-      <span class="spacer"></span><span class="muted">${selN ? `${selN} grup, ${rmN} kopya seçili` : 'Grup seçilmedi'}</span>
-      <button class="btn primary" id="dgo" ${rmN ? '' : 'disabled'}>Seçilenleri birleştir</button></div>
-    <div id="dl">${vis.length ? '' : '<div class="empty"><h3>Çift bulunamadı</h3></div>'}</div></div>`;
-  const dl = $('#dl');
-  vis.slice(0, 300).forEach((g) => {
-    const s = S.dupSel[g.id];
-    const keeper = s ? s.keeper : g.keeper;
-    const warn = g.keeper_missing && g.keeper_missing.length ? `<span class="sev uyari">Dikkat: ${g.keeper_missing.map((x) => ({ not: 'notunuz', cue: "cue'lar", ton: 'ton bilgisi' }[x])).join(', ')} başka kopyada</span>` : '';
-    const box = el(`<div class="panel" style="margin-bottom:12px"><div class="ph"><label class="chk"><input type="checkbox" data-g ${s ? 'checked' : ''}> <b>${esc(KIND[g.kind])}</b></label><span class="tag">${g.members.length} kopya</span>${warn}</div>
-      <table class="t"><thead><tr><th>Tut</th><th>Taşı</th><th></th><th>Konum</th><th>Kalite</th><th>Süre</th><th>Notunuz</th><th>Cue</th><th>Ton</th><th title="Serato / Engine / Kendi listeleriniz">Kullanım</th><th>Neden</th></tr></thead><tbody>
-      ${g.members.map((m) => `<tr class="${m.id === keeper ? 'k' : ''}"><td><input type="radio" name="k${esc(g.id)}" value="${m.id}" ${m.id === keeper ? 'checked' : ''}></td>
-        <td><input type="checkbox" data-rm="${m.id}" ${s && s.remove.includes(m.id) ? 'checked' : ''} ${m.id === keeper ? 'disabled' : ''}></td>
-        <td><button class="btn ghost icon sm" data-play="${m.id}">${PLAY}</button></td>
-        <td class="path"><b>${esc((m.rel || '').split('/').pop())}</b><br>${esc(m.folder || '')}</td>
-        <td class="num" style="white-space:nowrap">${['.flac', '.wav', '.aif', '.aiff'].includes(m.ext) ? esc(m.ext.slice(1).toUpperCase()) : (m.bitrate ? m.bitrate + ' k' : '')}<div class="faint small">${fmtSize(m.size)}</div></td>
-        <td class="num">${fmtDur(m.duration)}</td><td class="note-cell">${esc(m.note || '')}</td><td class="num">${m.cues || ''}</td><td>${m.camelot ? `<span class="cam">${esc(m.camelot)}</span>` : ''}</td>
-        <td class="num small" style="white-space:nowrap" title="Serato crate / Engine listesi / kendi listeleriniz">S ${m.serato}&nbsp; E ${m.engine}&nbsp; L ${m.lists}</td><td class="small muted">${esc(m.reasons.join(', '))}</td></tr>`).join('')}
-      </tbody></table></div>`);
-    const sync = () => {
-      const on = $('[data-g]', box).checked;
-      if (!on) { delete S.dupSel[g.id]; viewDupes(main); return; }
-      const k = +$(`input[type=radio]:checked`, box).value;
-      const rm = $$('[data-rm]', box).filter((c) => c.checked && +c.dataset.rm !== k).map((c) => +c.dataset.rm);
-      S.dupSel[g.id] = { keeper: k, remove: rm };
-      viewDupes(main);
-    };
-    $('[data-g]', box).onchange = (e) => {
-      if (e.target.checked) {
-        const k = +$(`input[type=radio]:checked`, box).value;
-        S.dupSel[g.id] = { keeper: k, remove: g.kind === 'song' ? [] : g.members.filter((m) => m.id !== k).map((m) => m.id) };
-        viewDupes(main);
-      } else sync();
-    };
-    $$('input[type=radio]', box).forEach((r) => { r.onchange = () => { const k = +r.value; S.dupSel[g.id] = { keeper: k, remove: g.kind === 'song' ? [] : g.members.filter((m) => m.id !== k).map((m) => m.id) }; viewDupes(main); }; });
-    $$('[data-rm]', box).forEach((c) => { c.onchange = () => { $('[data-g]', box).checked = true; sync(); }; });
-    $$('[data-play]', box).forEach((p) => { p.onclick = () => play(+p.dataset.play); });
-    dl.appendChild(box);
-  });
-  if (vis.length > 300) dl.appendChild(el(`<p class="muted">İlk 300 grup gösteriliyor (${vis.length} grup var).</p>`));
-  $('#dk').onchange = (e) => { S.dupFilter = e.target.value; viewDupes(main); };
-  $('#dauto').onclick = () => { groups.filter((g) => g.kind !== 'song').forEach((g) => { S.dupSel[g.id] = { keeper: g.keeper, remove: g.members.filter((m) => m.id !== g.keeper).map((m) => m.id) }; }); viewDupes(main); };
-  $('#dnone').onclick = () => { S.dupSel = {}; viewDupes(main); };
-  $('#dgo').onclick = async () => {
-    const sel = Object.entries(S.dupSel).filter(([, s]) => s.remove.length).map(([gid, s]) => ({ group_id: gid, keeper: s.keeper, remove: s.remove }));
-    const nWarn = sel.filter((s) => { const g = groups.find((x) => x.id === s.group_id); return g && g.keeper_missing && g.keeper_missing.length && s.keeper === g.keeper; }).length;
-    const ok = await confirmBox('Çiftleri birleştir', `<p><b>${sel.length} grupta ${sel.reduce((a, s) => a + s.remove.length, 0)} kopya</b> diskteki <code>_DJDoktor_Karantina</code> klasörüne taşınacak.</p>
-      <ul><li>Serato crate'leri ve Engine listeleri, taşınan kopya yerine tutulan kopyayı gösterecek.</li><li>Kendi listeleriniz de güncellenir.</li><li>Serato ve Engine dosyaları önce yedeklenir; Geçmiş sayfasından geri alınabilir.</li></ul>
-      ${nWarn ? `<p class="sev uyari">${nWarn} grupta notunuz veya cue'larınız taşınacak kopyada duruyor. İsterseniz önce o kopyayı "Tut" olarak seçin.</p>` : ''}<p class="muted small">Serato DJ ve Engine DJ kapalı olmalı.</p>`, 'Birleştir');
-    if (!ok) return;
-    if (!(await requireWritable('Çift birleştirme'))) return;
-    S.dupSel = {};
-    runTask('ops/dupes', { selections: sel }, { title: 'Çiftler birleştiriliyor', toast: (r) => r ? `${fmtNum(r.moved)} kopya karantinaya taşındı; ${fmtNum(r.lists)} liste kaydı güncellendi.` : 'Bitti' });
-  };
-}
-
-/* ------------------------------------------------------------------ */
-/* Listeler                                                             */
-/* ------------------------------------------------------------------ */
-function kindIcon(k) { return k === 'folder' ? 'folder' : k === 'event' ? 'etkinlikler' : k === 'section' ? 'section' : 'list'; }
-
-async function viewLists(main) {
-  await loadLists(true);
-  const tree = listTree();
-  const selId = S.routeArg ? +S.routeArg : null;
-  main.innerHTML = `<div class="two"><div class="tree"><div class="row" style="margin:0 4px 10px"><button class="btn sm primary" id="nl">${ic('plus')}Liste</button><button class="btn sm" id="nf">${ic('folder')}Klasör</button></div><div id="tr"></div></div><div class="detail" id="ld"></div></div>`;
-  const tr = $('#tr');
-  tr.innerHTML = tree.length ? tree.map((r) => `<a data-id="${r.id}" class="${r.id === selId ? 'on' : ''}" style="padding-left:${8 + r.depth * 14}px">${ic(kindIcon(r.kind))}<span>${esc(r.title)}</span><span class="n">${r.kind === 'folder' || r.kind === 'event' ? '' : r.n}</span><span class="sy">${r.info && r.info.sync_engine ? '<i class="led b" title="Engine\'e gönderilir"></i>' : ''}${r.info && r.info.sync_serato ? '<i class="led g" title="Serato\'ya yazılır"></i>' : ''}</span></a>`).join('') : '<p class="muted small" style="padding:8px">Henüz liste yok.</p>';
-  $$('a', tr).forEach((a) => {
-    a.onclick = () => { location.hash = '#/listeler/' + a.dataset.id; };
-    a.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('text/djd-files')) { e.preventDefault(); a.classList.add('drop'); } });
-    a.addEventListener('dragleave', () => a.classList.remove('drop'));
-    a.addEventListener('drop', async (e) => {
-      e.preventDefault(); a.classList.remove('drop');
-      const ids = JSON.parse(e.dataTransfer.getData('text/djd-files') || '[]');
-      const r = (S.lists || []).find((x) => x.id === +a.dataset.id);
-      if (!r || r.kind === 'folder' || r.kind === 'event') { toast('Parçaları bir listeye veya bölüme bırakın.', 'err'); return; }
-      await addFiles(r.id, ids, r.title); viewLists(main);
-    });
-  });
-  const parentFor = () => { const s = (S.lists || []).find((x) => x.id === selId); return s && s.kind === 'folder' ? s.id : (s ? s.parent_id : null); };
-  $('#nl').onclick = async () => { const n = await promptBox('Yeni liste', 'Liste adı', 'Yeni liste'); if (!n) return; const r = await api('lists/create', { kind: 'list', title: n, parent_id: parentFor() }); location.hash = '#/listeler/' + r.id; };
-  $('#nf').onclick = async () => { const n = await promptBox('Yeni klasör', 'Klasör adı', 'Yeni klasör'); if (!n) return; const r = await api('lists/create', { kind: 'folder', title: n, parent_id: parentFor() }); location.hash = '#/listeler/' + r.id; };
-  const ld = $('#ld');
-  if (!selId) { ld.innerHTML = `<div class="empty"><h3>Bir liste seçin ya da yeni liste oluşturun</h3><p>Kütüphaneden parçaları sürükleyip soldaki listelere bırakabilirsiniz. Etkinlikler için <a href="#/etkinlikler">Etkinlikler</a> sayfasını kullanın.</p></div>`; return; }
-  const L = (S.lists || []).find((x) => x.id === selId);
-  if (!L) { ld.innerHTML = '<div class="empty">Liste bulunamadı.</div>'; return; }
-  if (L.kind === 'event') { location.hash = '#/etkinlik/' + L.id; return; }
-  await renderListDetail(ld, L);
-}
-
-async function renderListDetail(ld, L) {
-  const items = L.kind === 'folder' ? [] : await api(`lists/${L.id}/items`);
-  const dur = items.reduce((a, i) => a + (i.duration || 0), 0);
-  ld.innerHTML = `<div class="page"><div class="page-head"><div><h1>${esc(L.title)}</h1><p class="lead">${L.kind === 'folder' ? 'Klasör' : `${plural(items.length, 'parça')}, ${fmtLong(dur)}`}</p></div><span class="spacer"></span>
-    <button class="btn" id="lren">${ic('edit')}Yeniden adlandır</button>${L.kind !== 'folder' ? `<button class="btn" id="ladd">${ic('plus')}Parça ekle</button><button class="btn" id="lgig">${ic('shield')}Gig kontrolü</button>` : ''}<button class="btn" id="lmore">Diğer</button></div>
-    <div class="row" style="margin-bottom:14px"><label class="chk"><input type="checkbox" id="seng" ${L.info.sync_engine ? 'checked' : ''}> Engine'e gönderilsin</label><label class="chk"><input type="checkbox" id="sser" ${L.info.sync_serato ? 'checked' : ''}> Serato'ya crate olarak yazılsın</label>
-    <span class="muted small">İşaretli listeler "Serato ve Engine" sayfasından tek seferde gönderilir.</span></div>
-    <div id="itm"></div></div>`;
-  $('#lren').onclick = async () => { const n = await promptBox('Yeniden adlandır', 'Yeni ad', L.title); if (!n) return; await api(`lists/${L.id}/update`, { title: n }); S.lists = null; render(); };
-  $('#seng').onchange = async (e) => { await api(`lists/${L.id}/update`, { info: { sync_engine: e.target.checked } }); S.lists = null; toast(e.target.checked ? "Bu liste Engine'e gönderilecek." : "Engine gönderiminden çıkarıldı.", 'ok'); };
-  $('#sser').onchange = async (e) => { await api(`lists/${L.id}/update`, { info: { sync_serato: e.target.checked } }); S.lists = null; toast(e.target.checked ? "Bu liste Serato'ya yazılacak." : "Serato yazımından çıkarıldı.", 'ok'); };
-  if ($('#ladd')) $('#ladd').onclick = () => quickAdd(L.id, () => renderListDetail(ld, L));
-  if ($('#lgig')) $('#lgig').onclick = () => gigCheck(L.id);
-  $('#lmore').onclick = (e) => openMenu(e.currentTarget, [
-    { label: 'rekordbox XML olarak dışa aktar', icon: 'export', action: () => exportLists([L.id], 'rekordbox') },
-    { label: 'M3U8 olarak dışa aktar', icon: 'export', action: () => exportLists([L.id], 'm3u') },
-    { label: 'Kopyasını oluştur', icon: 'ciftler', action: async () => { const r = await api(`lists/${L.id}/duplicate`, {}); location.hash = '#/listeler/' + r.id; } },
-    { label: 'Klasöre taşı…', icon: 'folder', action: () => moveListFlow(L) },
-    '-',
-    { label: 'Listeyi sil (dosyalar silinmez)', icon: 'x', action: async () => { if (!(await confirmBox('Listeyi sil', `<p>"${esc(L.title)}" listesi ve alt listeleri programdan silinecek. Müzik dosyalarınız etkilenmez.</p>`, 'Sil', true))) return; await api(`lists/${L.id}/delete`, {}); S.lists = null; location.hash = '#/listeler'; } },
-  ]);
-  renderItems($('#itm'), L.id, items, () => renderListDetail(ld, L));
-}
-
-function renderItems(box, listId, items, reload) {
-  if (!items.length) { box.innerHTML = '<div class="empty small">Liste boş. Kütüphaneden parçaları sürükleyin ya da "Parça ekle"yi kullanın.</div>'; bindDrop(box, listId, reload); return; }
-  box.innerHTML = `<table class="items"><thead><tr><th style="width:32px">#</th><th style="width:34px"></th><th>Parça</th><th>BPM</th><th>Ton</th><th>Süre</th><th>Notunuz</th><th>Bu listedeki not</th><th style="width:34px"></th></tr></thead><tbody>
-    ${items.map((it, i) => `<tr draggable="true" data-item="${it.item_id}" class="${it.present ? '' : 'miss'}"><td class="num muted">${i + 1}</td><td><button class="btn ghost icon sm" data-play="${it.id}">${PLAY}</button></td>
-      <td><b>${esc(it.title)}</b> <span class="muted">${esc(it.artist)}</span>${worstSev(it.flags) === 'kritik' ? ' <span class="sev kritik">sorunlu</span>' : ''}</td><td class="num">${it.bpm ? Math.round(it.bpm) : ''}</td>
-      <td>${it.key_comp ? `<span class="kc ${it.key_comp}" title="Önceki parçayla ton uyumu: ${esc(it.key_comp)}"></span>` : ''}${it.camelot ? `<span class="cam">${esc(it.camelot)}</span>` : ''}</td><td class="num">${fmtDur(it.duration)}</td>
-      <td class="note-cell">${esc(it.note)}</td><td><span class="muted" data-note="${it.item_id}" style="cursor:text">${esc(it.item_note) || '<span class="faint">ekle</span>'}</span></td>
-      <td><button class="btn ghost icon sm" data-rm="${it.item_id}" title="Listeden çıkar">${ic('x')}</button></td></tr>`).join('')}</tbody></table>`;
-  $$('[data-play]', box).forEach((b) => { b.onclick = () => play(+b.dataset.play); });
-  $$('[data-rm]', box).forEach((b) => { b.onclick = async () => { await api(`lists/${listId}/remove`, { item_ids: [+b.dataset.rm] }); S.lists = null; reload(); }; });
-  $$('[data-note]', box).forEach((b) => { b.onclick = async () => { const it = items.find((x) => x.item_id === +b.dataset.note); const n = await promptBox('Bu listedeki not', 'Not (ör. "gelin girerken", "2. dakikadan başlat")', it.item_note); if (n === null) return; await api(`items/${it.item_id}/note`, { note: n }); reload(); }; });
-  let dragId = null;
-  $$('tr[data-item]', box).forEach((tr) => {
-    tr.addEventListener('dragstart', (e) => { dragId = +tr.dataset.item; e.dataTransfer.setData('text/djd-item', String(dragId)); e.dataTransfer.effectAllowed = 'move'; });
-    tr.addEventListener('dragover', (e) => { if (dragId) { e.preventDefault(); tr.classList.add('dragover'); } });
-    tr.addEventListener('dragleave', () => tr.classList.remove('dragover'));
-    tr.addEventListener('drop', async (e) => {
-      tr.classList.remove('dragover');
-      if (!dragId) return;
-      e.preventDefault(); e.stopPropagation();
-      const order = items.map((i) => i.item_id).filter((x) => x !== dragId);
-      const at = order.indexOf(+tr.dataset.item);
-      order.splice(at, 0, dragId);
-      dragId = null;
-      await api(`lists/${listId}/reorder`, { item_ids: order }); reload();
-    });
-  });
-  bindDrop(box, listId, reload);
-}
-function bindDrop(box, listId, reload) {
-  box.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('text/djd-files')) e.preventDefault(); });
-  box.addEventListener('drop', async (e) => {
-    const raw = e.dataTransfer.getData('text/djd-files'); if (!raw) return;
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+    if (e.target.closest("input, textarea, select")) return;
     e.preventDefault();
-    const r = await api(`lists/${listId}/add`, { file_ids: JSON.parse(raw) });
-    S.lists = null; toast(`${r.added} parça eklendi${r.skipped ? `, ${r.skipped} tanesi zaten vardı` : ''}.`, 'ok'); reload();
-  });
-}
+    undo();
+  }
+  if (e.key === "Escape") { $("#menu").innerHTML = ""; }
+});
 
-async function moveListFlow(L) {
-  await loadLists();
-  const opts = listTree().filter((r) => (r.kind === 'folder' || (L.kind === 'section' && r.kind === 'event')) && r.id !== L.id);
-  const body = `<label class="field"><span>Hedef klasör</span><select id="mv"><option value="">(En üst düzey)</option>${opts.map((r) => `<option value="${r.id}">${'— '.repeat(r.depth)}${esc(r.title)}</option>`).join('')}</select></label>`;
-  const m = modal({ title: 'Klasöre taşı', body, foot: '<button class="btn" data-c>Vazgeç</button><button class="btn primary" data-ok>Taşı</button>' });
-  $('[data-c]', m.root).onclick = () => m.close();
-  $('[data-ok]', m.root).onclick = async () => { const v = $('#mv', m.root).value; try { await api(`lists/${L.id}/update`, { parent_id: v ? +v : null }); } catch (e) { showError(e.message); return; } m.root.remove(); S.lists = null; render(); };
-}
-
-async function quickAdd(listId, reload) {
-  const T = await loadTracks();
-  const body = el(`<div><input type="search" id="qa" placeholder="Ara: ad, sanatçı, not, klasör…" style="width:100%;margin-bottom:10px"><div class="scrollbox" style="max-height:420px" id="qr"></div></div>`);
-  const m = modal({ title: 'Parça ekle', body, wide: true, foot: '<span class="left" id="qn"></span><button class="btn primary" data-ok>Kapat</button>' });
-  $('[data-ok]', m.root).onclick = () => { m.root.remove(); reload(); };
-  let added = 0;
-  const draw = () => {
-    const toks = fold($('#qa', body).value).split(/\s+/).filter(Boolean);
-    const rows = T.list.filter((t) => t.present !== 0 && toks.every((k) => t.qfold.includes(k))).slice(0, 200);
-    $('#qr', body).innerHTML = `<table class="t"><tbody>${rows.map((t) => `<tr><td><button class="btn ghost icon sm" data-play="${t.id}">${PLAY}</button></td><td><b>${esc(t.title || t.name)}</b> <span class="muted">${esc(t.artist)}</span><div class="path">${esc(t.folder)}</div></td><td class="num">${t.bpm ? Math.round(t.bpm) : ''}</td><td>${t.camelot ? `<span class="cam">${esc(t.camelot)}</span>` : ''}</td><td class="num">${fmtDur(t.duration)}</td><td><button class="btn sm" data-add="${t.id}">${ic('plus')}Ekle</button></td></tr>`).join('')}</tbody></table>`;
-    $$('[data-play]', body).forEach((b) => { b.onclick = () => play(+b.dataset.play); });
-    $$('[data-add]', body).forEach((b) => { b.onclick = async () => { const r = await api(`lists/${listId}/add`, { file_ids: [+b.dataset.add] }); added += r.added; b.disabled = true; b.textContent = r.added ? 'Eklendi' : 'Zaten var'; $('#qn', m.root).textContent = `${added} parça eklendi`; S.lists = null; }; });
-  };
-  $('#qa', body).oninput = draw;
-  draw();
-}
-
-async function exportLists(ids, kind) {
+async function refresh(force) {
   try {
-    const r = await api('export/' + kind, { list_ids: ids, cues: true });
-    if (kind === 'rekordbox') {
-      modal({ title: 'rekordbox XML hazır', body: `<p>${fmtNum(r.tracks)} parça ve Serato cue noktaları XML dosyasına yazıldı.</p><p class="path">${esc(r.path)}</p>
-        <p><b>Engine DJ'e aktarmak için:</b> Engine DJ > Ayarlar > Kütüphane > rekordbox XML konumu olarak <code>rekordbox_son.xml</code> dosyasını seçin, sonra soldaki rekordbox bölümünden listeye sağ tıklayıp içe aktarın. Cue'lar için "Hot Cue" seçeneğini kullanın.</p>`,
-        foot: `<button class="btn" id="xo">${ic('folder')}Klasörü aç</button>` });
-      $('#xo').onclick = () => api('open', { path: r.latest, select: true });
-    } else {
-      modal({ title: 'M3U8 hazır', body: `<p>${r.files.length} dosya yazıldı.</p><p class="path">${esc(r.dir)}</p>`, foot: `<button class="btn" id="xo">${ic('folder')}Klasörü aç</button>` });
-      $('#xo').onclick = () => api('open', { path: r.dir });
+    S.st = await api("/api/state");
+  } catch (e) { toast(e.message, "err"); return; }
+  applyPrefs(S.st.prefs || {});
+  S.stamp = S.st.stamp;
+  const v = $("#view");
+  if (!S.st.active) {
+    S.ov = null;
+    renderTop();
+    if (S.st.missing_root) return renderMissing(v);
+    return renderNoLib(v);
+  }
+  if (!S.st.active.setup_done) {
+    renderTop();
+    return loadSetup(force);
+  }
+  try {
+    if (S.tab === "lists") await loadLists();
+    else if (S.tab === "inbox") await loadInbox();
+    else await loadMusic();
+  } catch (e) { toast(e.message, "err"); }
+  renderTop();
+}
+
+async function poll() {
+  for (;;) {
+    await sleep(4000);
+    if (document.visibilityState !== "visible" || S.busy || S.drag || S.editing) continue;
+    if ($("#modal").innerHTML || $("#menu").innerHTML) continue;
+    try {
+      const st = await api("/api/state");
+      (st.events || []).forEach((ev) => { if (ev.ts > (S.lastEv || 0)) { S.lastEv = ev.ts; toast(ev.text, "ok"); } });
+      const changed = st.stamp !== S.stamp || st.engine_open !== (S.st && S.st.engine_open) || st.serato_open !== (S.st && S.st.serato_open);
+      S.st = st;
+      if (changed) await refresh(); else renderTop();
+    } catch (e) { /* sunucu kapalı olabilir */ }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SSD seçimi
+// ---------------------------------------------------------------------------
+async function renderNoLib(v) {
+  v.innerHTML = `<div class="setup"><h1>Merhaba 👋</h1><p class="muted">Müziklerinin durduğu SSD'yi seç. Program önce yalnızca okur; hiçbir şeyi sen onaylamadan taşımaz.</p><div id="drives">Sürücüler aranıyor…</div>
+    <p class="muted small">Listede yoksa <a href="#" id="browse">klasörü elle seç</a>.</p></div>`;
+  drivesInto($("#drives"), null);
+  $("#browse").onclick = (e) => { e.preventDefault(); browseDialog(null); };
+}
+
+async function renderMissing(v) {
+  const r = S.st.missing_root;
+  v.innerHTML = `<div class="setup"><h1>SSD takılı değil</h1><p class="muted">“${esc(r.name)}” (${esc(r.root)}) bulunamadı. SSD'yi tak; başka bir sürücü harfiyle takıldıysa aşağıdan seç.</p><div id="drives">Sürücüler aranıyor…</div>
+    <p><button class="btn" id="retry">Yeniden dene</button> <a href="#" id="browse">klasörü elle seç</a></p></div>`;
+  drivesInto($("#drives"), r.id);
+  $("#retry").onclick = () => refresh(true);
+  $("#browse").onclick = (e) => { e.preventDefault(); browseDialog(r.id); };
+}
+
+async function drivesInto(el, relocateId) {
+  let ds = [];
+  try { ds = await api("/api/drives"); } catch (e) { el.textContent = e.message; return; }
+  ds = ds.filter((d) => d.serato || d.engine || d.djd || /^[A-Z]:\\$/.test(d.path) || d.path.startsWith("/Volumes/"));
+  ds.sort((a, b) => (b.serato + b.engine + b.djd) - (a.serato + a.engine + a.djd));
+  el.innerHTML = ds.map((d) => `<div class="drive" data-root="${esc(d.path)}"><span class="ic">💽</span><div><b>${esc(d.label)}</b><div class="muted small">${esc(d.path)}
+    ${d.serato ? ' · <span class="tag blue">Serato</span>' : ""}${d.engine ? ' <span class="tag blue">Engine</span>' : ""}${d.djd ? ' <span class="tag ok">DJ Doktor</span>' : ""}</div></div>
+    <button class="btn primary right">Bu SSD</button></div>`).join("") || `<div class="muted">Sürücü bulunamadı.</div>`;
+  el.onclick = (e) => {
+    const d = e.target.closest(".drive");
+    if (d) chooseRoot(d.dataset.root, relocateId);
+  };
+}
+
+async function chooseRoot(root, relocateId) {
+  try {
+    await task("/api/library/add", { root, relocate: relocateId || undefined });
+  } catch (e) { return; }
+  closeModal();
+  await refresh(true);
+}
+
+async function browseDialog(relocateId, path = "") {
+  let d;
+  try { d = await api("/api/browse?path=" + encodeURIComponent(path || "")); } catch (e) { toast(e.message, "err"); return; }
+  const m = modal(`<div class="dh">Klasör seç</div><div class="db"><div class="muted small">${esc(d.path || "Konumlar")}</div>
+    <div style="margin-top:8px">${d.parent !== null && d.path ? `<div class="nav-item" data-p="${esc(d.parent)}">⬆ Üst klasör</div>` : ""}
+    ${d.dirs.map((x) => `<div class="nav-item" data-p="${esc(x.path)}">📁 ${esc(x.label)}</div>`).join("")}</div></div>
+    <div class="df"><button class="btn" data-x="no">Vazgeç</button>${d.path ? `<button class="btn primary" data-x="yes">Bu klasör</button>` : ""}</div>`, "wide");
+  m.el.addEventListener("click", (e) => {
+    const it = e.target.closest("[data-p]");
+    if (it) { browseDialog(relocateId, it.dataset.p); return; }
+    const b = e.target.closest("[data-x]");
+    if (b) { if (b.dataset.x === "yes") chooseRoot(d.path, relocateId); else m.close(); }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// İlk kurulum
+// ---------------------------------------------------------------------------
+const CANON = ["Halay", "Kürtçe Halay", "Horon", "Ankara", "Oyun Havası", "Roman - Mezdeke", "Oryantal - Arabic", "Türkçe Pop",
+  "Yabancı Pop", "Dans - Club", "Slow - Çift Dans", "Enstrümantal - Fon", "Kına", "Sallama", "Matine", "Giriş - Pasta - Özel", "Türküler"];
+const COLORS = { "Kürtçe Halay": "#c2410c", "Halay": "#dc2626", "Horon": "#0e7490", "Ankara": "#7c3aed", "Roman - Mezdeke": "#db2777",
+  "Oryantal - Arabic": "#b45309", "Kına": "#a21caf", "Sallama": "#9a3412", "Matine": "#c026d3", "Giriş - Pasta - Özel": "#ca8a04",
+  "Slow - Çift Dans": "#be185d", "Enstrümantal - Fon": "#0f766e", "Türküler": "#15803d", "Yabancı Pop": "#0891b2", "Oyun Havası": "#ea580c",
+  "Dans - Club": "#4f46e5", "Türkçe Pop": "#2563eb" };
+
+async function loadSetup(force) {
+  if (!S.setup) {
+    const saved = JSON.parse(localStorage.getItem("djd.setup") || "null");
+    S.setup = saved || { root: "Müzik", overrides: {}, genre_map: {}, extra: [] };
+  }
+  const v = $("#view");
+  if (!S.setupData || force) v.innerHTML = `<div class="setup"><h1>Düzen önerisi hazırlanıyor…</h1><p class="muted">Klasörlerin, Serato crate'lerin ve Engine listelerin inceleniyor.</p></div>`;
+  try {
+    if (!S.st.active.last_scan) {
+      await task("/api/scan", {});
+      S.st = await api("/api/state");
     }
-  } catch (e) { showError(e.message); }
+    S.setupData = await api("/api/setup/preview", S.setup);
+  } catch (e) { v.innerHTML = `<div class="setup"><h1>Bir sorun oluştu</h1><p>${esc(e.message)}</p></div>`; return; }
+  renderSetup();
 }
 
-async function gigCheck(listId) {
-  let r;
-  try { r = await api('gigcheck/' + listId); } catch (e) { showError(e.message); return; }
-  const head = { kritik: ['kritik', 'Etkinlikten önce düzeltilmesi gereken sorunlar var'], uyari: ['uyari', 'Küçük uyarılar var'], tamam: ['tamam', 'Her şey hazır'] }[r.status];
-  const body = `<p><span class="sev ${head[0]}">${esc(head[1])}</span> <span class="muted">${plural(r.tracks, 'parça')}, ${fmtLong(r.duration)}</span></p>
-    ${r.checks.map((c) => `<details class="check"><summary><span class="sev ${c.severity}">${{ kritik: 'Kritik', uyari: 'Uyarı', bilgi: 'Bilgi' }[c.severity]}</span><b>${esc(c.title)}</b></summary><p class="small muted" style="padding:0 12px">${esc(c.detail)}</p>${c.items.length ? `<ul>${c.items.slice(0, 200).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</details>`).join('') || '<p>Kontrollerin hepsi geçti. Prime 4\'te sorunsuz çalması bekleniyor.</p>'}`;
-  modal({ title: 'Gig öncesi kontrol: ' + r.title, body, wide: true });
+function setupSave() { localStorage.setItem("djd.setup", JSON.stringify(S.setup)); }
+
+let setupTimer = null;
+function setupRepreview() {
+  setupSave();
+  clearTimeout(setupTimer);
+  setupTimer = setTimeout(async () => {
+    try { S.setupData = await api("/api/setup/preview", S.setup); renderSetup(); } catch (e) { toast(e.message, "err"); }
+  }, 250);
 }
 
-/* ------------------------------------------------------------------ */
-/* Etkinlikler                                                          */
-/* ------------------------------------------------------------------ */
-async function viewEvents(main) {
-  await loadLists(true);
-  const evs = (S.lists || []).filter((r) => r.kind === 'event');
-  const today = new Date().toISOString().slice(0, 10);
-  evs.sort((a, b) => String(a.info.date || '9999').localeCompare(String(b.info.date || '9999')));
-  const up = evs.filter((e) => !e.info.date || e.info.date >= today), past = evs.filter((e) => e.info.date && e.info.date < today).reverse();
-  const card = (e) => {
-    const d = e.info.date ? new Date(e.info.date + 'T12:00:00') : null;
-    const secs = (S.lists || []).filter((x) => x.parent_id === e.id);
-    const n = secs.reduce((a, s) => a + s.n, 0), dur = secs.reduce((a, s) => a + (s.dur || 0), 0);
-    return `<div class="ev" data-id="${e.id}"><div class="date">${d ? `<b>${d.getDate()}</b><span>${d.toLocaleDateString('tr-TR', { month: 'short', year: 'numeric' })}</span>` : '<span>Tarih yok</span>'}</div>
-      <div><b>${esc(e.title)}</b><div class="muted small">${esc([e.info.venue, e.info.couple].filter(Boolean).join(', ') || 'Ayrıntı eklenmedi')}</div><div class="small faint">${secs.length} bölüm, ${plural(n, 'parça')}, ${fmtLong(dur)}</div></div>
-      <div class="row">${e.info.sync_engine ? '<span class="tag">Engine</span>' : ''}${e.info.sync_serato ? '<span class="tag">Serato</span>' : ''}</div></div>`;
-  };
-  main.innerHTML = `<div class="page"><div class="page-head"><div><h1>Etkinlikler</h1><p class="lead">Düğün, kına, nişan… Her etkinlik için şablondan bölümler oluşturun, parçaları seçin; Prime 4'e "DJ Doktor" klasörü altında tarihli olarak gider.</p></div><span class="spacer"></span><button class="btn primary" id="nev">${ic('plus')}Yeni etkinlik</button></div>
-    ${evs.length ? '' : '<div class="empty"><h3>Henüz etkinlik yok</h3><p>İlk etkinliğinizi oluşturun; düğün şablonu Giriş, Pasta, Halay, Roman, Oyun Havası gibi bölümlerle gelir.</p></div>'}
-    ${up.length ? `<h2 style="margin:6px 0 10px">Yaklaşan</h2><div class="ev-list">${up.map(card).join('')}</div>` : ''}
-    ${past.length ? `<h2 style="margin:22px 0 10px">Geçmiş</h2><div class="ev-list">${past.map(card).join('')}</div>` : ''}</div>`;
-  $$('.ev', main).forEach((c) => { c.onclick = () => { location.hash = '#/etkinlik/' + c.dataset.id; }; });
-  $('#nev').onclick = () => eventWizard();
-}
-
-async function eventWizard(existing) {
-  const tpls = await api('templates');
-  const info = existing ? existing.info : {};
-  const body = el(`<div>
-    <div class="grid2">
-      <label class="field"><span>Etkinlik adı</span><input type="text" id="et" value="${esc(existing ? existing.title : '')}" placeholder="ör. Ayşe & Mehmet Düğün"></label>
-      ${existing ? '' : `<label class="field"><span>Şablon</span><select id="ety">${tpls.map((t) => `<option value="${esc(t.kind)}">${esc(t.title)}</option>`).join('')}</select></label>`}
-      <label class="field"><span>Tarih</span><input type="date" id="ed" value="${esc(info.date || '')}"></label>
-      <label class="field"><span>Başlangıç saati</span><input type="time" id="es" value="${esc(info.start || '')}"></label>
-      <label class="field"><span>Mekân</span><input type="text" id="ev" value="${esc(info.venue || '')}"></label>
-      <label class="field"><span>Çift / kişiler</span><input type="text" id="ec" value="${esc(info.couple || '')}"></label>
-      <label class="field"><span>İletişim</span><input type="text" id="ek" value="${esc(info.contact || '')}"></label>
+function renderSetup() {
+  const d = S.setupData, su = S.setup;
+  const shown = (d.genres || []).map((g) => g.name);
+  const allG = Array.from(new Set([...shown, ...CANON]));
+  const filt = fold(S.setupFilter);
+  const folders = d.folders.filter((f) => f.direct > 0 && (!filt || fold(f.disp).includes(filt)));
+  const optHtml = (cur) => [`<option value="spread" ${cur === "spread" ? "selected" : ""}>Tek tek seçeceğim</option>`,
+    `<option value="ignore" ${cur === "ignore" ? "selected" : ""}>Dokunma (sample, efekt…)</option>`, `<optgroup label="Tür">`,
+    ...allG.map((n) => `<option value="g:${esc(n)}" ${cur === "g:" + n ? "selected" : ""}>${esc(su.genre_map[n] || n)}</option>`), `</optgroup>`].join("");
+  $("#view").innerHTML = `<div class="setup">
+    <h1>Düzeni kuralım</h1>
+    <p class="muted" style="max-width:780px">Her şarkının <b>tek bir evi</b> olacak: <b>${esc(su.root)}/&lt;Tür&gt;</b>. Program klasörlerine, Serato crate'lerine ve Engine listelerine bakıp aşağıdaki öneriyi yaptı. İstediğini değiştir, sonra <b>Düzeni kur</b>. Hiçbir dosya silinmez; tek tıkla geri alınır. Engine ve Serato listelerin yeni yerleri otomatik gösterir.</p>
+    <div class="sum">
+      <div><b>${fmtN(d.moves)}</b><span class="muted">şarkı tür klasörüne taşınacak</span></div>
+      <div><b>${fmtN(d.spread)}</b><span class="muted">şarkının türünü sonra sen seçeceksin</span></div>
+      <div><b>${fmtN(d.ignore)}</b><span class="muted">dosyaya dokunulmayacak (sample, efekt)</span></div>
+      <div><b>${fmtN(shown.length)}</b><span class="muted">tür klasörü</span></div>
     </div>
-    <label class="field"><span>Notlar</span><textarea id="en" rows="2">${esc(info.notes || '')}</textarea></label>
-    <div class="grid2"><label class="field"><span>İstek parçalar</span><textarea id="er" rows="3">${esc(info.requests || '')}</textarea></label>
-    <label class="field"><span>Çalınmayacaklar</span><textarea id="ex" rows="3">${esc(info.donotplay || '')}</textarea></label></div>
-    ${existing ? '' : `<label class="field"><span>Bölümler (her satıra bir bölüm; sırası programın sırasıdır)</span><textarea id="esec" rows="8"></textarea></label>`}
-    <div class="row"><label class="chk"><input type="checkbox" id="eeng" ${!existing || info.sync_engine ? 'checked' : ''}> Engine'e gönderilsin (Prime 4)</label><label class="chk"><input type="checkbox" id="eser" ${info.sync_serato ? 'checked' : ''}> Serato'ya crate olarak yazılsın</label></div>
-  </div>`);
-  const m = modal({ title: existing ? 'Etkinliği düzenle' : 'Yeni etkinlik', body, wide: true, foot: `<button class="btn" data-c>Vazgeç</button><button class="btn primary" data-ok>${existing ? 'Kaydet' : 'Oluştur'}</button>` });
-  if (!existing) {
-    const fill = () => { const t = tpls.find((x) => x.kind === $('#ety', body).value); $('#esec', body).value = (t ? t.sections : []).join('\n'); };
-    $('#ety', body).onchange = fill; fill();
-  }
-  $('[data-c]', m.root).onclick = () => m.close();
-  $('[data-ok]', m.root).onclick = async () => {
-    const data = { title: $('#et', body).value.trim(), date: $('#ed', body).value, start: $('#es', body).value, venue: $('#ev', body).value, couple: $('#ec', body).value,
-      contact: $('#ek', body).value, notes: $('#en', body).value, requests: $('#er', body).value, donotplay: $('#ex', body).value,
-      sync_engine: $('#eeng', body).checked, sync_serato: $('#eser', body).checked };
-    if (!data.title) { toast('Etkinlik adı gerekli.', 'err'); return; }
-    try {
-      if (existing) {
-        await api(`lists/${existing.id}/update`, { title: data.title, info: data });
-        m.root.remove(); S.lists = null; render();
-      } else {
-        data.type = $('#ety', body).value;
-        data.sections = $('#esec', body).value.split('\n').map((s) => s.trim()).filter(Boolean);
-        const r = await api('events/create', data);
-        m.root.remove(); S.lists = null; location.hash = '#/etkinlik/' + r.id;
-      }
-    } catch (e) { showError(e.message); }
-  };
-}
-
-async function viewEvent(main) {
-  const id = +S.routeArg;
-  let ov;
-  try { ov = await api('events/' + id); } catch (e) { main.innerHTML = `<div class="page"><div class="banner err">${esc(e.message)}</div></div>`; return; }
-  const T = await loadTracks();
-  const ev = ov.event, info = ev.info || {};
-  if (!S.activeSection || !ov.sections.some((s) => s.id === S.activeSection)) S.activeSection = ov.sections.length ? ov.sections[0].id : null;
-  const d = info.date ? new Date(info.date + 'T12:00:00').toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '';
-  main.innerHTML = `<div class="page wide"><div class="page-head"><div><h1>${esc(ev.title)}</h1><p class="lead">${esc([d, info.start, info.venue, info.couple].filter(Boolean).join(', '))}${d || info.venue ? '. ' : ''}${ov.sections.length} bölüm, ${fmtLong(ov.duration)}</p></div><span class="spacer"></span>
-    <button class="btn" id="egig">${ic('shield')}Gig kontrolü</button><button class="btn" id="eprint">${ic('print')}Yazdır</button><button class="btn" id="esync">${ic('senkron')}Gönder</button><button class="btn" id="emore">Diğer</button></div>
-    ${info.requests || info.donotplay ? `<div class="banner info"><div>${info.requests ? `<b>İstekler:</b> ${esc(info.requests)}` : ''}${info.requests && info.donotplay ? '<br>' : ''}${info.donotplay ? `<b>Çalınmayacaklar:</b> ${esc(info.donotplay)}` : ''}</div></div>` : ''}
-    <div class="board"><div id="secs"></div>
-      <div class="picker"><div class="pk-h"><input type="search" id="pq" placeholder="Kütüphanede ara…" style="width:100%"><div class="small muted" style="margin-top:8px" id="pkhint"></div></div><div class="pk-b" id="pk"></div></div></div></div>`;
-  const secs = $('#secs');
-  ov.sections.forEach((s, si) => {
-    const box = el(`<div class="sec ${s.id === S.activeSection ? 'active' : ''}" data-sec="${s.id}"><div class="sh"><h3>${esc(s.title)}</h3><span class="meta">${plural(s.items.length, 'parça')}, ${fmtDur(s.duration) || '0:00'}</span><span class="spacer"></span>
-      <button class="btn ghost icon sm" data-up title="Yukarı taşı" ${si === 0 ? 'disabled' : ''}>${ic('up')}</button><button class="btn ghost icon sm" data-down title="Aşağı taşı" ${si === ov.sections.length - 1 ? 'disabled' : ''}>${ic('down')}</button>
-      <button class="btn ghost icon sm" data-ren title="Yeniden adlandır">${ic('edit')}</button><button class="btn ghost icon sm" data-del title="Bölümü sil">${ic('x')}</button></div><div class="sb"></div></div>`);
-    $('.sh', box).addEventListener('click', (e) => { if (e.target.closest('button')) return; S.activeSection = s.id; $$('.sec', secs).forEach((x) => x.classList.toggle('active', x === box)); loadPicker(); });
-    const reload = () => viewEvent(main);
-    if (s.items.length) renderItems($('.sb', box), s.id, s.items, reload);
-    else { $('.sb', box).innerHTML = '<div class="dropzone">Parçaları buraya sürükleyin ya da sağdaki listeden + ile ekleyin</div>'; bindDrop($('.sb', box), s.id, reload); }
-    box.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('text/djd-files')) { e.preventDefault(); box.classList.add('drop'); } });
-    box.addEventListener('dragleave', (e) => { if (!box.contains(e.relatedTarget)) box.classList.remove('drop'); });
-    box.addEventListener('drop', () => box.classList.remove('drop'));
-    const move = async (dir) => {
-      const order = ov.sections.map((x) => x.id); const i = order.indexOf(s.id); const j = i + dir;
-      [order[i], order[j]] = [order[j], order[i]];
-      for (let k = 0; k < order.length; k++) await api(`lists/${order[k]}/update`, { pos: k + 1 });
-      reload();
-    };
-    $('[data-up]', box).onclick = () => move(-1);
-    $('[data-down]', box).onclick = () => move(1);
-    $('[data-ren]', box).onclick = async () => { const n = await promptBox('Bölümü yeniden adlandır', 'Bölüm adı', s.title); if (!n) return; await api(`lists/${s.id}/update`, { title: n }); reload(); };
-    $('[data-del]', box).onclick = async () => { if (!(await confirmBox('Bölümü sil', `<p>"${esc(s.title)}" bölümü ve içindeki liste silinecek (dosyalar etkilenmez).</p>`, 'Sil', true))) return; await api(`lists/${s.id}/delete`, {}); reload(); };
-    secs.appendChild(box);
-  });
-  const addSec = el(`<button class="btn">${ic('plus')}Bölüm ekle</button>`);
-  addSec.onclick = async () => { const n = await promptBox('Yeni bölüm', 'Bölüm adı', ''); if (!n) return; await api('lists/create', { parent_id: ev.id, kind: 'section', title: n }); viewEvent(main); };
-  secs.appendChild(addSec);
-
-  const pk = $('#pk');
-  const inEvent = new Set(ov.sections.flatMap((s) => s.items.map((i) => i.id)));
-  const pickRow = (t, why) => `<div class="pk-item" draggable="true" data-id="${t.id}"><button class="btn ghost icon sm" data-play="${t.id}">${PLAY}</button><div class="t"><b>${esc(t.title || t.name)}</b> <span class="muted">${esc(t.artist)}</span><div class="why">${why ? esc(why) : esc(t.folder)}</div></div><div class="row">${t.camelot ? `<span class="cam">${esc(t.camelot)}</span>` : ''}<button class="btn sm" data-add="${t.id}" title="Etkin bölüme ekle">${ic('plus')}</button></div></div>`;
-  const bindPick = () => {
-    $$('[data-play]', pk).forEach((b) => { b.onclick = () => play(+b.dataset.play); });
-    $$('[data-add]', pk).forEach((b) => { b.onclick = async () => { if (!S.activeSection) { toast('Önce bir bölüm seçin.', 'err'); return; } await api(`lists/${S.activeSection}/add`, { file_ids: [+b.dataset.add] }); viewEvent(main); }; });
-    $$('.pk-item', pk).forEach((it) => { it.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/djd-files', JSON.stringify([+it.dataset.id])); e.dataTransfer.effectAllowed = 'copy'; }); });
-  };
-  const loadPicker = async () => {
-    const q = $('#pq').value;
-    const sec = ov.sections.find((s) => s.id === S.activeSection);
-    if (q.trim()) {
-      const toks = fold(q).split(/\s+/).filter(Boolean);
-      const rows = T.list.filter((t) => t.present !== 0 && toks.every((k) => t.qfold.includes(k))).slice(0, 150);
-      $('#pkhint').textContent = `${rows.length} sonuç${sec ? `, + düğmesi "${sec.title}" bölümüne ekler` : ''}`;
-      pk.innerHTML = rows.map((t) => pickRow(t, inEvent.has(t.id) ? 'Bu etkinlikte zaten var' : '')).join('') || '<div class="empty small">Sonuç yok</div>';
-    } else if (sec) {
-      $('#pkhint').textContent = `"${sec.title}" için öneriler (klasör, crate adı, tür ve notlara göre)`;
-      pk.innerHTML = '<div class="empty small">Öneriler hazırlanıyor…</div>';
-      const sug = await api(`lists/${sec.id}/suggest`);
-      pk.innerHTML = sug.map((s) => { const t = T.byId.get(s.id); return t ? pickRow(t, 'Eşleşen: ' + s.why.join(', ')) : ''; }).join('') || '<div class="empty small">Bu bölüm için öneri bulunamadı. Arama kutusunu kullanın.</div>';
-    } else { pk.innerHTML = ''; $('#pkhint').textContent = 'Bölüm ekleyin.'; }
-    bindPick();
-  };
-  let qt = 0;
-  $('#pq').oninput = () => { clearTimeout(qt); qt = setTimeout(loadPicker, 150); };
-  loadPicker();
-  $('#egig').onclick = () => gigCheck(ev.id);
-  $('#eprint').onclick = () => window.open(`/print/event/${ev.id}?t=${encodeURIComponent(TOKEN)}`, '_blank');
-  $('#esync').onclick = (e) => openMenu(e.currentTarget, [
-    { label: "Engine'e gönder (Prime 4)", icon: 'senkron', action: () => syncEngineFlow(ev.id) },
-    { label: "Serato'ya crate olarak yaz", icon: 'senkron', action: () => syncSeratoFlow(ev.id) },
-    '-',
-    { label: 'rekordbox XML olarak dışa aktar', icon: 'export', action: () => exportLists([ev.id], 'rekordbox') },
-    { label: 'M3U8 olarak dışa aktar', icon: 'export', action: () => exportLists([ev.id], 'm3u') },
-  ]);
-  $('#emore').onclick = (e) => openMenu(e.currentTarget, [
-    { label: 'Bilgileri düzenle', icon: 'edit', action: async () => { await loadLists(true); eventWizard((S.lists || []).find((x) => x.id === ev.id)); } },
-    { label: 'Kopyasını oluştur (yeni etkinlik için)', icon: 'ciftler', action: async () => { const r = await api(`lists/${ev.id}/duplicate`, {}); location.hash = '#/etkinlik/' + r.id; } },
-    '-',
-    { label: 'Etkinliği sil (dosyalar silinmez)', icon: 'x', action: async () => { if (!(await confirmBox('Etkinliği sil', `<p>"${esc(ev.title)}" ve tüm bölümleri programdan silinecek. Müzik dosyaları etkilenmez. Engine'e gönderildiyse bir sonraki gönderimde oradan da kalkar.</p>`, 'Sil', true))) return; await api(`lists/${ev.id}/delete`, {}); location.hash = '#/etkinlikler'; } },
-  ]);
-}
-
-async function syncEngineFlow(ensureId) {
-  if (ensureId) { await api(`lists/${ensureId}/update`, { info: { sync_engine: true } }); S.lists = null; }
-  await loadLists(true);
-  const flagged = (S.lists || []).filter((r) => r.info && r.info.sync_engine);
-  const st = await api('engine');
-  const drive = st.find((d) => d.key === 'drive');
-  if (!drive) { showError("Bu diskte Engine kütüphanesi bulunamadı. Engine DJ ile diski bir kez açın; 'Engine Library' klasörü oluşur."); return; }
-  const folder = (S.state.prefs && S.state.prefs.engine_folder) || 'DJ Doktor';
-  const body = `<p>Aşağıdaki ${flagged.length} liste/etkinlik, diskteki Engine kütüphanesinde <b>"${esc(folder)}"</b> klasörünün altına yazılacak. Bu klasör programın kontrolündedir; önceki gönderim yenisiyle değiştirilir. Diğer Engine listelerinize dokunulmaz.</p>
-    <ul>${flagged.map((r) => `<li>${esc(r.title)} <span class="muted small">${r.kind === 'event' ? 'etkinlik' : r.kind === 'folder' ? 'klasör' : plural(r.n, 'parça')}</span></li>`).join('') || '<li class="muted">İşaretli liste yok</li>'}</ul>
-    <p class="small muted">Boş bölümler gönderilmez. Engine'de olmayan parçalar eklenir (Prime 4 çalarken analiz eder; Engine DJ masaüstünde önceden analiz etmeniz önerilir). Yolu hatalı olan parçalar otomatik onarılır. Engine DJ kapalı olmalı; önce yedek alınır.</p>`;
-  const m = modal({ title: "Engine'e gönder", body, foot: `<button class="btn" data-c>Vazgeç</button><button class="btn primary" data-ok ${flagged.length ? '' : 'disabled'}>Gönder</button>` });
-  $('[data-c]', m.root).onclick = () => m.close();
-  $('[data-ok]', m.root).onclick = async () => {
-    m.root.remove();
-    if (!(await requireWritable("Engine'e gönderme"))) return;
-    runTask('engine/sync', { key: 'drive' }, { title: "Engine'e gönderiliyor", toast: (r) => r ? `${r.stats.playlists} liste, ${r.stats.entries} parça kaydı yazıldı; ${r.stats.tracks_added} yeni parça Engine'e eklendi.` : 'Bitti' });
-  };
-}
-
-async function syncSeratoFlow(ensureId) {
-  if (ensureId) { await api(`lists/${ensureId}/update`, { info: { sync_serato: true } }); S.lists = null; }
-  await loadLists(true);
-  const flagged = (S.lists || []).filter((r) => r.info && r.info.sync_serato);
-  const parent = (S.state.prefs && S.state.prefs.serato_parent) || 'DJ Doktor';
-  const body = `<p>${flagged.length} liste/etkinlik, Serato'da <b>"${esc(parent)}"</b> crate'inin altına yazılacak. Serato'nun diğer crate'lerine ve veritabanına dokunulmaz.</p>
-    <ul>${flagged.map((r) => `<li>${esc(r.title)}</li>`).join('') || '<li class="muted">İşaretli liste yok</li>'}</ul>
-    <p class="small muted">Serato DJ kapalı olmalı; açınca yeni crate'ler görünür. Önce Serato klasörü yedeklenir.</p>`;
-  const m = modal({ title: "Serato'ya yaz", body, foot: `<button class="btn" data-c>Vazgeç</button><button class="btn primary" data-ok ${flagged.length ? '' : 'disabled'}>Yaz</button>` });
-  $('[data-c]', m.root).onclick = () => m.close();
-  $('[data-ok]', m.root).onclick = async () => {
-    m.root.remove();
-    if (!(await requireWritable("Serato'ya yazma"))) return;
-    runTask('serato/export', {}, { title: "Serato'ya yazılıyor", toast: (r) => r ? `${r.crates} crate yazıldı. Serato'yu açtığınızda görünür.` : 'Bitti' });
-  };
-}
-
-/* ------------------------------------------------------------------ */
-/* Serato ve Engine                                                     */
-/* ------------------------------------------------------------------ */
-async function viewSync(main) {
-  const [eng, ser] = await Promise.all([api('engine'), api('serato')]);
-  await loadLists(true);
-  const fe = (S.lists || []).filter((r) => r.info && r.info.sync_engine).length;
-  const fs = (S.lists || []).filter((r) => r.info && r.info.sync_serato).length;
-  const mrow = (counts) => Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, v]) => { const m = MATCH[k] || [k, '', '']; return `<tr><td><i class="led ${m[1]}"></i> ${esc(m[0])}</td><td class="num">${fmtNum(v)}</td><td class="muted small">${esc(m[2])}</td></tr>`; }).join('');
-  let html = `<div class="page"><div class="page-head"><div><h1>Serato ve Engine</h1><p class="lead">Mac'te Türkçe harfler "ayrık" yazılır (ü = u + ¨). Diskte ise "birleşik" durur. Mac bu farkı tolere eder; Prime 4 ve Windows etmez. Bu yüzden Mac'te hazırlanan listelerde bazı parçalar Denon'da kırmızı görünür.</p></div></div>`;
-  for (const d of eng) {
-    const red = (d.counts.unicode || 0) + (d.counts.sfm || 0);
-    html += `<div class="panel" style="margin-bottom:16px"><div class="ph"><h2 style="flex:1">Engine DJ: ${esc(d.label)}</h2>${d.info.schema ? `<span class="tag">şema ${esc(d.info.schema)}</span>` : ''}</div><div class="pb">
-      ${d.info.warning ? `<div class="banner">${esc(d.info.warning)}</div>` : ''}
-      <p class="path">${esc(d.path)}</p>
-      <table class="t" style="max-width:760px"><thead><tr><th>Yol durumu</th><th>Parça</th><th>Nerede çalışır</th></tr></thead><tbody>${mrow(d.counts)}</tbody></table>
-      <p class="muted small">${fmtNum(d.unanalyzed)} parça analiz edilmemiş.${d.last_sync ? ' Son gönderim: ' + fmtTime(+d.last_sync) : ''}</p>
-      ${d.key === 'drive' ? `<div class="row" style="margin-top:10px"><button class="btn ${red ? 'primary' : ''}" data-erep>${red ? `${fmtNum(red)} kırmızı parçayı onar` : 'Yol onarım planı'}</button><button class="btn" data-esync>${ic('senkron')}İşaretli listeleri gönder (${fe})</button><button class="btn" data-eimp>Engine listelerini programa aktar</button></div>` : '<p class="small muted">Bilgisayardaki Engine kütüphanesi yalnızca incelenir; değişiklikler diskteki kütüphaneye yapılır.</p>'}
-      ${d.playlists.length ? `<details class="check" style="margin-top:12px"><summary><b>Engine listeleri (${d.playlists.length})</b></summary><div style="padding:0 12px 10px"><table class="t"><tbody>${d.playlists.map((p) => `<tr><td>${esc(p.path)}</td><td class="num">${p.count}</td><td>${p.red ? `<span class="sev kritik">${p.red} kırmızı</span>` : ''}</td></tr>`).join('')}</tbody></table></div></details>` : ''}
+    <div class="card">
+      <h3>Türler</h3>
+      <div class="muted small" style="margin-bottom:10px">Ada tıklayıp değiştirebilirsin (ör. “Halay” yerine “HALAYLAR”). ✕ o türü kaldırır; şarkılarını sonra tek tek seçersin.</div>
+      <div class="gchips">${d.genres.map((g) => `<span class="gchip" style="background:${esc(g.color)}"><span data-gren="${esc(g.name)}" style="cursor:pointer" title="Adını değiştir">${esc(g.folder)}</span><span class="n">${fmtN(g.count)}</span><button class="x" data-gdel="${esc(g.name)}" title="Kaldır">✕</button></span>`).join("")}
+      <button class="btn sm" id="gadd">+ Tür ekle</button></div>
+      <label class="field" style="max-width:340px;margin-top:16px"><span>Ana müzik klasörünün adı (SSD'de)</span><input id="sroot" value="${esc(su.root)}"></label>
+    </div>
+    <div class="card" style="padding:0">
+      <div style="display:flex;gap:10px;align-items:center;padding:14px 18px 8px"><h3 style="margin:0">Klasörler</h3><span class="muted small">Şarkıların şu an durduğu klasörler ve nereye gidecekleri</span>
+        <input class="search" id="sfilt" placeholder="Klasör ara…" value="${esc(S.setupFilter)}" style="max-width:240px;margin-left:auto"></div>
+      <div style="max-height:46vh;overflow:auto"><table class="t"><thead><tr><th>Klasör</th><th class="nowrap">Şarkı</th><th>Nereye</th><th>Neden</th></tr></thead><tbody>
+      ${folders.map((f) => { const a = d.assign[f.rel] || "spread"; const ch = su.overrides[f.rel] !== undefined; return `<tr class="${ch ? "changed" : ""}"><td>${esc(f.disp)}</td><td class="c-num">${fmtN(f.direct)}</td>
+        <td><select class="assign ${a.startsWith("g:") ? "g" : ""}" data-rel="${esc(f.rel)}">${optHtml(a)}</select></td><td class="muted small">${esc(f.reason || (ch ? "senin seçimin" : "üst klasörden"))}</td></tr>`; }).join("")}
+      </tbody></table></div>
+    </div>
+    <div class="card"><h3>Örnek taşımalar</h3><div class="small">${(d.sample || []).slice(0, 8).map((s) => `<div><span class="muted">${esc(s.from)}</span> → <b>${esc(s.to)}</b></div>`).join("") || '<span class="muted">Taşınacak şarkı yok.</span>'}</div></div>
+    <div style="display:flex;gap:10px;align-items:center;margin:16px 0 40px">
+      <button class="btn primary big" id="sapply">Düzeni kur</button>
+      <button class="btn ghost" id="sreset">Öneriye dön</button>
+      <span class="muted small">Engine DJ ve Serato kapalı olmalı. Taşıma aynı SSD içinde olduğu için birkaç dakikada biter.</span>
     </div></div>`;
-  }
-  if (!eng.length) html += '<div class="panel" style="margin-bottom:16px"><div class="pb"><h2>Engine DJ</h2><p class="muted">Bu kütüphanede "Engine Library" klasörü yok. Engine DJ ile diski bir kez açtığınızda oluşur.</p></div></div>';
-  if (ser) {
-    html += `<div class="panel"><div class="ph"><h2 style="flex:1">Serato DJ</h2><span class="tag">${ser.info.dialect === 'mac' ? 'Mac yazımı' : 'Windows yazımı'}</span></div><div class="pb">
-      <p class="muted">${fmtNum(ser.crates.length)} crate, veritabanında ${fmtNum(Object.values(ser.tracks).reduce((a, b) => a + b, 0))} parça.</p>
-      <table class="t" style="max-width:760px"><thead><tr><th>Crate kayıtları</th><th>Adet</th><th>Nerede çalışır</th></tr></thead><tbody>${mrow(ser.items)}</tbody></table>
-      ${ser.missing_tops.length ? `<p class="small muted">Bu diskte bulunmayan klasörlere işaret eden kayıtlar: ${ser.missing_tops.slice(0, 8).map(([k, v]) => `${esc(k)} (${fmtNum(v)})`).join(', ')}</p>` : ''}
-      <div class="row" style="margin-top:10px"><button class="btn" data-ssync>${ic('senkron')}İşaretli listeleri Serato'ya yaz (${fs})</button><button class="btn" data-simp>Serato crate'lerini programa aktar</button></div>
-      <details class="check" style="margin-top:12px"><summary><b>Crate'ler (${ser.crates.length})</b></summary><div style="padding:0 12px 10px"><table class="t"><tbody>${ser.crates.map((c) => { const bad = (c.by.unicode || 0) + (c.by.sfm || 0); const miss = (c.by.missing || 0) + (c.by.nodir || 0); return `<tr><td>${esc(c.path)}</td><td class="num">${c.count}</td><td>${bad ? `<span class="sev uyari">${bad} sadece Mac</span>` : ''} ${miss ? `<span class="sev bilgi">${miss} bu diskte yok</span>` : ''}</td></tr>`; }).join('')}</tbody></table></div></details>
-    </div></div>`;
-  } else html += '<div class="panel"><div class="pb"><h2>Serato DJ</h2><p class="muted">Bu kütüphanede _Serato_ klasörü yok.</p></div></div>';
-  html += '</div>';
-  main.innerHTML = html;
-  $$('[data-erep]', main).forEach((b) => { b.onclick = () => engineRepairFlow(); });
-  $$('[data-esync]', main).forEach((b) => { b.onclick = () => syncEngineFlow(); });
-  $$('[data-ssync]', main).forEach((b) => { b.onclick = () => syncSeratoFlow(); });
-  $$('[data-eimp]', main).forEach((b) => { b.onclick = () => importFlow('engine', eng.find((d) => d.key === 'drive')); });
-  $$('[data-simp]', main).forEach((b) => { b.onclick = () => importFlow('serato', ser); });
-}
-
-function importFlow(kind, data) {
-  const rows = kind === 'engine' ? data.playlists.filter((p) => p.count > 0).map((p) => ({ k: p.list_key, t: p.path, n: p.count })) : data.crates.filter((c) => c.count > 0).map((c) => ({ k: c.list_key, t: c.path, n: c.count }));
-  const body = `<p class="muted">Seçtiğiniz ${kind === 'engine' ? 'Engine listeleri' : "Serato crate'leri"} bu programa liste olarak kopyalanır (orijinallerine dokunulmaz). Bulunamayan parçalar atlanır.</p>
-    <div class="row" style="margin-bottom:8px"><input type="search" id="imq" placeholder="Filtrele" style="flex:1"><button class="btn sm" id="ima">Tümünü seç</button></div>
-    <div class="scrollbox" style="max-height:380px"><table class="t"><tbody>${rows.map((r) => `<tr data-t="${esc(fold(r.t))}"><td><input type="checkbox" value="${esc(r.k)}"></td><td>${esc(r.t)}</td><td class="num muted">${r.n}</td></tr>`).join('')}</tbody></table></div>`;
-  const m = modal({ title: kind === 'engine' ? 'Engine listelerini aktar' : "Serato crate'lerini aktar", body, wide: true, foot: '<button class="btn" data-c>Vazgeç</button><button class="btn primary" data-ok>Aktar</button>' });
-  $('#imq', m.root).oninput = (e) => { const q = fold(e.target.value); $$('tr[data-t]', m.root).forEach((tr) => tr.classList.toggle('hide', !tr.dataset.t.includes(q))); };
-  $('#ima', m.root).onclick = () => $$('tr[data-t]:not(.hide) input', m.root).forEach((c) => { c.checked = true; });
-  $('[data-c]', m.root).onclick = () => m.close();
-  $('[data-ok]', m.root).onclick = async () => {
-    const sel = $$('input[type=checkbox]:checked', m.root).map((c) => c.value);
-    if (!sel.length) { toast('En az bir liste seçin.', 'err'); return; }
-    try {
-      const r = kind === 'engine' ? await api('engine/import', { key: 'drive', playlist_ids: sel }) : await api('serato/import', { crates: sel });
-      m.root.remove(); S.lists = null;
-      toast(`${r.lists} liste aktarıldı${r.missing ? `; ${r.missing} parça diskte bulunamadığı için atlandı` : ''}.`, 'ok');
-      location.hash = '#/listeler';
-    } catch (e) { showError(e.message); }
+  const v = $("#view");
+  v.onchange = (e) => {
+    const s = e.target.closest("select.assign");
+    if (s) { su.overrides[s.dataset.rel] = s.value; setupRepreview(); }
+    if (e.target.id === "sroot") { su.root = e.target.value.trim() || "Müzik"; setupRepreview(); }
+  };
+  v.oninput = (e) => {
+    if (e.target.id === "sfilt") {
+      S.setupFilter = e.target.value;
+      clearTimeout(setupTimer);
+      setupTimer = setTimeout(() => { renderSetup(); const f = $("#sfilt"); f.focus(); f.setSelectionRange(f.value.length, f.value.length); }, 200);
+    }
+  };
+  v.onclick = async (e) => {
+    const ren = e.target.closest("[data-gren]");
+    if (ren) {
+      const n = ren.dataset.gren;
+      const nv = await promptBox("Tür klasörünün adı", "SSD'deki klasör adı", su.genre_map[n] || n);
+      if (nv) { su.genre_map[n] = nv; setupRepreview(); }
+      return;
+    }
+    const del = e.target.closest("[data-gdel]");
+    if (del) {
+      const n = del.dataset.gdel;
+      for (const f of d.folders) if ((d.assign[f.rel] || "") === "g:" + n) su.overrides[f.rel] = "spread";
+      su.extra = su.extra.filter((x) => x !== n);
+      setupRepreview();
+      return;
+    }
+    if (e.target.id === "gadd") {
+      menu(e, [...CANON.filter((n) => !shown.includes(n)).map((n) => ({ label: n, color: COLORS[n], fn: () => { su.extra.push(n); setupRepreview(); } })),
+        "-", { label: "Başka bir ad…", icon: "＋", fn: async () => { const n = await promptBox("Yeni tür", "Tür adı"); if (n) { su.extra.push(n); setupRepreview(); } } }]);
+      return;
+    }
+    if (e.target.id === "sreset") { S.setup = { root: su.root, overrides: {}, genre_map: {}, extra: [] }; setupRepreview(); return; }
+    if (e.target.id === "sapply") {
+      const ok = await confirmBox("Düzeni kur", `${fmtN(d.moves)} şarkı ${su.root} altındaki tür klasörlerine taşınacak. Engine ve Serato listelerindeki yollar da güncellenecek. İstersen sonra tek tıkla geri alabilirsin.`, "Düzeni kur");
+      if (!ok) return;
+      try {
+        const r = await task("/api/setup/apply", su);
+        localStorage.removeItem("djd.setup");
+        toast(`Düzen kuruldu: ${fmtN(r.moved)} şarkı taşındı.`, "ok");
+        S.tab = "music"; S.view = r.spread ? "unsorted" : "all";
+        await refresh(true);
+      } catch (err) { /* bildirildi */ }
+    }
   };
 }
 
-/* ------------------------------------------------------------------ */
-/* Yeni müzik ekle                                                      */
-/* ------------------------------------------------------------------ */
-async function viewInbox(main) {
-  const IB = S.inbox;
-  const ym = new Date().toISOString().slice(0, 7);
-  let html = `<div class="page"><div class="page-head"><div><h1>Yeni müzik ekle</h1><p class="lead">İndirdiğiniz parçaları diske koymadan önce kontrol edin: diskte zaten olanlar ayıklanır, sadece yeniler temiz adlarla kopyalanır. Kaynak klasördeki dosyalara dokunulmaz.</p></div></div>
-    <div class="panel" style="margin-bottom:16px"><div class="pb"><div class="row"><input type="text" id="isrc" style="flex:1;min-width:260px" placeholder="Kaynak klasör (ör. İndirilenler)" value="${esc(IB ? IB.source : '')}"><button class="btn" id="ibr">${ic('folder')}Gözat</button><button class="btn primary" id="iscan">İncele</button></div></div></div>`;
-  if (IB) {
-    const st = { new: ['tamam', 'Yeni'], same_audio: ['kritik', 'Diskte zaten var'], same_song: ['uyari', 'Benzeri var'] };
-    html += `<div class="panel"><div class="ph"><h2 style="flex:1">${plural(IB.items.length, 'dosya')} incelendi</h2><span class="sev tamam">${IB.counts.new} yeni</span><span class="sev kritik">${IB.counts.same_audio} zaten var</span><span class="sev uyari">${IB.counts.same_song} benzeri var</span></div>
-      <div class="pb"><div class="scrollbox" style="max-height:420px"><table class="t"><thead><tr><th></th><th>Dosya</th><th>Durum</th><th>Kalite</th><th>Diskteki eşi</th><th>Yeni adı</th></tr></thead><tbody>
-      ${IB.items.map((it, i) => `<tr><td><input type="checkbox" data-i="${i}" ${it.status === 'new' ? 'checked' : ''}></td><td><b>${esc(it.title || it.name)}</b> <span class="muted">${esc(it.artist || '')}</span>${it.error ? `<div class="small" style="color:var(--red)">${esc(it.error)}</div>` : ''}</td>
-        <td><span class="sev ${st[it.status][0]}">${st[it.status][1]}</span>${it.better ? ' <span class="tag">daha kaliteli</span>' : ''}</td><td class="num">${it.bitrate ? it.bitrate + ' k' : ''}</td>
-        <td class="path">${it.match ? esc(it.match.disp) + (it.match.bitrate ? ` (${it.match.bitrate} k)` : '') : ''}</td><td class="small">${esc(it.safe_name)}</td></tr>`).join('')}</tbody></table></div>
-      <div class="grid2" style="margin-top:14px"><label class="field"><span>Diskte hedef klasör (kütüphane kökünden itibaren)</span><input type="text" id="idest" value="yeni eklenenler/${ym}"></label>
-        <label class="field"><span>Ayrıca bu listeye ekle</span><select id="ilist"><option value="">Hiçbiri</option></select></label></div>
-      <div class="row"><label class="chk"><input type="checkbox" id="itr" checked> Türkçe harfleri koru</label><label class="chk"><input type="checkbox" id="iem" checked> Emojileri temizle</label><span class="spacer"></span><button class="btn primary" id="igo">Seçilenleri kopyala</button></div></div></div>`;
+// ---------------------------------------------------------------------------
+// MÜZİKLER
+// ---------------------------------------------------------------------------
+async function loadMusic() {
+  S.ov = await api("/api/overview");
+  if (S.view.startsWith("g:") && !genreById(S.view.slice(2))) S.view = "all";
+  if (S.view === "dupes") S.dupes = await api("/api/dupes");
+  else {
+    const rows = await api("/api/tracks?view=" + encodeURIComponent(S.view));
+    S.rows = rows;
+    const ids = new Set(rows.map((r) => r.id));
+    S.sel = new Set([...S.sel].filter((x) => ids.has(x)));
   }
-  html += '</div>';
-  main.innerHTML = html;
-  $('#ibr').onclick = async () => { const p = await folderPicker('Kaynak klasör'); if (p) $('#isrc').value = p; };
-  $('#iscan').onclick = async () => {
-    const src = $('#isrc').value.trim(); if (!src) { toast('Kaynak klasörü seçin.', 'err'); return; }
-    const r = await runTask('inbox/scan', { source: src }, { title: 'Yeni müzikler inceleniyor', rerender: false });
-    if (r) { S.inbox = r; viewInbox(main); }
-  };
-  if (IB) {
-    await loadLists();
-    $('#ilist').innerHTML += listTree().filter((r) => r.kind === 'list' || r.kind === 'section').map((r) => `<option value="${r.id}">${'— '.repeat(r.depth)}${esc(r.title)}</option>`).join('');
-    $('#igo').onclick = async () => {
-      const srcs = $$('input[data-i]:checked').map((c) => IB.items[+c.dataset.i].src);
-      if (!srcs.length) { toast('Kopyalanacak dosya seçin.', 'err'); return; }
-      if (!(await requireWritable('Yeni müzik ekleme'))) return;
-      const r = await runTask('inbox/import', { sources: srcs, dest: $('#idest').value, keep_turkish: $('#itr').checked, strip_emoji: $('#iem').checked, list_id: $('#ilist').value ? +$('#ilist').value : null },
-        { title: 'Yeni müzikler kopyalanıyor', rerender: false, toast: (x) => x ? `${x.copied} parça "${x.dest}" klasörüne kopyalandı.` : 'Bitti' });
-      if (r) { S.inbox = null; if (r.errors && r.errors.length) showError(r.errors.join('\n')); viewInbox(main); }
-    };
-  }
+  renderMusic();
 }
 
-/* ------------------------------------------------------------------ */
-/* Geçmiş ve yedekler                                                   */
-/* ------------------------------------------------------------------ */
-async function viewHistory(main) {
-  const [j, bk] = await Promise.all([api('journal'), api('backups')]);
-  const b = bk.items || [];
-  const undoable = new Set(['move', 'import', 'rename', 'engine_repair', 'engine_sync', 'serato_export', 'dupes']);
-  main.innerHTML = `<div class="page"><div class="page-head"><div><h1>Geçmiş ve yedekler</h1><p class="lead">Yapılan her değişiklik burada. "Geri al" işlemi eski hâline döndürür. Karantinadaki dosyaları inceledikten sonra isterseniz kendiniz silebilirsiniz; program hiçbir dosyayı silmez.</p></div><span class="spacer"></span><button class="btn" id="oq">${ic('folder')}Karantina klasörü</button><button class="btn" id="ob">${ic('folder')}Yedekler klasörü</button></div>
-    <div class="panel" style="margin-bottom:16px"><div class="ph"><h2>İşlemler</h2></div><div class="pb">${j.length ? `<table class="t"><tbody>${j.map((x) => `<tr><td class="num muted" style="white-space:nowrap">${fmtTime(x.ts)}</td><td>${esc(x.title)}${x.status === 'geri_alindi' ? ' <span class="tag">geri alındı</span>' : ''}</td><td style="text-align:right">${undoable.has(x.payload.type) && x.status !== 'geri_alindi' ? `<button class="btn sm" data-u="${x.id}">${ic('undo')}Geri al</button>` : ''}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">Henüz değişiklik yapılmadı.</p>'}</div></div>
-    <div class="panel"><div class="ph"><h2>Yedekler</h2>${bk.count ? `<span class="muted small">${bk.count} dosya · toplam ${fmtSize(bk.total)}</span>` : ''}</div><div class="pb">${b.length ? `<p class="muted small" style="margin:0 0 10px">Engine ve Serato dosyaları her değişiklikten önce buraya yedeklenir; geri alma bu yedekleri kullanır. Yer açmak isterseniz eski yedekleri "Yedekler klasörü"nden kendiniz silebilirsiniz (en yenilerini tutun).</p><table class="t"><tbody>${b.slice(0, 60).map((x) => `<tr><td class="num muted">${fmtTime(x.mtime)}</td><td class="path">${esc(x.name)}</td><td class="num muted">${fmtSize(x.size)}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">Henüz yedek yok. Serato veya Engine dosyası değiştirilmeden önce otomatik yedek alınır.</p>'}</div></div></div>`;
-  $('#oq').onclick = () => api('open', { path: S.state.active.root + (S.state.platform.startsWith('win') ? '\\' : '/') + '_DJDoktor_Karantina' }).catch(() => toast('Karantina klasörü henüz yok.', 'err'));
-  $('#ob').onclick = () => api('open', { path: S.state.workspace + (S.state.platform.startsWith('win') ? '\\' : '/') + 'yedekler' }).catch((e) => toast(e.message, 'err'));
-  $$('[data-u]', main).forEach((btn) => {
-    btn.onclick = async () => {
-      const x = j.find((y) => y.id === +btn.dataset.u);
-      const guarded = ['engine_sync', 'dupes', 'serato_export'].includes(x.payload.type);
-      const info = guarded ? '<p class="muted small">Bu işlemden sonra Engine DJ, Prime 4 veya Serato\'da bir şey değiştiyse program önce sizi uyarır; o değişiklikler habersiz silinmez.</p>' : '';
-      if (!(await confirmBox('Geri al', `<p>"${esc(x.title)}" işlemi geri alınacak.</p>${info}<p class="muted small">Serato DJ ve Engine DJ kapalı olmalı.</p>`, 'Geri al'))) return;
-      if (!(await requireWritable('Geri alma'))) return;
-      const done = (r) => { if (r && r.notes && r.notes.length) toast(r.notes[0], 'ok'); };
-      runTask('undo', { journal_id: x.id }, {
-        title: 'Geri alınıyor', toast: 'Geri alındı.', done,
-        onError: (t) => {
-          if (t.code !== 'degisti') return false;
-          confirmBox('Arada değişiklik var', `<p class="sev uyari">${esc(t.error)}</p>`, 'Yine de geri al').then((yes) => {
-            if (yes) runTask('undo', { journal_id: x.id, force: true }, { title: 'Geri alınıyor', toast: 'Geri alındı.', done });
-            else render();
-          });
-          return true;
-        },
+function renderMusic() {
+  const ov = S.ov;
+  const v = $("#view");
+  const side = `<aside class="side"><div class="scroll">
+    ${ov.unsorted ? `<div class="attn ${S.view === "unsorted" ? "on" : ""}" data-view="unsorted"><span class="ic">❓</span>Türü belli değil<span class="n">${fmtN(ov.unsorted)}</span></div>` : ""}
+    ${ov.dupes ? `<div class="attn ${S.view === "dupes" ? "on" : ""}" data-view="dupes"><span class="ic">⧉</span>Kopyalar<span class="n">${fmtN(ov.dupes)}</span></div>` : ""}
+    ${ov.problems ? `<div class="attn bad ${S.view === "problems" ? "on" : ""}" data-view="problems"><span class="ic">⚠</span>Sorunlar<span class="n">${fmtN(ov.problems)}</span></div>` : ""}
+    <h4>Türler <button class="icon-btn right" id="gnew" title="Yeni tür">＋</button></h4>
+    <div class="nav-item ${S.view === "all" ? "on" : ""}" data-view="all"><span class="gdot" style="background:var(--ink-2)"></span><span class="name">Tümü</span><span class="cnt">${fmtN(ov.total)}</span></div>
+    ${ov.genres.map((g) => { const tot = g.count || 1; return `<div class="nav-item ${S.view === "g:" + g.id ? "on" : ""}" data-view="g:${g.id}" data-gid="${g.id}" title="${esc(g.rel)}">
+      <span class="gdot" style="background:${esc(g.color)}"></span><span class="name">${esc(g.name)}</span><span class="cnt">${fmtN(g.count)}</span>
+      ${g.count ? `<span class="bar"><i style="width:${100 * g.ready / tot}%;background:var(--ok)"></i><i style="width:${100 * g.pending / tot}%;background:var(--warn)"></i><i style="width:${100 * g.problem / tot}%;background:var(--bad)"></i></span>` : ""}</div>`; }).join("")}
+    </div>
+    <div class="legend" style="border-top:1px solid var(--line);flex-direction:column;gap:4px;padding:10px 16px">
+      <span>${dotHtml("ready")} Hazır (Engine'de, analiz edildi)</span><span>${dotHtml("pending")} Analiz bekliyor</span>
+      <span>${dotHtml("none")} Engine'de değil</span><span>${dotHtml("problem")} Sorun</span></div></aside>`;
+  let main;
+  if (S.view === "dupes") main = dupesHtml();
+  else main = tracksHtml();
+  v.innerHTML = `<div class="split">${side}<section class="main" id="mmain">${main}</section></div>`;
+  wireMusic();
+}
+
+function viewTitle() {
+  const ov = S.ov;
+  if (S.view === "all") return ["Tüm şarkılar", `${fmtN(ov.total)} şarkı · ${ov.genres.length} tür`];
+  if (S.view === "unsorted") return ["Türü belli değil", "Bu şarkılar henüz bir türün klasöründe değil. Öneriye tıkla ya da türünü seç; şarkı o türün klasörüne taşınır ve Engine'e eklenir."];
+  if (S.view === "problems") return ["Sorunlar", "Bozuk ya da Prime 4'ün çalamayacağı dosyalar ve Engine'de yolu kayıp parçalar."];
+  if (S.view.startsWith("g:")) {
+    const g = genreById(S.view.slice(2));
+    if (!g) return ["", ""];
+    return [g.name, `${g.rel} · ${fmtN(g.count)} şarkı · ${fmtN(g.ready)} hazır${g.pending ? ` · ${fmtN(g.pending)} analiz bekliyor` : ""}${g.none ? ` · ${fmtN(g.none)} Engine'de değil` : ""}${g.engine ? "" : " · Engine'e otomatik eklenmiyor"}`];
+  }
+  return ["", ""];
+}
+
+function filteredRows() {
+  const q = fold(S.q).split(/\s+/).filter(Boolean);
+  if (!q.length) return S.rows;
+  return S.rows.filter((r) => { const s = r.search || fold(r.title + " " + r.artist + " " + r.folder); return q.every((w) => s.includes(w)); });
+}
+
+function tracksHtml() {
+  const [title, sub] = viewTitle();
+  const isG = S.view.startsWith("g:");
+  const rows = filteredRows();
+  const ov = S.ov;
+  let hint = "";
+  if (ov.maint && ov.maint.pending && (isG || S.view === "all")) {
+    hint = `<div class="hint"><span class="ic">⏳</span><div><b>${fmtN(ov.maint.pending)} şarkı analiz bekliyor.</b> Engine DJ'yi aç, sol tarafta SSD'nin altındaki <b>“Analiz bekleyenler”</b> listesini seç
+      <div class="steps"><span>Ctrl+A (Mac: ⌘A)</span><i>→</i><span>sağ tık</span><i>→</i><span>Analyze Tracks</span></div>Bitince burada yeşil görünür, listeden de kendiliğinden düşer.</div></div>`;
+  }
+  if (S.view === "unsorted" && rows.some((r) => r.sugg && !r.copy_of)) {
+    const n = rows.filter((r) => r.sugg && !r.copy_of).length;
+    hint = `<div class="hint blue"><span class="ic">💡</span><div>${fmtN(n)} şarkı için öneri var. Tek tek tıklayabilir ya da <button class="btn sm primary" id="applyall">önerilerin hepsini uygula</button> diyebilirsin.
+      ${rows.some((r) => r.copy_of) ? ` Kopya olanları da <button class="btn sm" id="dropcopies">kopyaları kaldır (${rows.filter((r) => r.copy_of).length})</button> ile temizle.` : ""}</div></div>`;
+  }
+  const allChecked = rows.length && rows.every((r) => S.sel.has(r.id));
+  const body = rows.slice(0, 1500).map((r) => {
+    const g = r.gid ? genreById(r.gid) : null;
+    let extra = "";
+    if (S.view === "unsorted") {
+      if (r.copy_of) extra = `<button class="btn sm" data-dropcopy="${esc(r.group)}" title="Bu dosyanın aynısı ${esc(r.copy_of)} klasöründe var. Bu kopya karantinaya taşınır; listeler asıl dosyayı gösterir.">⧉ ${esc(r.copy_of)} içinde var · kopyayı kaldır</button>`;
+      else if (r.sugg) extra = `<button class="gbtn ${r.sugg_new ? "outline" : ""}" style="background:${COLORS[r.sugg] || (genreByName(r.sugg) || {}).color || "#64748b"};color:${r.sugg_new ? COLORS[r.sugg] || "#64748b" : "#fff"}" data-sugg="${r.id}" title="${esc(r.why || "")}${r.sugg_new ? " (yeni tür oluşturulur)" : ""}">→ ${esc(r.sugg)}</button>`;
+      extra += ` <button class="btn sm" data-pickg="${r.id}">Tür seç ▾</button>`;
+    } else if (S.view === "problems") {
+      if (r.bad) extra = `<span class="tag bad">bozuk / yarım</span> <button class="btn sm" data-quar="${r.id}">Karantinaya al</button>`;
+      else if (r.fmt) extra = `<span class="tag warn">Prime 4 çalmaz</span>`;
+      else if (r.es === "broken") extra = `<span class="tag warn">Engine yolu bozuk · otomatik onarılacak</span>`;
+    } else if (r.dup && r.dupk !== "song") {
+      extra = `<span class="tag warn" title="Bu şarkının diskte başka kopyası var">⧉ ${r.dup} kopya</span>`;
+    }
+    return `<tr data-id="${r.id}" draggable="true" class="${S.sel.has(r.id) ? "sel" : ""}">
+      <td class="c-chk"><input type="checkbox" ${S.sel.has(r.id) ? "checked" : ""}></td>
+      <td class="c-dot">${dotHtml(r.dot)}</td>
+      <td><div class="ttl">${esc(r.title)}</div><div class="art">${esc(r.artist || "—")}${r.note ? ` · <span style="color:var(--warn)">${esc(r.note)}</span>` : ""}</div></td>
+      <td class="c-num">${r.bpm || ""}</td><td class="c-num">${esc(r.key)}</td><td class="c-num">${fmtDur(r.dur)}</td>
+      <td>${!isG && g ? `<span class="tag" style="border-color:${esc(g.color)};color:${esc(g.color)}">${esc(g.name)}</span>` : ""}${r.folder ? `<span class="folder-chip" data-folder="${esc(r.rel.split("/").slice(0, -1).join("/"))}" title="${esc(r.rel)}">📁 ${esc(r.folder)}</span>` : ""}</td>
+      <td class="c-act">${extra} <button class="play" data-play="${r.id}" title="Dinle">▶</button></td></tr>`;
+  }).join("");
+  const more = rows.length > 1500 ? `<div class="muted small" style="padding:10px">İlk 1.500 şarkı gösteriliyor; aramayı daraltın.</div>` : "";
+  const gActs = isG ? `<button class="icon-btn" id="grename" title="Adını değiştir">✎</button><button class="icon-btn" id="gmenu" title="Diğer">⋯</button>` : "";
+  return `<div class="head"><div style="flex:1;min-width:240px"><h2>${esc(title)} ${gActs}</h2><div class="sub">${esc(sub)}</div></div>
+      <input class="search" id="msearch" placeholder="Ara: şarkı, sanatçı, klasör…" value="${esc(S.q)}" style="max-width:320px"></div>
+    <div class="body">${hint}
+    ${rows.length ? `<table class="t" id="ttab"><thead><tr><th class="c-chk"><input type="checkbox" id="chkall" ${allChecked ? "checked" : ""}></th><th></th><th>Şarkı</th><th>BPM</th><th>Ton</th><th>Süre</th><th>${isG ? "Alt klasör" : "Yer"}</th><th></th></tr></thead><tbody>${body}</tbody></table>${more}`
+      : `<div class="empty"><div class="big">${S.view === "unsorted" ? "🎉" : "♪"}</div>${S.view === "unsorted" ? "Hepsi yerli yerinde." : S.q ? "Aramaya uyan şarkı yok." : "Bu türde henüz şarkı yok. Yeni şarkıları <b>Gelen</b> sekmesinden ekleyebilirsin."}</div>`}
+    ${S.sel.size ? bulkHtml() : ""}</div>`;
+}
+
+function genreByName(n) { return ((S.ov && S.ov.genres) || []).find((g) => g.name === n); }
+
+function bulkHtml() {
+  return `<div class="bulk"><b>${fmtN(S.sel.size)} şarkı seçili</b>
+    <button class="btn" id="bmove">Türe taşı ▾</button><button class="btn" id="blist">Listeye ekle ▾</button>
+    ${S.view === "problems" ? `<button class="btn" id="bquar">Karantinaya al</button>` : ""}
+    <button class="btn ghost" id="bclear">Seçimi kaldır</button><span class="muted small right">İpucu: seçtiklerini soldaki bir türün üstüne sürükleyebilirsin.</span></div>`;
+}
+
+function dupesHtml() {
+  const gs = S.dupes || [];
+  const main = gs.filter((g) => g.kind !== "song");
+  const sim = gs.filter((g) => g.kind === "song");
+  const kindTxt = { exact: "Birebir aynı dosya", audio: "Aynı ses, farklı etiket", engine: "Engine'de iki kez görünüyor", song: "Aynı şarkı, farklı kayıt" };
+  const card = (g) => `<div class="card dup" data-group="${esc(g.id)}"><div class="dh"><b>${esc(g.members[0].title || g.members[0].name)}</b><span class="muted">${esc(g.members[0].artist || "")}</span>
+      <span class="tag ${g.kind === "song" ? "" : "warn"}">${kindTxt[g.kind]}</span><button class="btn sm primary right" data-merge="${esc(g.id)}">${g.kind === "engine" ? "Düzelt" : g.kind === "song" ? "Seçileni tut" : "Birleştir"}</button></div>
+    ${g.kind === "engine" ? `<div class="m keep"><div style="flex:1"><div class="path">${esc(g.members[0].rel)}</div><div class="small muted">Engine'de ${g.tracks.length} kayıt var; Prime 4'te iki kez görünür. Düzelt: listeler korunur, fazla kayıt kalkar.</div></div></div>` :
+    g.members.map((m) => `<label class="m ${m.keeper ? "keep" : ""}"><input type="radio" name="k-${esc(g.id)}" value="${m.id}" ${m.keeper ? "checked" : ""}>
+      <div style="flex:1;min-width:0"><div class="path">${m.genre ? `<span class="tag" style="color:${esc(m.color)};border-color:${esc(m.color)}">${esc(m.genre)}</span>` : ""}${esc(m.rel)}</div>
+      <div class="small">${m.why.filter((w) => !(m.genre && w === m.genre + " klasöründe")).map((w) => `<span class="tag">${esc(w)}</span>`).join("")}${m.bitrate ? `<span class="tag">${m.bitrate} kbps</span>` : ""}</div></div>
+      ${m.keeper ? '<span class="tag st ok">tutulacak</span>' : '<span class="tag st">karantinaya</span>'}<button class="play" data-play="${m.id}" title="Dinle">▶</button></label>`).join("")}
+    ${g.missing && g.missing.length ? `<div class="small" style="padding:8px 16px;color:var(--warn)">Dikkat: diğer kopyada ${g.missing.join(" ve ")} var, tutulacak kopyada yok.</div>` : ""}</div>`;
+  return `<div class="head"><div style="flex:1"><h2>Kopyalar</h2><div class="sub">Aynı şarkının birden fazla kopyası. Biri kalır (önerilen işaretli), diğerleri silinmez: SSD'deki karantina klasörüne taşınır. Engine ve Serato listeleri kalan kopyayı gösterir.</div></div>
+    ${main.length ? `<button class="btn primary" id="mergeall">Hepsini önerildiği gibi birleştir (${main.length})</button>` : ""}</div>
+    <div class="body">${main.map(card).join("") || '<div class="empty"><div class="big">🎉</div>Kopya yok.</div>'}
+    ${sim.length ? `<h3 style="margin:22px 0 8px">Benzer kayıtlar <span class="muted small">(farklı indirme / kalite — karar senin)</span></h3>${sim.map(card).join("")}` : ""}</div>`;
+}
+
+function wireMusic() {
+  const v = $("#view");
+  v.onclick = async (e) => {
+    const nav = e.target.closest("[data-view]");
+    if (nav) { S.view = nav.dataset.view; S.sel.clear(); S.q = ""; await loadMusic(); return; }
+    if (e.target.id === "gnew") { newGenre(); return; }
+    const play = e.target.closest("[data-play]");
+    if (play) { playFid(+play.dataset.play, play); return; }
+    if (e.target.id === "grename") { renameGenre(+S.view.slice(2)); return; }
+    if (e.target.id === "gmenu") { genreMenu(e, +S.view.slice(2)); return; }
+    if (e.target.id === "chkall") {
+      const rows = filteredRows();
+      if (e.target.checked) rows.forEach((r) => S.sel.add(r.id)); else S.sel.clear();
+      rerenderMain(); return;
+    }
+    const tr = e.target.closest("tr[data-id]");
+    if (tr && e.target.matches("input[type=checkbox]")) {
+      const id = +tr.dataset.id;
+      if (e.shiftKey && S.lastSel != null) {
+        const rows = filteredRows().map((r) => r.id);
+        const a = rows.indexOf(S.lastSel), b = rows.indexOf(id);
+        if (a >= 0 && b >= 0) rows.slice(Math.min(a, b), Math.max(a, b) + 1).forEach((x) => S.sel.add(x));
+      } else if (e.target.checked) S.sel.add(id); else S.sel.delete(id);
+      S.lastSel = id;
+      rerenderMain(); return;
+    }
+    const fc = e.target.closest("[data-folder]");
+    if (fc) { folderMenu(e, fc.dataset.folder); return; }
+    const sg = e.target.closest("[data-sugg]");
+    if (sg) {
+      const r = S.rows.find((x) => x.id === +sg.dataset.sugg);
+      if (r) await moveTo([r.id], r.sugg_gid, r.sugg);
+      return;
+    }
+    const pg = e.target.closest("[data-pickg]");
+    if (pg) { pickGenreMenu(e, [+pg.dataset.pickg]); return; }
+    const dc = e.target.closest("[data-dropcopy]");
+    if (dc) { await mergeGroups([{ group: dc.dataset.dropcopy }], "Kopya kaldırıldı"); return; }
+    const q = e.target.closest("[data-quar]");
+    if (q) { await quarantine([+q.dataset.quar]); return; }
+    if (e.target.id === "applyall") { await applyAllSuggestions(); return; }
+    if (e.target.id === "dropcopies") {
+      const groups = Array.from(new Set(S.rows.filter((r) => r.copy_of).map((r) => r.group)));
+      await mergeGroups(groups.map((g) => ({ group: g })), groups.length + " kopya kaldırıldı");
+      return;
+    }
+    if (e.target.id === "bmove") { pickGenreMenu(e, [...S.sel]); return; }
+    if (e.target.id === "blist") { addToListMenu(e, [...S.sel]); return; }
+    if (e.target.id === "bquar") { await quarantine([...S.sel]); return; }
+    if (e.target.id === "bclear") { S.sel.clear(); rerenderMain(); return; }
+    const mg = e.target.closest("[data-merge]");
+    if (mg) {
+      const card = mg.closest("[data-group]");
+      const k = card.querySelector("input[type=radio]:checked");
+      await mergeGroups([{ group: mg.dataset.merge, keeper: k ? +k.value : undefined }], "Birleştirildi");
+      return;
+    }
+    if (e.target.id === "mergeall") {
+      const picks = (S.dupes || []).filter((g) => g.kind !== "song").map((g) => {
+        const card = v.querySelector(`[data-group="${CSS.escape(g.id)}"]`);
+        const k = card && card.querySelector("input[type=radio]:checked");
+        return { group: g.id, keeper: k ? +k.value : undefined };
       });
-    };
+      const ok = await confirmBox("Kopyaları birleştir", `${picks.length} grupta tutulacak kopyalar kalır; diğerleri karantinaya taşınır (silinmez). Engine DJ ve Serato kapalı olmalı.`, "Birleştir");
+      if (ok) await mergeGroups(picks, "Kopyalar birleştirildi");
+    }
+  };
+  v.onchange = (e) => {
+    const r = e.target.closest(".dup .m input[type=radio]");
+    if (r) {
+      const card = r.closest(".dup");
+      $$(".m", card).forEach((m) => {
+        const on = m.querySelector("input").checked;
+        m.classList.toggle("keep", on);
+        const tg = m.querySelector(".st");
+        if (tg) { tg.className = "tag st " + (on ? "ok" : ""); tg.textContent = on ? "tutulacak" : "karantinaya"; }
+      });
+    }
+  };
+  v.oninput = (e) => {
+    if (e.target.id === "msearch") {
+      S.q = e.target.value;
+      clearTimeout(S._qt);
+      S._qt = setTimeout(() => { rerenderMain(); const f = $("#msearch"); if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } }, 150);
+    }
+  };
+  // sürükle-bırak: satırlar -> tür
+  v.ondragstart = (e) => {
+    const tr = e.target.closest && e.target.closest("tr[data-id]");
+    if (!tr) return;
+    const id = +tr.dataset.id;
+    if (!S.sel.has(id)) { S.sel = new Set([id]); }
+    S.drag = { fids: [...S.sel] };
+    e.dataTransfer.setData("text/plain", "djd");
+    e.dataTransfer.effectAllowed = "move";
+  };
+  v.ondragend = () => { S.drag = null; $$(".nav-item.drop").forEach((x) => x.classList.remove("drop")); };
+  v.ondragover = (e) => {
+    const it = e.target.closest && e.target.closest(".nav-item[data-gid]");
+    if (it && S.drag) { e.preventDefault(); $$(".nav-item.drop").forEach((x) => x !== it && x.classList.remove("drop")); it.classList.add("drop"); }
+  };
+  v.ondrop = async (e) => {
+    const it = e.target.closest && e.target.closest(".nav-item[data-gid]");
+    if (!it || !S.drag) return;
+    e.preventDefault();
+    const fids = S.drag.fids; S.drag = null;
+    await moveTo(fids, +it.dataset.gid);
+  };
+}
+
+function rerenderMain() {
+  const m = $("#mmain");
+  if (!m) return;
+  const st = m.querySelector(".body") ? m.querySelector(".body").scrollTop : 0;
+  m.innerHTML = S.view === "dupes" ? dupesHtml() : tracksHtml();
+  const b = m.querySelector(".body"); if (b) b.scrollTop = st;
+}
+
+async function moveTo(fids, gid, gname) {
+  try {
+    const r = await task("/api/move", gid ? { fids, gid } : { fids, genre: gname });
+    toast(`${fmtN(r.moved)} şarkı taşındı.`, "ok");
+  } catch (e) { /* bildirildi */ }
+  S.sel.clear();
+  await refresh(true);
+}
+
+async function applyAllSuggestions() {
+  const rows = filteredRows().filter((r) => r.sugg && !r.copy_of);
+  const byG = {};
+  rows.forEach((r) => { const k = r.sugg; (byG[k] = byG[k] || { gid: r.sugg_gid, name: r.sugg, fids: [] }).fids.push(r.id); });
+  const groups = Object.values(byG);
+  const ok = await confirmBox("Önerileri uygula", groups.map((g) => `${g.name}: ${g.fids.length}`).join(" · "), "Uygula");
+  if (!ok) return;
+  for (const g of groups) {
+    try { await task("/api/move", g.gid ? { fids: g.fids, gid: g.gid } : { fids: g.fids, genre: g.name }); } catch (e) { break; }
+  }
+  toast("Öneriler uygulandı.", "ok");
+  await refresh(true);
+}
+
+async function mergeGroups(picks, msg) {
+  try {
+    const r = await task("/api/merge", { picks });
+    toast(msg + (r.files ? ` (${r.files} dosya karantinada)` : ""), "ok");
+  } catch (e) { /* bildirildi */ }
+  await refresh(true);
+}
+
+async function quarantine(fids) {
+  const ok = await confirmBox("Karantinaya al", `${fids.length} dosya SSD'deki _DJDoktor_/Karantina klasörüne taşınacak (silinmez, geri alınabilir).`, "Taşı");
+  if (!ok) return;
+  await act("/api/quarantine", { fids }, "Karantinaya alındı.");
+  S.sel.clear();
+}
+
+function pickGenreMenu(e, fids) {
+  const items = S.ov.genres.map((g) => ({ label: g.name, color: g.color, fn: () => moveTo(fids, g.id) }));
+  const have = new Set(S.ov.genres.map((g) => g.name));
+  const rest = CANON.filter((n) => !have.has(n));
+  if (rest.length) {
+    items.push("-", { label: "Yeni tür", head: true });
+    rest.forEach((n) => items.push({ label: n, color: COLORS[n], fn: () => moveTo(fids, null, n) }));
+  }
+  items.push("-", { label: "Başka bir ad…", icon: "＋", fn: async () => { const n = await promptBox("Yeni tür", "Tür adı"); if (n) moveTo(fids, null, n); } });
+  menu(e, items);
+}
+
+async function addToListMenu(e, fids) {
+  let t;
+  try { t = await api("/api/lists"); } catch (err) { toast(err.message, "err"); return; }
+  const ls = t.lists.filter((l) => !l.managed);
+  if (!ls.length) { toast("Önce Listeler sekmesinden bir liste oluştur."); return; }
+  const items = ls.slice(0, 60).map((l) => ({ label: "  ".repeat(l.depth) + l.title, icon: l.ev ? "📅" : "♪", fn: async () => {
+    try { const r = await api("/api/list/add", { id: l.id, fids }); toast(`${r.added} şarkı “${l.title}” listesine eklendi${r.skipped ? ` (${r.skipped} zaten vardı)` : ""}.`, "ok"); }
+    catch (err) { toast(err.message, "err"); }
+  } }));
+  menu(e, items);
+}
+
+async function newGenre() {
+  const have = new Set(S.ov.genres.map((g) => g.name));
+  const n = await promptBox("Yeni tür", "Tür adı (SSD'de bu adla klasör açılır)", "", "Oluştur", "Öneriler: " + CANON.filter((x) => !have.has(x)).slice(0, 8).join(", "));
+  if (!n) return;
+  const r = await act("/api/genre/create", { name: n }, `“${n}” oluşturuldu.`);
+  if (r) { S.view = "g:" + r.id; await refresh(true); }
+}
+
+async function renameGenre(gid) {
+  const g = genreById(gid);
+  const n = await promptBox("Türün adı", "Yeni ad (SSD'deki klasörün adı da değişir)", g.name);
+  if (!n || n === g.name) return;
+  try { await task("/api/genre/rename", { id: gid, name: n }); toast("Ad değişti; Engine ve Serato da güncellendi.", "ok"); } catch (e) { /* */ }
+  await refresh(true);
+}
+
+function genreMenu(e, gid) {
+  const g = genreById(gid);
+  menu(e, [
+    { label: g.engine ? "Engine'e otomatik ekleme: Açık" : "Engine'e otomatik ekleme: Kapalı", icon: g.engine ? "✓" : "○",
+      fn: () => act("/api/genre/update", { id: gid, engine: g.engine ? 0 : 1 }, g.engine ? "Bu türün yeni şarkıları Engine'e otomatik eklenmeyecek." : "Bu türün şarkıları Engine'e eklenecek.") },
+    { label: "Klasörü aç", icon: "📂", fn: () => api("/api/open", { path: S.st.active.root + "/" + g.rel }).catch((er) => toast(er.message, "err")) },
+    "-",
+    { label: "Başka türle birleştir…", icon: "⇢", fn: () => {
+      const others = S.ov.genres.filter((x) => x.id !== gid);
+      menu(e, others.map((o) => ({ label: o.name, color: o.color, fn: async () => {
+        const ok = await confirmBox("Türleri birleştir", `“${g.name}” içindeki ${g.count} şarkı “${o.name}” klasörüne taşınacak ve “${g.name}” kaldırılacak.`, "Birleştir");
+        if (!ok) return;
+        try { await task("/api/genre/merge", { src: gid, dst: o.id }); S.view = "g:" + o.id; } catch (er) { /* */ }
+        await refresh(true);
+      } })));
+    } },
+    { label: "Türü kaldır", icon: "🗑", fn: async () => {
+      if (g.count) { toast(`“${g.name}” içinde ${g.count} şarkı var. Önce başka türe taşı ya da birleştir.`, "err"); return; }
+      await act("/api/genre/delete", { id: gid }, "Tür kaldırıldı.");
+      S.view = "all"; await refresh(true);
+    } },
+  ]);
+}
+
+function folderMenu(e, rel) {
+  const name = rel.split("/").pop();
+  menu(e, [
+    { label: "Klasörün adını değiştir", icon: "✎", fn: async () => {
+      const n = await promptBox("Klasör adı", "Yeni ad", name);
+      if (!n || n === name) return;
+      try { await task("/api/folder/rename", { rel, name: n }); toast("Klasör adı değişti.", "ok"); } catch (er) { /* */ }
+      await refresh(true);
+    } },
+    { label: "Finder / Gezgin'de göster", icon: "📂", fn: () => api("/api/open", { path: S.st.active.root + "/" + rel }).catch((er) => toast(er.message, "err")) },
+    ...(S.view === "unsorted" ? ["-", { label: "Bu klasöre dokunma (sample, efekt…)", icon: "🚫", fn: () => act("/api/rule", { rel, action: "ignore" }, "Bu klasör artık listede görünmeyecek.") }] : []),
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Dinleme
+// ---------------------------------------------------------------------------
+let playing = null;
+function playFid(fid, btn) {
+  const a = $("#audio");
+  if (playing === fid && !a.paused) { a.pause(); btn.classList.remove("on"); btn.textContent = "▶"; playing = null; return; }
+  $$(".play.on").forEach((b) => { b.classList.remove("on"); b.textContent = "▶"; });
+  a.src = `/api/audio/${fid}?t=${encodeURIComponent(TOKEN)}`;
+  a.play().catch(() => toast("Çalınamadı (tarayıcı bu biçimi desteklemiyor olabilir).", "err"));
+  playing = fid; btn.classList.add("on"); btn.textContent = "❚❚";
+  a.onended = () => { btn.classList.remove("on"); btn.textContent = "▶"; playing = null; };
+}
+
+// ---------------------------------------------------------------------------
+// LİSTELER (Engine'in kendi listeleri; değişiklik anında kaydedilir)
+// ---------------------------------------------------------------------------
+async function loadLists() {
+  S.lists = await api("/api/lists");
+  if (!S.ov) { try { S.ov = await api("/api/overview"); } catch (e) { /* */ } }
+  if (S.cur && !S.lists.lists.some((l) => l.id === S.cur)) S.cur = null;
+  S.items = S.cur ? await api("/api/list/" + S.cur) : null;
+  if (!S.pick.loaded) { await pickSearch(); }
+  renderLists();
+}
+
+function listKids() {
+  const kids = {};
+  (S.lists.lists || []).forEach((l) => { (kids[l.parent] = kids[l.parent] || []).push(l); });
+  return kids;
+}
+
+function treeHtml() {
+  const kids = listKids();
+  const out = [];
+  const walk = (pid, depth) => {
+    for (const l of kids[pid] || []) {
+      const has = (kids[l.id] || []).length > 0;
+      const open = S.open[l.id] !== undefined ? S.open[l.id] : (l.kind !== "genres");
+      out.push(`<div class="nav-item ${S.cur === l.id ? "on" : ""}" data-lid="${l.id}" style="padding-left:${8 + depth * 16}px" title="${esc(l.path.join(" / "))}">
+        <span class="tw" data-tw="${l.id}">${has ? (open ? "▾" : "▸") : ""}</span>
+        <span class="name">${l.kind === "analysis" ? "⏳ " : l.ev ? "📅 " : ""}${esc(l.title)}</span>
+        ${l.managed ? '<span class="auto" title="Program tarafından otomatik tutulur">otomatik</span>' : ""}${l.serato ? `<span class="ser" title="Serato'da da var${l.serato.dirty ? " (Serato kapanınca güncellenecek)" : ""}">S${l.serato.dirty ? "…" : ""}</span>` : ""}
+        <span class="cnt">${l.n || ""}</span></div>`);
+      if (has && open) walk(l.id, depth + 1);
+    }
+  };
+  walk(0, 0);
+  return out.join("");
+}
+
+function renderLists() {
+  const t = S.lists;
+  const v = $("#view");
+  if (!t.db) {
+    v.innerHTML = `<div class="setup"><h1>Engine kütüphanesi yok</h1><p class="muted">Bu SSD'de henüz Engine DJ kütüphanesi yok. Engine DJ'de SSD'ye bir kez parça aktarınca (ya da SSD'yi Prime 4'te bir kez kullanınca) listeler burada görünür.</p></div>`;
+    return;
+  }
+  const ro = t.readonly;
+  v.innerHTML = `<div class="split">
+    <aside class="side"><div style="padding:10px 10px 0;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn primary" id="newev" ${ro ? "disabled" : ""}>＋ Yeni etkinlik</button><button class="btn" id="newlist" ${ro ? "disabled" : ""}>＋ Liste</button>
+      <button class="icon-btn" id="lmore" title="Diğer">⋯</button></div>
+      ${ro ? `<div class="hint" style="margin:10px 10px 0"><span class="ic">🔒</span><div>Engine DJ açık. Listeleri düzenlemek için Engine DJ'yi kapat (aynı listeleri ikisi birden değiştirmesin).</div></div>` : ""}
+      <div class="scroll tree" id="tree">${treeHtml()}</div></aside>
+    <section class="main" id="lmain">${listMainHtml()}</section>
+    <aside class="picker" id="picker">${pickerHtml()}</aside></div>`;
+  wireLists();
+}
+
+function listMainHtml() {
+  const it = S.items;
+  if (!it) return `<div class="empty" style="margin:auto"><div class="big">♪</div>Soldan bir liste seç ya da <b>Yeni etkinlik</b> oluştur.<div class="small" style="margin-top:8px">Burada yaptığın her değişiklik anında Engine'e yazılır; Prime 4 aynı listeyi görür. Kaydet/gönder yok.</div></div>`;
+  const l = S.lists.lists.find((x) => x.id === it.id) || {};
+  const ro = S.lists.readonly || it.managed;
+  const ev = it.ev || {};
+  const rows = it.items.map((r, i) => `<tr data-ref="${esc(r.ref)}" ${ro ? "" : 'draggable="true"'}>
+      <td class="c-idx">${ro ? i + 1 : `<span class="grip" title="Sürükle">⋮⋮</span>`}</td><td class="c-dot">${dotHtml(r.dot, r.missing ? "Dosya bulunamadı" : undefined)}</td>
+      <td><div class="ttl">${esc(r.title)}</div><div class="art">${esc(r.artist || "—")}${r.genre ? ` · <span style="color:${esc(r.color)}">${esc(r.genre)}</span>` : ""}</div></td>
+      <td class="c-num">${r.bpm || ""}</td><td class="c-num">${esc(r.key)}</td><td class="c-num">${fmtDur(r.dur)}</td>
+      <td style="min-width:160px">${ro ? `<span class="small" style="color:var(--warn)">${esc(r.note)}</span>` : `<input class="note" data-note="${esc(r.ref)}" value="${esc(r.note)}" placeholder="not ekle">`}</td>
+      <td class="c-act">${r.fid ? `<button class="play" data-play="${r.fid}">▶</button>` : ""}${ro ? "" : `<button class="icon-btn" data-rm="${esc(r.ref)}" title="Listeden çıkar">✕</button>`}</td></tr>`).join("");
+  const pend = it.items.filter((r) => r.dot === "pending").length;
+  return `<div class="head"><div style="flex:1;min-width:260px">
+      ${ro ? `<h2>${esc(it.title)}</h2>` : `<input class="title-edit" id="ltitle" value="${esc(it.title)}">`}
+      <div class="sub">${esc(it.path.slice(0, -1).join(" / ") || "En üst")} · ${fmtN(it.items.length)} şarkı · ${fmtLong(it.dur)}${l.kids ? ` · ${l.kids} alt liste` : ""}${pend ? ` · <span style="color:var(--warn)">${pend} analiz bekliyor</span>` : ""}</div>
+      ${it.ev ? `<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><input type="date" class="search" style="max-width:170px" id="evdate" value="${esc(ev.date || "")}"><input class="search" style="max-width:260px" id="evvenue" placeholder="Yer / salon" value="${esc(ev.venue || "")}"></div>` : ""}
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      ${S.st.active.has_serato ? `<label class="switch ${l.serato ? "on" : ""}" id="sertog" title="Bu liste Serato'da da crate olarak dursun; değişiklikler iki yönlü eşitlenir"><i></i>Serato'da da</label>` : ""}
+      <button class="icon-btn" id="lmenu" title="Diğer">⋯</button></div></div>
+    <div class="body">${it.managed ? `<div class="hint blue"><span class="ic">ℹ</span><div>${l.kind === "analysis" ? "Bu liste Engine'de analiz edilmemiş şarkıları gösterir. Engine DJ'de bu listeyi seç → tümünü seç → sağ tık → <b>Analyze</b>. Bitenler kendiliğinden düşer." : "Bu listeyi program tutar (tür klasörünün aynısı). Değiştirmek için kopyasını al."}</div></div>` : ""}
+    ${it.items.length ? `<table class="t" id="ltab"><thead><tr><th></th><th></th><th>Şarkı</th><th>BPM</th><th>Ton</th><th>Süre</th><th>Not</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+      : `<div class="empty"><div class="big">＋</div>Liste boş. Sağdan şarkı ara ve <b>＋</b> ile ekle ya da sürükleyip bırak.</div>`}</div>`;
+}
+
+function pickerHtml() {
+  const gs = (S.ov && S.ov.genres) || [];
+  return `<div class="ph"><input class="search" id="psearch" placeholder="Şarkı ekle: ara…" value="${esc(S.pick.q)}">
+    <div class="chips"><span class="chip ${!S.pick.gid ? "on" : ""}" data-pg="">Hepsi</span>${gs.map((g) => `<span class="chip ${S.pick.gid === g.id ? "on" : ""}" data-pg="${g.id}">${esc(g.name)}</span>`).join("")}</div></div>
+    <div class="scroll" id="pres">${pickResHtml()}</div>`;
+}
+
+function pickResHtml() {
+  const inList = new Set(((S.items && S.items.items) || []).map((r) => r.fid));
+  return S.pick.res.map((r) => `<div class="res ${inList.has(r.id) ? "in" : ""}" draggable="true" data-fid="${r.id}">${dotHtml(r.dot)}
+      <div class="meta"><div class="ttl">${esc(r.title)}</div><div class="art">${esc(r.artist || "—")}${r.genre ? ` · ${esc(r.genre)}` : ""}${r.bpm ? ` · ${r.bpm}` : ""}${r.key ? ` · ${esc(r.key)}` : ""}</div></div>
+      <button class="play" data-play="${r.id}">▶</button><button class="add" data-add="${r.id}" title="Listeye ekle">${inList.has(r.id) ? "✓" : "＋"}</button></div>`).join("") || '<div class="empty small">Sonuç yok.</div>';
+}
+
+async function pickSearch() {
+  const q = S.pick.q, g = S.pick.gid;
+  try {
+    S.pick.res = await api(`/api/search?q=${encodeURIComponent(q)}${g ? "&gid=" + g : ""}&limit=300`);
+    S.pick.loaded = true;
+  } catch (e) { S.pick.res = []; }
+}
+
+async function selectList(id) {
+  S.cur = id;
+  try { S.items = await api("/api/list/" + id); } catch (e) { toast(e.message, "err"); S.items = null; }
+  $("#lmain").innerHTML = listMainHtml();
+  $("#tree").innerHTML = treeHtml();
+  $("#picker").innerHTML = pickerHtml();
+}
+
+async function listOp(path, body, msg) {
+  try {
+    const r = await api(path, body);
+    if (msg) toast(msg, "ok");
+    await refreshLists();
+    return r;
+  } catch (e) { toast(e.message, "err"); await refreshLists(); return null; }
+}
+
+async function refreshLists() {
+  S.st = await api("/api/state");
+  S.stamp = S.st.stamp;
+  S.lists = await api("/api/lists");
+  if (S.cur && !S.lists.lists.some((l) => l.id === S.cur)) S.cur = null;
+  S.items = S.cur ? await api("/api/list/" + S.cur) : null;
+  const sc = $("#lmain .body") ? $("#lmain .body").scrollTop : 0;
+  renderLists();
+  const b = $("#lmain .body"); if (b) b.scrollTop = sc;
+  renderTop();
+}
+
+function wireLists() {
+  const v = $("#view");
+  v.onclick = async (e) => {
+    const tw = e.target.closest("[data-tw]");
+    if (tw && tw.textContent) {
+      const id = +tw.dataset.tw;
+      const l = S.lists.lists.find((x) => x.id === id);
+      const cur = S.open[id] !== undefined ? S.open[id] : (l.kind !== "genres");
+      S.open[id] = !cur; localStorage.setItem("djd.open", JSON.stringify(S.open));
+      $("#tree").innerHTML = treeHtml(); return;
+    }
+    const li = e.target.closest("[data-lid]");
+    if (li) { await selectList(+li.dataset.lid); return; }
+    const play = e.target.closest("[data-play]");
+    if (play) { playFid(+play.dataset.play, play); return; }
+    const add = e.target.closest("[data-add]");
+    if (add) {
+      if (!S.cur || !S.items) { toast("Önce soldan bir liste seç."); return; }
+      if (S.items.managed) { toast("Bu liste otomatik; önce kopyasını al.", "err"); return; }
+      await listOp("/api/list/add", { id: S.cur, fids: [+add.dataset.add] });
+      return;
+    }
+    const pg = e.target.closest("[data-pg]");
+    if (pg) { S.pick.gid = pg.dataset.pg ? +pg.dataset.pg : null; await pickSearch(); $("#picker").innerHTML = pickerHtml(); const f = $("#psearch"); if (f) f.focus(); return; }
+    const rm = e.target.closest("[data-rm]");
+    if (rm) { await listOp("/api/list/remove", { id: S.cur, refs: [rm.dataset.rm] }); return; }
+    if (e.target.id === "newev") { newEventDialog(); return; }
+    if (e.target.id === "newlist") {
+      const n = await promptBox("Yeni liste", "Liste adı", "", "Oluştur");
+      if (!n) return;
+      const parent = S.items && !S.items.managed && e.shiftKey ? S.cur : 0;
+      const r = await listOp("/api/list/create", { parent, title: n });
+      if (r) await selectList(r.id);
+      return;
+    }
+    if (e.target.id === "lmore") {
+      menu(e, [
+        { label: "Serato'dan crate al…", icon: "⇠", fn: seratoImportDialog },
+        { label: "Serato ile şimdi eşitle", icon: "⇄", fn: () => listOp("/api/serato/sync", {}, "Eşitlendi.") },
+      ]);
+      return;
+    }
+    if (e.target.closest("#sertog")) {
+      const l = S.lists.lists.find((x) => x.id === S.cur);
+      await listOp("/api/serato/link", { id: S.cur, on: !l.serato }, !l.serato ? "Bu liste Serato'da da görünecek (Serato kapalıyken yazılır)." : "Serato bağı kaldırıldı.");
+      return;
+    }
+    if (e.target.id === "lmenu") { listMenu(e); }
+  };
+  v.onchange = async (e) => {
+    if (e.target.id === "ltitle") { const t = e.target.value.trim(); if (t && t !== S.items.title) await listOp("/api/list/rename", { id: S.cur, title: t }); }
+    if (e.target.id === "evdate" || e.target.id === "evvenue") {
+      await listOp("/api/event/set", { id: S.cur, date: $("#evdate").value, venue: $("#evvenue").value });
+    }
+    const n = e.target.closest("[data-note]");
+    if (n) { await api("/api/list/note", { id: S.cur, ref: n.dataset.note, note: n.value }).catch((er) => toast(er.message, "err")); renderTop(); }
+  };
+  v.onkeydown = (e) => { if (e.target.id === "ltitle" && e.key === "Enter") e.target.blur(); if (e.target.matches("input.note") && e.key === "Enter") e.target.blur(); };
+  v.oninput = (e) => {
+    if (e.target.id === "psearch") {
+      S.pick.q = e.target.value;
+      clearTimeout(S._pt);
+      S._pt = setTimeout(async () => { await pickSearch(); $("#pres").innerHTML = pickResHtml(); }, 220);
+    }
+  };
+  // sürükle-bırak: sıra değiştirme, sağdan ekleme, başka listeye kopyalama
+  v.ondragstart = (e) => {
+    const tr = e.target.closest && e.target.closest("tr[data-ref]");
+    const res = e.target.closest && e.target.closest(".res[data-fid]");
+    if (tr) { S.drag = { ref: tr.dataset.ref }; tr.classList.add("dragging"); }
+    else if (res) S.drag = { fid: +res.dataset.fid };
+    else return;
+    e.dataTransfer.setData("text/plain", "djd");
+    e.dataTransfer.effectAllowed = "copyMove";
+  };
+  v.ondragend = () => { S.drag = null; $$(".dragging, .dropline, .drop").forEach((x) => x.classList.remove("dragging", "dropline", "drop")); };
+  v.ondragover = (e) => {
+    if (!S.drag) return;
+    const tr = e.target.closest && e.target.closest("#ltab tr[data-ref]");
+    const body = e.target.closest && e.target.closest("#lmain .body");
+    const li = e.target.closest && e.target.closest("[data-lid]");
+    $$(".dropline, .drop").forEach((x) => x.classList.remove("dropline", "drop"));
+    if (li && S.drag.ref) { e.preventDefault(); li.classList.add("drop"); return; }
+    if ((tr || body) && S.items && !S.items.managed && !S.lists.readonly) { e.preventDefault(); if (tr) tr.classList.add("dropline"); }
+  };
+  v.ondrop = async (e) => {
+    if (!S.drag) return;
+    const d = S.drag; S.drag = null;
+    const li = e.target.closest && e.target.closest("[data-lid]");
+    if (li && d.ref) {
+      e.preventDefault();
+      const dst = +li.dataset.lid;
+      if (dst !== S.cur) await listOp("/api/list/move_entries", { src: S.cur, dst, refs: [d.ref], copy: true }, "Şarkı o listeye de eklendi.");
+      return;
+    }
+    if (!S.items || S.items.managed) return;
+    e.preventDefault();
+    const tr = e.target.closest && e.target.closest("#ltab tr[data-ref]");
+    const refs = S.items.items.map((r) => r.ref);
+    let at = tr ? refs.indexOf(tr.dataset.ref) : refs.length;
+    if (d.ref) {
+      const from = refs.indexOf(d.ref);
+      if (from < 0 || from === at) return;
+      refs.splice(from, 1);
+      if (from < at) at -= 1;
+      refs.splice(at, 0, d.ref);
+      await listOp("/api/list/reorder", { id: S.cur, refs });
+    } else if (d.fid) {
+      await listOp("/api/list/add", { id: S.cur, fids: [d.fid], at });
+    }
+  };
+}
+
+function listMenu(e) {
+  const it = S.items;
+  if (!it) return;
+  const l = S.lists.lists.find((x) => x.id === it.id) || {};
+  const items = [
+    { label: "Kopyasını al", icon: "⧉", fn: async () => { const r = await listOp("/api/list/duplicate", { id: it.id }, "Kopyası alındı."); if (r) await selectList(r.id); } },
+    { label: "Bundan yeni etkinlik", icon: "📅", fn: () => newEventDialog(it.id) },
+    { label: "Yazdır", icon: "🖨", fn: () => window.open(`/api/print/${it.id}?t=${encodeURIComponent(TOKEN)}`, "_blank") },
+  ];
+  if (!it.managed) {
+    items.push({ label: "Alt liste ekle", icon: "＋", fn: async () => { const n = await promptBox("Alt liste", "Adı", "", "Oluştur"); if (n) { const r = await listOp("/api/list/create", { parent: it.id, title: n }); if (r) await selectList(r.id); } } });
+    items.push({ label: "Başka klasöre taşı…", icon: "⇢", fn: () => {
+      const folders = S.lists.lists.filter((x) => !x.managed && x.id !== it.id && !x.path.slice(0, -1).includes(it.title));
+      menu(e, [{ label: "En üste", icon: "⤒", fn: () => listOp("/api/list/move", { id: it.id, parent: 0 }) },
+        ...folders.slice(0, 80).map((f) => ({ label: "  ".repeat(f.depth) + f.title, icon: "📁", fn: () => listOp("/api/list/move", { id: it.id, parent: f.id }) }))]);
+    } });
+    items.push("-", { label: "Listeyi sil", icon: "🗑", fn: async () => {
+      const ok = await confirmBox("Listeyi sil", `“${it.title}”${l.kids ? ` ve ${l.kids} alt listesi` : ""} Engine'den silinecek. Şarkılar diskte ve koleksiyonda kalır. Geri alınabilir.`, "Sil", true);
+      if (ok) { await listOp("/api/list/delete", { id: it.id }, "Liste silindi (Geri al ile geri gelir)."); }
+    } });
+  }
+  menu(e, items);
+}
+
+function newEventDialog(baseId) {
+  const t = S.lists;
+  const temps = t.templates || [];
+  const bases = t.lists.filter((l) => !l.managed && (l.kids || l.n));
+  const today = new Date().toISOString().slice(0, 10);
+  const m = modal(`<div class="dh">Yeni etkinlik</div><div class="db">
+    <label class="field"><span>Adı</span><input id="evt" placeholder="ör. Ahmet & Ayşe Düğün"></label>
+    <div style="display:flex;gap:10px"><label class="field" style="flex:1"><span>Tarih</span><input type="date" id="evd" value="${today}"></label>
+    <label class="field" style="flex:1.4"><span>Yer</span><input id="evv" placeholder="Salon / şehir"></label></div>
+    <div class="field"><span>Nasıl başlasın?</span><div class="opts">
+      <label class="opt ${baseId ? "" : "on"}"><input type="radio" name="evk" value="t" ${baseId ? "" : "checked"}><div style="flex:1"><b>Şablondan</b><div class="muted small">Bölümler hazır gelir (Karşılama, Giriş, Halay…), içleri boş.</div>
+        <select id="evtemp" class="search" style="margin-top:6px">${temps.map((x) => `<option value="${x.kind}">${esc(x.title)}${x.sections.length ? ` — ${x.sections.length} bölüm` : ""}</option>`).join("")}</select></div></label>
+      <label class="opt ${baseId ? "on" : ""}"><input type="radio" name="evk" value="b" ${baseId ? "checked" : ""}><div style="flex:1"><b>Eski bir etkinliği / listeyi kopyala</b><div class="muted small">Bölümleri ve şarkılarıyla birlikte; sonra istediğini değiştirirsin.</div>
+        <select id="evbase" class="search" style="margin-top:6px">${bases.map((x) => `<option value="${x.id}" ${x.id === baseId ? "selected" : ""}>${esc(x.path.join(" / "))} (${x.n})</option>`).join("")}</select></div></label>
+    </div></div></div>
+    <div class="df"><button class="btn" data-x="no">Vazgeç</button><button class="btn primary" data-x="yes">Oluştur</button></div>`);
+  m.el.addEventListener("change", (e) => { if (e.target.name === "evk") $$(".opt", m.el).forEach((o) => o.classList.toggle("on", o.querySelector("input").checked)); });
+  m.el.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-x]");
+    if (!b) return;
+    if (b.dataset.x === "no") { m.close(); return; }
+    const title = $("#evt", m.el).value.trim();
+    if (!title) { $("#evt", m.el).focus(); return; }
+    const kind = $("input[name=evk]:checked", m.el).value;
+    const body = { title, date: $("#evd", m.el).value, venue: $("#evv", m.el).value };
+    if (kind === "t") body.template = $("#evtemp", m.el).value; else body.base = +$("#evbase", m.el).value;
+    m.close();
+    const r = await listOp("/api/event/new", body, "Etkinlik oluşturuldu.");
+    if (r) { S.open[r.id] = true; await selectList(r.id); }
   });
 }
 
-/* ------------------------------------------------------------------ */
-/* Ayarlar                                                              */
-/* ------------------------------------------------------------------ */
-async function viewSettings(main) {
-  const st = S.state, a = st.active, p = st.prefs;
-  main.innerHTML = `<div class="page"><div class="page-head"><div><h1>Ayarlar</h1></div></div>
-    <div class="panel" style="margin-bottom:16px"><div class="ph"><h2 style="flex:1">Bu kütüphane</h2></div><div class="pb">
-      <dl class="kv"><dt>Ad</dt><dd>${esc(a.name)}</dd><dt>Klasör</dt><dd class="path">${esc(a.root)}</dd><dt>Dosya sistemi</dt><dd>${esc((a.fstype || 'bilinmiyor').toUpperCase())}</dd>
-      <dt>Katalog</dt><dd class="path">${esc(a.catalog)}</dd><dt>Boş alan</dt><dd>${fmtSize(a.free)}</dd></dl>
-      <div class="banner ${a.readonly ? 'ok' : ''}" style="margin-top:14px"><div style="flex:1"><b>${a.readonly ? 'Salt-okunur mod açık.' : 'Değişikliklere izin veriliyor.'}</b> ${a.readonly ? 'Program bu diske hiçbir şey yazmaz; analiz, liste hazırlama ve bilgisayara dışa aktarma çalışır.' : 'Onayladığınız işlemler diske yazılır; her işlemden önce yedek alınır.'}</div>
-        <button class="btn" id="rot">${a.readonly ? 'Değişikliklere izin ver' : 'Salt-okunur moda geç'}</button></div>
-      <div class="row"><button class="btn" id="ren">${ic('edit')}Adını değiştir</button><button class="btn" id="add">${ic('plus')}Başka kütüphane ekle</button><button class="btn danger" id="rm">Programdan kaldır</button></div></div></div>
-    <div class="panel" style="margin-bottom:16px"><div class="ph"><h2>Senkron tercihleri</h2></div><div class="pb">
-      <div class="grid2"><label class="field"><span>Engine'deki klasör adı</span><input type="text" id="pf_engine" value="${esc(p.engine_folder)}"></label>
-      <label class="field"><span>Serato'daki üst crate adı</span><input type="text" id="pf_serato" value="${esc(p.serato_parent)}"></label>
-      <label class="field"><span>Serato yol yazımı</span><select id="pf_dial"><option value="auto" ${p.serato_dialect === 'auto' ? 'selected' : ''}>Otomatik (önerilen)</option><option value="mac" ${p.serato_dialect === 'mac' ? 'selected' : ''}>Mac</option><option value="windows" ${p.serato_dialect === 'windows' ? 'selected' : ''}>Windows</option></select></label>
-      <label class="field"><span>Düşük kalite sınırı (kbps)</span><input type="number" id="pf_br" value="${esc(p.lowbitrate_kbps)}"></label></div>
-      <label class="chk"><input type="checkbox" id="pf_num" ${p.number_sections ? 'checked' : ''}> Etkinlik bölümlerini 01, 02… diye numarala (Prime 4'te sıralı görünür)</label>
-      <label class="field" style="margin-top:12px"><span>Taramada atlanacak klasörler (virgülle)</span><input type="text" id="pf_ex" value="${esc((p.extra_excludes || []).join(', '))}" placeholder="ör. Recording, Samples"></label>
-      <div class="row"><label class="field" style="margin:0"><span>Tema</span><select id="pf_theme"><option value="dark" ${p.theme === 'dark' ? 'selected' : ''}>Koyu</option><option value="light" ${p.theme === 'light' ? 'selected' : ''}>Açık</option></select></label><span class="spacer"></span><button class="btn primary" id="psave">Kaydet</button></div>
-    </div></div>
-    <div class="panel"><div class="ph"><h2>Çalışma alanı</h2></div><div class="pb"><p class="path">${esc(st.workspace)}</p><p class="muted small">Yedekler, raporlar ve dışa aktarılan dosyalar burada durur.</p><div class="row"><button class="btn" id="ow">${ic('folder')}Klasörü aç</button><button class="btn" id="rs">Raporu kaydet</button></div></div></div></div>`;
-  $('#rot').onclick = async () => {
-    if (a.readonly) { if (await requireWritable('Düzeltme ve senkron işlemleri')) render(); }
-    else { await api('library/update', { readonly: true }); await refreshState(); render(); }
-  };
-  $('#ren').onclick = async () => { const n = await promptBox('Kütüphane adı', 'Ad', a.name); if (!n) return; await api('library/update', { name: n }); await refreshState(); render(); };
-  $('#add').onclick = addLibraryFlow;
-  $('#rm').onclick = async () => { if (!(await confirmBox('Programdan kaldır', '<p>Bu kütüphane programın listesinden çıkarılır. Müzik dosyalarına, Serato\'ya ve Engine\'e dokunulmaz; katalog dosyası bilgisayarda kalır.</p>', 'Kaldır', true))) return; await api('library/remove', { id: a.id }); invalidate(); await refreshState(); location.hash = '#/genel'; render(); };
-  $('#psave').onclick = async () => {
-    await api('prefs', { engine_folder: $('#pf_engine').value.trim() || 'DJ Doktor', serato_parent: $('#pf_serato').value.trim() || 'DJ Doktor', serato_dialect: $('#pf_dial').value,
-      lowbitrate_kbps: +$('#pf_br').value || 192, number_sections: $('#pf_num').checked, theme: $('#pf_theme').value,
-      extra_excludes: $('#pf_ex').value.split(',').map((x) => x.trim()).filter(Boolean) });
-    await refreshState(); toast('Ayarlar kaydedildi.', 'ok'); render();
-  };
-  $('#ow').onclick = () => api('open', { path: st.workspace });
-  $('#rs').onclick = async () => { const r = await api('report/save', {}); toast('Rapor kaydedildi.', 'ok'); api('open', { path: r.path, select: true }); };
+async function seratoImportDialog() {
+  let cs;
+  try { cs = await api("/api/serato/crates"); } catch (e) { toast(e.message, "err"); return; }
+  const m = modal(`<div class="dh">Serato'dan al</div><div class="db"><div class="muted small" style="margin-bottom:8px">Seçtiğin crate'ler Engine'de liste olur (alt crate'ler alt liste). Sonra iki tarafta da aynı kalır.</div>
+    ${cs.map((c) => `<label class="nav-item" style="padding-left:${8 + (c.parts.length - 1) * 16}px"><input type="checkbox" value="${esc(c.name)}" ${c.linked ? "disabled" : ""}><span class="name">${esc(c.parts[c.parts.length - 1])}</span><span class="cnt">${c.linked ? "bağlı" : c.count}</span></label>`).join("") || '<div class="muted">Crate yok.</div>'}</div>
+    <div class="df"><button class="btn" data-x="no">Vazgeç</button><button class="btn primary" data-x="yes">Seçilenleri Engine'e al</button></div>`, "wide");
+  m.el.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-x]");
+    if (!b) return;
+    if (b.dataset.x === "no") { m.close(); return; }
+    const names = $$("input[type=checkbox]:checked", m.el).map((x) => x.value);
+    if (!names.length) return;
+    m.close();
+    const r = await listOp("/api/serato/import", { names }, "Serato crate'leri Engine'e alındı.");
+    if (r && r.ids && r.ids[0]) await selectList(r.ids[0]);
+  });
 }
 
-/* ------------------------------------------------------------------ */
-/* Başlangıç                                                            */
-/* ------------------------------------------------------------------ */
-(async function init() {
-  renderPlayer();
-  parseRoute();
-  try { await refreshState(); } catch (e) { $('#main').innerHTML = `<div class="page"><div class="banner err">${esc(e.message)}</div></div>`; return; }
-  for (const t of S.state.tasks || []) {
-    // sayfa yenilendiğinde süren görevleri takip et
-    const card = el(`<div class="task"><b>${esc(t.title)}</b><div class="msg">${esc(t.message)}</div><div class="bar"><i></i></div></div>`);
-    $('#taskbox').appendChild(card);
-    const poll = async () => { const x = await api('tasks/' + t.id).catch(() => null); if (!x || ['bitti', 'hata', 'iptal'].includes(x.status)) { card.remove(); invalidate(); render(); return; } $('.msg', card).textContent = x.message; $('i', card).style.width = Math.round(x.progress * 100) + '%'; setTimeout(poll, 600); };
-    poll();
-  }
-  render();
-})();
+// ---------------------------------------------------------------------------
+// GELEN KUTUSU
+// ---------------------------------------------------------------------------
+async function loadInbox() {
+  S.inbox = await api("/api/inbox");
+  renderInbox();
+}
+
+function renderInbox() {
+  const ib = S.inbox;
+  const gs = ib.genres;
+  const gbtns = (path) => gs.map((g) => `<button class="gbtn" style="background:${esc(g.color)}" data-ing="${esc(path)}" data-g="${g.id}">${esc(g.name)}</button>`).join("");
+  const wait = ib.items.filter((i) => ["nogenre", "similar", "broken", "unsupported", "held"].includes(i.status) || (!ib.auto && ["new", "exists"].includes(i.status)));
+  const going = ib.items.filter((i) => i.status === "downloading" || (ib.auto && i.status === "new"));
+  const sepName = ib.inbox.includes("\\") ? "\\" : "/";
+  const row = (i) => {
+    let st = "", acts = "";
+    const name = `<div class="ttl">${esc(i.title || i.name)}</div><div class="art">${esc(i.artist || "")}${i.genre ? ` · klasör: ${esc(i.genre)}` : ""} · ${esc(i.name)}</div>`;
+    if (i.status === "nogenre") { st = `<span class="tag warn">türü belli değil</span>`; acts = gbtns(i.path); }
+    else if (i.status === "similar") {
+      st = `<span class="tag warn">benzeri var</span>`;
+      acts = `<span class="small muted">${esc(i.match.rel)}${i.match.bitrate ? ` (${i.match.bitrate} kbps)` : ""}${i.better ? " — yenisi daha kaliteli" : ""}</span>
+        ${i.gid ? `<button class="btn sm" data-force="${esc(i.path)}" data-g="${i.gid}">Yine de ekle</button>` : gbtns(i.path)}<button class="btn sm" data-aside="${esc(i.path)}">Ekleme</button>`;
+    } else if (i.status === "broken" || i.status === "unsupported") {
+      st = `<span class="tag bad">${i.status === "broken" ? "bozuk / yarım" : "Prime 4 çalmaz"}</span>`;
+      acts = `<span class="small muted">${esc(i.why || "")}</span><button class="btn sm" data-aside="${esc(i.path)}">Ayıkla</button>`;
+    } else if (i.status === "held") {
+      st = `<span class="tag">bekletiliyor</span>`;
+      acts = i.gid ? `<button class="btn sm primary" data-force="${esc(i.path)}" data-g="${i.gid}">Ekle</button>` : gbtns(i.path);
+      acts += `<button class="btn sm" data-aside="${esc(i.path)}">Ayıkla</button>`;
+    } else if (i.status === "exists") {
+      st = `<span class="tag">zaten var</span>`;
+      acts = `<span class="small muted">${esc(i.match.rel)}</span><button class="btn sm" data-arch="${esc(i.path)}">Arşive kaldır</button>`;
+    } else if (i.status === "new") {
+      st = `<span class="tag ok">hazır</span>`;
+      acts = `<button class="btn sm primary" data-force="${esc(i.path)}" data-g="${i.gid}">Ekle</button>`;
+    }
+    return `<div class="ib">${st}<div class="meta">${name}</div><div class="acts">${acts}</div></div>`;
+  };
+  const dl = ib.downloads || [];
+  $("#view").innerHTML = `<div class="main"><div class="head"><div style="flex:1"><h2>Gelen</h2><div class="sub">Yeni şarkılar buradan girer. İndirirken türün klasörünü seç; gerisini program yapar.</div></div>
+    <label class="switch ${ib.auto ? "on" : ""}" id="autotog"><i></i>Otomatik ekle</label></div>
+    <div class="body">
+    <div class="flow">
+      <div class="st"><b>1 · İndir</b><span>${esc(ib.inbox)}${sepName}&lt;Tür&gt;</span></div><span class="ar">→</span>
+      <div class="st"><b>2 · Kontrol</b><span>yarım mı? çalar mı? zaten var mı?</span></div><span class="ar">→</span>
+      <div class="st"><b>3 · SSD</b><span>${esc(S.st.active.music_root || "Müzik")}/&lt;Tür&gt; (tek ev)</span></div><span class="ar">→</span>
+      <div class="st"><b>4 · Engine</b><span>bir kez eklenir · “Analiz bekleyenler”</span></div><span class="ar">→</span>
+      <div class="st"><b>5 · Arşiv</b><span>${esc(ib.archive)} (yedek, Engine'e girmez)</span></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap"><button class="btn" id="openin">📂 Gelen klasörünü aç</button><button class="btn" id="openar">🗄 Arşivi aç</button>
+      <span class="muted small" style="align-self:center">Tür klasörleri: ${gs.map((g) => esc(g.name)).join(", ")}</span></div>
+    ${wait.length ? `<div class="card" style="padding:0"><div style="padding:12px 16px 4px"><h3>Senden karar bekleyenler (${wait.length})</h3></div>${wait.map(row).join("")}</div>` : ""}
+    ${going.length ? `<div class="card" style="padding:0"><div style="padding:12px 16px 4px"><h3>Sırada</h3></div>${going.map((i) => `<div class="ib"><span class="tag blue">${i.status === "downloading" ? "iniyor…" : "ekleniyor…"}</span><div class="meta"><div class="ttl">${esc(i.title || i.name)}</div><div class="art">${esc(i.genre || "")}</div></div></div>`).join("")}</div>` : ""}
+    ${!wait.length && !going.length ? `<div class="empty" style="padding:28px"><div class="big">📥</div>Gelen kutusu boş. Yeni indirdiğin şarkıyı <b>${esc(ib.inbox)}${sepName}Halay</b> gibi bir tür klasörüne kaydet.</div>` : ""}
+    ${dl.length ? `<div class="card" style="padding:0"><div style="padding:12px 16px 4px"><h3>İndirilenler klasöründe unutulanlar (${dl.length})</h3><div class="muted small">Türünü seçersen gelen kutusuna alınır.</div></div>
+      ${dl.map((d) => `<div class="ib"><div class="meta"><div class="ttl">${esc(d.name)}</div></div><div class="acts">${gs.map((g) => `<button class="gbtn" style="background:${esc(g.color)}" data-take="${esc(d.path)}" data-g="${g.id}">${esc(g.name)}</button>`).join("")}<button class="btn sm ghost" data-ign="${esc(d.path)}">Yoksay</button></div></div>`).join("")}</div>` : ""}
+    ${ib.log.length ? `<div class="card" style="padding:0"><div style="padding:12px 16px 4px"><h3>Son işlenenler</h3></div>${ib.log.slice(0, 20).map((l) => `<div class="ib"><span class="tag ${l.status === "eklendi" ? "ok" : ""}">${esc({ eklendi: "eklendi", zaten_vardi: "zaten vardı", ayiklanan: "ayıklandı" }[l.status] || l.status)}</span><div class="meta"><div>${esc(l.src)}</div><div class="art">${l.rel ? esc(l.rel) : ""} · ${new Date(l.ts * 1000).toLocaleString("tr-TR")}</div></div></div>`).join("")}</div>` : ""}
+    </div></div>`;
+  const v = $("#view");
+  v.onclick = async (e) => {
+    const ing = e.target.closest("[data-ing]");
+    if (ing) { await ingest([{ path: ing.dataset.ing, gid: +ing.dataset.g }]); return; }
+    const fo = e.target.closest("[data-force]");
+    if (fo) { await ingest([{ path: fo.dataset.force, gid: +fo.dataset.g, force: true }]); return; }
+    const as = e.target.closest("[data-aside]");
+    if (as) { await act("/api/inbox/aside", { path: as.dataset.aside }, "Arşivdeki _Ayıklanan klasörüne kaldırıldı."); return; }
+    const ar = e.target.closest("[data-arch]");
+    if (ar) { await act("/api/inbox/archive", { path: ar.dataset.arch }, "Arşive kaldırıldı."); return; }
+    const tk = e.target.closest("[data-take]");
+    if (tk) { await act("/api/inbox/take", { path: tk.dataset.take, gid: +tk.dataset.g }, "Gelen kutusuna alındı."); return; }
+    const ig = e.target.closest("[data-ign]");
+    if (ig) { await act("/api/inbox/ignore", { path: ig.dataset.ign }); return; }
+    if (e.target.id === "openin") { api("/api/inbox/open", {}).catch((er) => toast(er.message, "err")); return; }
+    if (e.target.id === "openar") { api("/api/inbox/open", { archive: true }).catch((er) => toast(er.message, "err")); return; }
+    if (e.target.closest("#autotog")) { await api("/api/prefs", { auto_inbox: !ib.auto }); await refresh(true); }
+  };
+}
+
+async function ingest(entries) {
+  try {
+    const r = await task("/api/inbox/ingest", { entries });
+    if (r.added) toast(`${r.added} şarkı eklendi; Engine'de “Analiz bekleyenler” listesinde.`, "ok");
+  } catch (e) { /* */ }
+  await refresh(true);
+}
+
+// ---------------------------------------------------------------------------
+// Ayarlar
+// ---------------------------------------------------------------------------
+async function settingsDialog() {
+  const st = S.st || {};
+  const p = st.prefs || {};
+  let journal = [];
+  try { if (st.active) journal = await api("/api/journal"); } catch (e) { /* */ }
+  const m = modal(`<div class="dh">Ayarlar</div><div class="db">
+    <div style="display:flex;gap:10px"><label class="field" style="flex:1"><span>Görünüm</span><select id="ptheme"><option value="light" ${p.theme !== "dark" ? "selected" : ""}>Açık</option><option value="dark" ${p.theme === "dark" ? "selected" : ""}>Koyu</option></select></label>
+    <label class="field" style="flex:1"><span>Yazı boyutu</span><select id="psize"><option value="normal">Normal</option><option value="large" ${p.text_size === "large" ? "selected" : ""}>Büyük</option></select></label></div>
+    ${st.active ? `<label class="field"><span>Gelen kutusu (bu bilgisayarda)</span><input id="pin" value="${esc(p.inbox_dir || "")}" placeholder="Varsayılan: Müzik/DJ Gelen"></label>
+    <label class="field"><span>Arşiv (bu bilgisayarda)</span><input id="par" value="${esc(p.archive_dir || "")}" placeholder="Varsayılan: Müzik/DJ Arşiv"></label>
+    <label class="switch ${p.watch_downloads !== false ? "on" : ""}" data-pref="watch_downloads" style="margin:6px 0"><i></i>İndirilenler klasöründeki unutulan şarkıları göster</label><br>
+    <label class="switch ${p.genre_lists !== false ? "on" : ""}" data-pref="genre_lists" style="margin:6px 0"><i></i>Engine'de “Türler” listelerini tut</label>
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="pscan">Şimdi yeniden tara</button><button class="btn" id="pssd">Başka SSD seç</button><button class="btn" id="pq">Karantinayı aç</button></div>
+    <h4 style="margin:18px 0 6px">Son işlemler</h4><div class="small" style="max-height:200px;overflow:auto">${journal.map((j) => `<div style="padding:3px 0;${j.status !== "tamam" ? "color:var(--muted);text-decoration:line-through" : ""}">${new Date(j.ts * 1000).toLocaleString("tr-TR")} — ${esc(j.title)}</div>`).join("") || '<span class="muted">Henüz işlem yok.</span>'}</div>
+    <div class="muted small" style="margin-top:12px">SSD: ${esc(st.active.root)} · Sürüm ${esc(window.DJD_VERSION)}</div>` : ""}
+    </div><div class="df"><button class="btn primary" data-x="ok">Tamam</button></div>`);
+  m.el.addEventListener("change", async (e) => {
+    const kw = {};
+    if (e.target.id === "ptheme") kw.theme = e.target.value;
+    if (e.target.id === "psize") kw.text_size = e.target.value;
+    if (e.target.id === "pin") kw.inbox_dir = e.target.value.trim();
+    if (e.target.id === "par") kw.archive_dir = e.target.value.trim();
+    if (Object.keys(kw).length) { const np = await api("/api/prefs", kw); applyPrefs(np); S.st.prefs = np; }
+  });
+  m.el.addEventListener("click", async (e) => {
+    const sw = e.target.closest("[data-pref]");
+    if (sw) { const k = sw.dataset.pref; const on = !sw.classList.contains("on"); sw.classList.toggle("on", on); const np = await api("/api/prefs", { [k]: on }); S.st.prefs = np; return; }
+    if (e.target.id === "pscan") { m.close(); try { await task("/api/scan", {}); toast("Tarama bitti.", "ok"); } catch (er) { /* */ } await refresh(true); return; }
+    if (e.target.id === "pssd") { m.close(); const v = $("#view"); v.innerHTML = `<div class="setup"><h1>SSD seç</h1><div id="drives">…</div></div>`; drivesInto($("#drives"), null); return; }
+    if (e.target.id === "pq") { api("/api/open", { path: st.active.root + "/_DJDoktor_/Karantina" }).catch((er) => toast(er.message, "err")); return; }
+    if (e.target.closest("[data-x]")) m.close();
+  });
+}
+
+// ---------------------------------------------------------------------------
+refresh(true).then(poll);
