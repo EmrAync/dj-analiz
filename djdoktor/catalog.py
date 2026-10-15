@@ -144,10 +144,11 @@ class Catalog:
         self.root = root
         os.makedirs(os.path.dirname(path), exist_ok=True)
         self.lock = threading.RLock()
+        self._depth = 0
         self.con = sqlite3.connect(path, check_same_thread=False, timeout=30, isolation_level=None)
         self.con.row_factory = sqlite3.Row
         self.con.execute("PRAGMA journal_mode=DELETE")
-        self.con.execute("PRAGMA synchronous=FULL")
+        self.con.execute("PRAGMA synchronous=NORMAL")
         self.con.execute("PRAGMA foreign_keys=ON")
         with self.lock:
             self.con.executescript(SCHEMA)
@@ -165,12 +166,23 @@ class Catalog:
     # ------------------------------------------------------------------
     @contextmanager
     def tx(self):
+        """İşlem (transaction). İç içe çağrılabilir: içteki çağrılar dıştakine katılır."""
         with self.lock:
+            if self._depth:
+                self._depth += 1
+                try:
+                    yield self.con
+                finally:
+                    self._depth -= 1
+                return
             self.con.execute("BEGIN IMMEDIATE")
+            self._depth = 1
             try:
                 yield self.con
+                self._depth = 0
                 self.con.execute("COMMIT")
             except BaseException:
+                self._depth = 0
                 self.con.execute("ROLLBACK")
                 raise
 

@@ -62,7 +62,8 @@ DISPLAY_ORDER = ["Halay", "Kürtçe Halay", "Horon", "Ankara", "Oyun Havası", "
                  "Sallama", "Matine", "Giriş - Pasta - Özel", "Türküler"]
 IGNORE_WORDS = ["sample", "samples", "sfx", "fx", "effets", "effekt", "efekt", "effects", "loops", "loopmasters",
                 "kick", "kicks", "snare", "snares", "clap", "claps", "hats", "hihat", "bassdrum", "bassdrums",
-                "breaks", "scratch", "noise", "drum", "drums", "one shot", "stems", "acapella", "sesler", "aseslerr"]
+                "breaks", "scratch", "noise", "drum", "drums", "one shot", "stems", "acapella", "aseslerr",
+                "ses efekt", "ses efektleri", "efekt sesleri"]
 STAGING_WORDS = ["secilecek", "secim", "indir", "indirmeler", "indirilenler", "indiirilenler", "indirilen",
                  "download", "downloads", "gelen", "temp", "gecici", "yeni yukleme", "son yukleme", "yukleme",
                  "youtube", "yerli", "karar", "denenecek", "bakilacak", "listele", "unknown artist", "unknown album"]
@@ -72,7 +73,9 @@ FILLER = {"melis", "yeni", "new", "son", "karisik", "kariisik", "mix", "mp", "mp
           "parca", "tek", "set", "liste", "listesi", "program", "programi", "dj", "ve", "and", "vol", "cd", "my",
           "en", "iyi", "guzel", "secme", "secmeler", "tum", "hepsi", "alle", "musik", "all", "music", "cesitli",
           "sanatcilar", "turkce"}
-DATE_RE = re.compile(r"(\b\d{1,2}[.\-_/]\d{1,2}([.\-_/]\d{2,4})?\b)|(\b20\d\d\b)|(\b19\d\d\b)")
+# gün.ay(.yıl) biçimindeki tarihler (ör. "06.10.2026", "yeni 22.06.26", "Pop yeni 10.04") = geçici klasör.
+# Yalnız yıl ("Nancy Ajram 2008", "Hitmix 2019") albüm adıdır, geçici sayılmaz.
+DATE_RE = re.compile(r"\b(0?[1-9]|[12]\d|3[01])[.\-_/](0?[1-9]|1[0-2])([.\-_/](\d{2}|\d{4}))?\b")
 CONTAINER_HINT = {"mix", "music", "muzik", "musik", "my music", "dj", "alle musik", "recorded", "library", "kutuphane"}
 
 GENRE_COLORS = {n: c for n, c, _t, _s in CANON}
@@ -217,6 +220,16 @@ def propose(lib_files, memberships, music_root_name="Müzik", existing_genres=No
     files_by_id = {f["id"]: f for f in lib_files}
     tree = build_tree(lib_files)
     folders = []
+    own_of = {}
+
+    def ancestor(rel):
+        parts = names.split_rel(rel)
+        for i in range(len(parts) - 1, 0, -1):
+            a = own_of.get("/".join(parts[:i]))
+            if a:
+                return a
+        return None
+
     for rel in sorted(k for k in tree if k):
         node = tree[rel]
         name = names.split_rel(rel)[-1]
@@ -224,9 +237,16 @@ def propose(lib_files, memberships, music_root_name="Müzik", existing_genres=No
         depth = rel.count("/")
         own = None
         reason = ""
+        anc = ancestor(rel)
         if kind == "genre":
-            own = "g:" + g
-            reason = "klasör adı"
+            _g, score = match_genre(name)
+            if anc == "ignore":
+                kind = None              # sample klasörünün altı da sample'dır ("Electric Piano" -> Fon değil)
+            elif score and score < 2000 and anc and anc.startswith("g:"):
+                kind = None              # yalnızca "remix/pop" gibi genel bir kelime: üst klasörün türü geçerli
+            else:
+                own = "g:" + g
+                reason = "klasör adı"
         elif kind == "ignore":
             own = "ignore"
             reason = "sample / efekt"
@@ -237,7 +257,7 @@ def propose(lib_files, memberships, music_root_name="Müzik", existing_genres=No
         if node["direct"]:
             ids = [f["id"] for f in node["files"]]
             votes = content_votes(ids, memberships, files_by_id)
-            if own is None and votes:
+            if own is None and votes and anc != "ignore":
                 top, n = votes.most_common(1)[0]
                 if n >= max(2, int(0.6 * len(ids) + 0.5)):
                     own = "g:" + top
@@ -246,6 +266,7 @@ def propose(lib_files, memberships, music_root_name="Müzik", existing_genres=No
             own = "spread" if node["direct"] else None
             if own:
                 reason = "kök klasör"
+        own_of[rel] = own
         folders.append({"rel": rel, "disp": names.display(rel), "name": names.display(name), "depth": depth,
                         "direct": node["direct"], "total": node["total"], "suggest": own, "reason": reason,
                         "votes": dict(votes.most_common(3)) if votes else {},

@@ -145,6 +145,12 @@ def test_dedupe_merge_and_undo():
     # aynı sesse analiz edilmiş Engine kaydı korunur ve tutulan dosyayı gösterir
     yolla = eng(lib, "SELECT path, isAnalyzed FROM Track WHERE title='Yolla'")
     assert yolla == [("../Müzik/Türkçe Pop/Tarkan - Yolla.mp3", 1)], yolla
+    # notlu kopya (secilecek) Halay klasöründeki kopyanın YERİNE geçti: not kaybolmadı
+    from mutagen.id3 import ID3
+    t = ID3(os.path.join(lib.root, "Müzik", "Halay", "Grup Ateş - Delilo.mp3"))
+    assert any("MIK 8A" in str(c) for c in t.getall("COMM")), t.getall("COMM")
+    assert not disk(lib, "melis music/secilecek/Grup Ateş - Delilo (1).mp3")
+    assert res.get("content_swaps") == 1, res
     # listedeki girişler tutulan kayda yönlendi
     st = lib.engine_state(force=True)
     h = next(p for p in st["playlists"] if p["path"] == ["Melis Program", "Halaylar"])
@@ -158,6 +164,11 @@ def test_dedupe_merge_and_undo():
     journal.undo_last(lib)
     n_after = eng(lib, "SELECT COUNT(*) FROM Track")[0][0]
     assert n_after == n_before, (n_before, n_after)
+    assert disk(lib, "melis music/secilecek/Grup Ateş - Delilo (1).mp3")
+    t = ID3(os.path.join(lib.root, "Müzik", "Halay", "Grup Ateş - Delilo.mp3"))
+    assert not t.getall("COMM"), t.getall("COMM")
+    rows = {f["rel"] for f in lib.audio_files()}
+    assert "Müzik/Halay/Grup Ateş - Delilo.mp3" in rows and "melis music/secilecek/Grup Ateş - Delilo (1).mp3" in rows
 
 
 def test_lists_direct_edit_and_undo():

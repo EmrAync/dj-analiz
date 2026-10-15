@@ -110,20 +110,54 @@ def _member(f, ctx, score, why):
             "score": round(score, 1), "why": why}
 
 
+def richness(f):
+    """Bir kopyanın etiketlerindeki DJ bilgisi: not, Serato cue'ları, ton (Mixed In Key), BPM…"""
+    r = 0
+    if f.get("note"):
+        r += 100
+    if f.get("cues"):
+        r += 50 + min(f["cues"], 8)
+    if f.get("camelot"):
+        r += 20
+    if f.get("mik_energy"):
+        r += 5
+    if f.get("bpm"):
+        r += 3
+    if f.get("rating"):
+        r += 3
+    for k in ("title", "artist", "album", "genre"):
+        if f.get(k):
+            r += 2
+    if f.get("has_art"):
+        r += 2
+    return r
+
+
 def _make(gid, kind, members, ctx):
     scored = sorted(((_score(m, ctx), m) for m in members), key=lambda x: -x[0][0])
     keeper = scored[0][1]
+    # aynı ses ama etiketler farklıysa: YER tür klasöründeki kopyanınki, İÇERİK (not, ton, cue) en dolu kopyanınki
+    content = None
+    if kind == "audio":
+        best = max(members, key=lambda m: (richness(m), m["id"] == keeper["id"]))
+        if best["id"] != keeper["id"] and richness(best) > richness(keeper):
+            content = best
     out = []
     for (s, why), m in scored:
         d = _member(m, ctx, s, why)
         d["keeper"] = m["id"] == keeper["id"]
+        d["content"] = bool(content and m["id"] == content["id"])
         out.append(d)
+    src = content or keeper
     missing = []
-    if not keeper.get("note") and any(m.get("note") for m in members):
+    if not src.get("note") and any(m.get("note") for m in members):
         missing.append("not")
-    if not keeper.get("cues") and any(m.get("cues") for m in members):
+    if not src.get("cues") and any(m.get("cues") for m in members):
         missing.append("cue")
-    return {"id": gid, "kind": kind, "members": out, "keeper": keeper["id"], "missing": missing}
+    if not src.get("camelot") and any(m.get("camelot") for m in members):
+        missing.append("ton")
+    return {"id": gid, "kind": kind, "members": out, "keeper": keeper["id"],
+            "content": content["id"] if content else None, "missing": missing}
 
 
 def groups(lib):
@@ -392,12 +426,24 @@ def quarantine_files(lib, fids, label, op, files=None):
     return moved
 
 
+def _move_into(lib, f, rel, op):
+    """Dosyayı verilen (boşaltılmış) yola taşır; katalog satırı o yolu devralır."""
+    src = lib.rootinfo.os_path(f["rel"], f.get("os_rel"))
+    dst = lib.rootinfo.os_path(rel)
+    if os.path.exists(dst):
+        raise OSError("Hedef dolu: %s" % rel)
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    os.rename(src, dst)
+    op.add({"k": "mv", "fid": f["id"], "old": f["rel"], "new": rel})
+    lib.catalog.update_rel(f["id"], rel, lib.rootinfo.os_rel_of(rel), names.match_key(rel), names.loose_key(rel))
+
+
 def merge(lib, picks, progress=None):
     """picks: [{'group': id, 'keeper': file_id | None}] -> özet. Tek işlem olarak geri alınabilir."""
     from .library import UserError
     with lib.lock:
         allg = {g["id"]: g for g in groups(lib)}
-        pairs, eng_only = [], []
+        pairs, eng_only, swaps = [], [], {}
         for p in picks:
             g = allg.get(p.get("group"))
             if not g:
@@ -408,6 +454,10 @@ def merge(lib, picks, progress=None):
             keeper = int(p.get("keeper") or g["keeper"])
             if not any(m["id"] == keeper for m in g["members"]):
                 continue
+            content = p.get("content", g.get("content") if keeper == g["keeper"] else None)
+            if content and g["kind"] == "audio" and int(content) != keeper and \
+                    any(m["id"] == int(content) for m in g["members"]):
+                swaps[keeper] = int(content)
             for m in g["members"]:
                 if m["id"] != keeper:
                     pairs.append((m["id"], keeper, g["kind"] in ("exact", "audio")))
@@ -439,11 +489,17 @@ def merge(lib, picks, progress=None):
         res["serato"] = _serato_merge(lib, pairs, files, op)
         if progress:
             progress(0.6, "Fazla kopyalar karantinaya taşınıyor…")
-        rm_ids = sorted({a for a, _b, _c in pairs})
+        rm_ids = sorted({a for a, _b, _c in pairs} - set(swaps.values()))
         quarantine_files(lib, rm_ids, "ciftler", op, files)
         for rm, kp, _same in pairs:
             cat.add_history(files[rm]["rel"], kp)
-        op.info = {"pairs": pairs, "eng_only": eng_only}
+        # içerik değişimi: zengin etiketli kopya, tür klasöründeki kopyanın YERİNE geçer
+        for kp, ct in swaps.items():
+            quarantine_files(lib, [kp], "ciftler", op, files)
+            _move_into(lib, files[ct], files[kp]["rel"], op)
+            cat.add_history(files[ct]["rel"], ct)
+        res["content_swaps"] = len(swaps)
+        op.info = {"pairs": pairs, "eng_only": eng_only, "swaps": swaps}
         lib.bump()
         if progress:
             progress(0.85, "Engine kontrol ediliyor…")

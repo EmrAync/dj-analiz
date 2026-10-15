@@ -106,7 +106,7 @@ def _update_refs(lib, changes, eng, sraws, op, progress=None):
         if mapping:
             serato.backup(sdir, lib.backup_dir("serato"), "tasima")
             _prune(lib.backup_dir("serato"), "serato_", ".zip", 12)
-            st = serato.rewrite_paths(sdir, mapping)
+            st = serato.rewrite_paths(sdir, mapping, dedupe=False)
             op.add({"k": "ser", "map": mapping})
             res["serato"] = st.get("crate_entries", 0) + st.get("db_changed", 0)
     return res
@@ -312,15 +312,18 @@ def move_files(lib, moves, title, kind="tasima", progress=None, op=None, maint=T
         src_dirs = defaultdict(set)
         total = len(moves)
         try:
-            for i, (fid, new) in enumerate(sorted(moves.items(), key=lambda kv: kv[1])):
-                f = files[fid]
-                _fs_move(lib, f, new, op)
-                cat.update_rel(fid, new, lib.rootinfo.os_rel_of(new), names.match_key(new), names.loose_key(new))
-                cat.add_history(f["rel"], fid)
-                changes.append((fid, f["rel"], new))
-                src_dirs[f.get("folder") or ""].add(_parent(new))
-                if progress and (i % 25 == 0 or i == total - 1):
-                    progress(0.05 + 0.55 * (i + 1) / max(1, total), "Taşınıyor (%d/%d)…" % (i + 1, total))
+            items = sorted(moves.items(), key=lambda kv: kv[1])
+            for b in range(0, len(items), 200):
+                with cat.tx():   # katalog yazımları 200'lük paketlerle (hızlı, yarım kalmaz)
+                    for i, (fid, new) in enumerate(items[b:b + 200], b):
+                        f = files[fid]
+                        _fs_move(lib, f, new, op)
+                        cat.update_rel(fid, new, lib.rootinfo.os_rel_of(new), names.match_key(new), names.loose_key(new))
+                        cat.add_history(f["rel"], fid)
+                        changes.append((fid, f["rel"], new))
+                        src_dirs[f.get("folder") or ""].add(_parent(new))
+                        if progress and (i % 25 == 0 or i == total - 1):
+                            progress(0.05 + 0.55 * (i + 1) / max(1, total), "Taşınıyor (%d/%d)…" % (i + 1, total))
             if progress:
                 progress(0.62, "Engine ve Serato güncelleniyor…")
             res = _update_refs(lib, changes, eng, sraws, op)
@@ -397,12 +400,13 @@ def rename_folder(lib, rel, new_name, progress=None, op=None, kind="ad_degistir"
         try:
             _rename(src, dst)
             changes, cat_changes = [], []
-            for r in rows:
-                nr = new_rel + r["rel"][len(rel):]
-                cat.update_rel(r["id"], nr, lib.rootinfo.os_rel_of(nr), names.match_key(nr), names.loose_key(nr))
-                cat_changes.append([r["id"], r["rel"], nr])
-                cat.add_history(r["rel"], r["id"])
-                changes.append((r["id"], r["rel"], nr))
+            with cat.tx():
+                for r in rows:
+                    nr = new_rel + r["rel"][len(rel):]
+                    cat.update_rel(r["id"], nr, lib.rootinfo.os_rel_of(nr), names.match_key(nr), names.loose_key(nr))
+                    cat_changes.append([r["id"], r["rel"], nr])
+                    cat.add_history(r["rel"], r["id"])
+                    changes.append((r["id"], r["rel"], nr))
             op.add({"k": "mvdir", "old": rel, "new": new_rel, "files": cat_changes})
             # tür ve kural kayıtları
             for g in cat.genres():
@@ -626,16 +630,27 @@ def setup_preview(lib, root_name="Müzik", overrides=None, genre_map=None, extra
         if x not in names_:
             names_.append(x)
     names_.sort(key=lambda n: (G.DISPLAY_ORDER.index(n) if n in G.DISPLAY_ORDER else 99, n))
+    # Engine'e eklenecekler: tür klasörüne girip Engine'de henüz olmayanlar
+    st = lib.engine_state()
+    folder_to_name = {names.loose_key(G.genre_folder_name(gm.get(n) or n)): n for n in names_}
+    add = defaultdict(int)
+    for fid, rel in targets.items():
+        parts = names.split_rel(rel)
+        n = folder_to_name.get(names.loose_key(parts[1])) if len(parts) > 1 else None
+        if n and not st["by_file"].get(fid):
+            add[n] += 1
     genres = [{"name": n, "folder": G.genre_folder_name(gm.get(n) or n), "count": stats.get("g:" + n, 0),
-               "color": G.GENRE_COLORS.get(n) or "#64748b"} for n in names_]
+               "to_engine": add.get(n, 0), "color": G.GENRE_COLORS.get(n) or "#64748b"} for n in names_]
     return {"root": root_rel, "folders": prop["folders"], "genres": genres, "assign": eff,
+            "engine_tracks": len(st["tracks"]),
             "moves": len(targets), "spread": stats.get("spread", 0), "ignore": stats.get("ignore", 0),
             "stay": stats.get("stay", 0), "canon": [{"name": n, "color": c} for n, c, _t, _s in G.CANON],
             "sample": [{"from": names.display(lib.catalog.file(fid)["rel"]), "to": names.display(rel)}
                        for fid, rel in list(targets.items())[:40]]}
 
 
-def setup_apply(lib, root_name="Müzik", overrides=None, genre_map=None, extra_genres=(), progress=None):
+def setup_apply(lib, root_name="Müzik", overrides=None, genre_map=None, extra_genres=(), progress=None,
+                engine_off=()):
     """Tür klasörlerini oluşturur ve şarkıları taşır. Tek işlem; 'Geri al' her şeyi eski yerine koyar."""
     root_rel = names.minimal_fix_component(root_name or "Müzik", False)
     with lib.lock:
@@ -646,14 +661,14 @@ def setup_apply(lib, root_name="Müzik", overrides=None, genre_map=None, extra_g
                       key=lambda n: (G.DISPLAY_ORDER.index(n) if n in G.DISPLAY_ORDER else 99, n))
         op = journal.Op(lib, "kurulum", "Düzen kuruldu: %d şarkı tür klasörlerine taşındı" % len(targets))
         try:
-            return _setup_apply(lib, op, root_rel, used, eff, targets, stats, genre_map, progress)
+            return _setup_apply(lib, op, root_rel, used, eff, targets, stats, genre_map, progress, set(engine_off or ()))
         except Exception:
             journal.apply_inverse(lib, op.steps, force=True)
             lib.bump()
             raise
 
 
-def _setup_apply(lib, op, root_rel, used, eff, targets, stats, genre_map, progress):
+def _setup_apply(lib, op, root_rel, used, eff, targets, stats, genre_map, progress, engine_off=frozenset()):
     cat = lib.catalog
     old_root = lib.music_root()
     if old_root != root_rel:
@@ -668,7 +683,7 @@ def _setup_apply(lib, op, root_rel, used, eff, targets, stats, genre_map, progre
         if names.loose_key(rel) in existing:
             continue
         _ensure_dir(lib, rel, op)
-        gid = cat.genre_add(rel, pos=pos, color=G.GENRE_COLORS.get(name))
+        gid = cat.genre_add(rel, pos=pos, color=G.GENRE_COLORS.get(name), engine=0 if name in engine_off else 1)
         pos += 1
         op.add({"k": "genre", "op": "add", "id": gid})
     rules = cat.folder_rules()

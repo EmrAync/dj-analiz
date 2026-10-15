@@ -260,11 +260,13 @@ def remove_crate_file(path: str, quarantine_dir: str):
     return util.move_file(path, os.path.join(quarantine_dir, os.path.basename(path)))
 
 
-def rewrite_paths(sdir: str, mapping: dict, drop_db_paths=frozenset()):
+def rewrite_paths(sdir: str, mapping: dict, drop_db_paths=frozenset(), dedupe: bool = True):
     """Tüm crate'lerde ve database V2'de yolları değiştirir.
 
     mapping: {eski_ham_yol: yeni_ham_yol}
     drop_db_paths: database V2'den çıkarılacak yollar (karantinaya alınan çiftler)
+    dedupe: True (çift birleştirme) -> aynı yere düşen kayıtlar teke indirilir.
+            False (taşıma / geri alma) -> hiçbir kayıt silinmez; işlem birebir geri alınabilir.
     Dönüş: istatistik sözlüğü.
     """
     stats = {"crates_changed": 0, "crate_entries": 0, "db_changed": 0, "db_removed": 0}
@@ -295,7 +297,7 @@ def rewrite_paths(sdir: str, mapping: dict, drop_db_paths=frozenset()):
                                     changed = True
                                     stats["crate_entries"] += 1
                                     b2 = u16(new)
-                                if new in seen and (was_mapped or new in mapped_finals):
+                                if dedupe and new in seen and (was_mapped or new in mapped_finals):
                                     keep = False  # birleştirme sonrası aynı crate'te iki kez olmasın
                                     changed = True
                                 seen.add(new)
@@ -336,7 +338,7 @@ def rewrite_paths(sdir: str, mapping: dict, drop_db_paths=frozenset()):
                 continue
             if pf is not None and pf in mapping and mapping[pf] != pf:
                 new = mapping[pf]
-                if new in existing:
+                if dedupe and new in existing:
                     # hedef zaten kayıtlı: eski kaydı çıkar (birleştirme)
                     stats["db_removed"] += 1
                     changed = True

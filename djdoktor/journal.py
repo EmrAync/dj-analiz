@@ -122,9 +122,22 @@ def apply_inverse(lib, steps, force=False, notes=None, managed=None):
     cat = lib.catalog
     notes = notes if notes is not None else []
     i = len(steps) - 1
+    batch = 0
     while i >= 0:
         s = steps[i]
         k = s["k"]
+        if k in ("mv", "q") and batch == 0:
+            # ardışık dosya adımları: katalog yazımları 200'lük paketlerle (binlerce dosyada hızlı)
+            j = i
+            while j >= 0 and steps[j]["k"] in ("mv", "q") and i - j < 200:
+                j -= 1
+            with cat.tx():
+                batch = i - j
+                while batch:
+                    _file_step(lib, steps[i])
+                    i -= 1
+                    batch -= 1
+            continue
         if k == "eng":
             d = _db_for(lib, s)
             if d is None:
@@ -165,7 +178,7 @@ def apply_inverse(lib, steps, force=False, notes=None, managed=None):
             sdir = serato.serato_dir(lib.root)
             if sdir and s.get("map"):
                 inv = {v: k2 for k2, v in s["map"].items()}
-                serato.rewrite_paths(sdir, inv)
+                serato.rewrite_paths(sdir, inv, dedupe=False)
         elif k == "sersnap":
             sdir = serato.serato_dir(lib.root)
             if sdir and os.path.isfile(s["backup"]):
@@ -180,15 +193,6 @@ def apply_inverse(lib, steps, force=False, notes=None, managed=None):
                 elif os.path.isfile(p):
                     qd = lib.quarantine("geri_alinan_crate")
                     util.move_file(p, os.path.join(qd, os.path.basename(p)))
-        elif k == "mv":
-            src = lib.rootinfo.os_path(s["new"])
-            dst = lib.rootinfo.os_path(s["old"])
-            if os.path.exists(src) and (not os.path.exists(dst) or names.loose_key(s["new"]) == names.loose_key(s["old"])):
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                _rename(src, dst)
-            if s.get("fid"):
-                old = s["old"]
-                cat.update_rel(s["fid"], old, lib.rootinfo.os_rel_of(old), names.match_key(old), names.loose_key(old))
         elif k == "mvdir":
             src = lib.rootinfo.os_path(s["new"])
             dst = lib.rootinfo.os_path(s["old"])
@@ -196,14 +200,6 @@ def apply_inverse(lib, steps, force=False, notes=None, managed=None):
                 _rename(src, dst)
             for fid, old, _new in s.get("files") or []:
                 cat.update_rel(fid, old, lib.rootinfo.os_rel_of(old), names.match_key(old), names.loose_key(old))
-        elif k == "q":
-            src = lib.rootinfo.os_path(s["dst"])
-            dst = lib.rootinfo.os_path(s["old"])
-            if os.path.exists(src) and not os.path.exists(dst):
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                os.rename(src, dst)
-            if s.get("fid"):
-                cat.update_file(s["fid"], present=1, origin=s.get("origin") or "library")
         elif k == "copy":
             p_ = lib.rootinfo.os_path(s["rel"])
             if os.path.exists(p_):
@@ -281,6 +277,29 @@ def _rmdir_junk_only(lib, p):
         return True
     except OSError:
         return False
+
+
+def _file_step(lib, s):
+    cat = lib.catalog
+    if s["k"] == "mv":
+        src = lib.rootinfo.os_path(s["new"])
+        dst = lib.rootinfo.os_path(s["old"])
+        if os.path.exists(src) and (not os.path.exists(dst) or names.loose_key(s["new"]) == names.loose_key(s["old"])):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            _rename(src, dst)
+        if s.get("fid"):
+            old = s["old"]
+            cat.update_rel(s["fid"], old, lib.rootinfo.os_rel_of(old), names.match_key(old), names.loose_key(old))
+    elif s["k"] == "q":
+        src = lib.rootinfo.os_path(s["dst"])
+        dst = lib.rootinfo.os_path(s["old"])
+        if os.path.exists(src) and not os.path.exists(dst):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            os.rename(src, dst)
+        if s.get("fid"):
+            old = s["old"]
+            cat.update_rel(s["fid"], old, lib.rootinfo.os_rel_of(old), names.match_key(old), names.loose_key(old))
+            cat.update_file(s["fid"], present=1, origin=s.get("origin") or "library")
 
 
 def _alias(cat, db, pid):

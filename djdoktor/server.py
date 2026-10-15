@@ -392,8 +392,10 @@ class Handler(BaseHTTPRequestHandler):
             if parts[1:] == ["apply"] and method == "POST":
                 root = body.get("root") or "Müzik"
                 ov, gm, extra = body.get("overrides") or {}, body.get("genre_map") or {}, body.get("extra") or []
+                off = body.get("engine_off") or []
                 return self._task("setup", "Düzen kuruluyor",
-                                  lambda p, c: _after(lib, relocate.setup_apply(lib, root, ov, gm, extra, p)))
+                                  lambda p, c: _after(lib, relocate.setup_apply(lib, root, ov, gm, extra, p, off),
+                                                      inbox_dirs=True))
             return self._json(relocate.setup_preview(lib, qs.get("root") or lib.music_root() or "Müzik"))
         if r0 == "genre" and method == "POST":
             act = parts[1] if len(parts) > 1 else ""

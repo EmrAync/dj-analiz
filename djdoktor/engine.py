@@ -85,9 +85,26 @@ def hot_journal(db_path: str) -> bool:
         return False
 
 
+def recover(db_path: str) -> bool:
+    """Yarım kalmış işlem (sıcak günlük) varsa ve Engine DJ KAPALIYSA SQLite'ın kendi kurtarmasını çalıştırır:
+    yarım işlem geri sarılır, veritabanı işlemden önceki sağlam hâline döner."""
+    if not hot_journal(db_path) or is_running():
+        return False
+    try:
+        con = sqlite3.connect(db_path, timeout=5)
+        try:
+            con.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()
+        finally:
+            con.close()
+    except sqlite3.DatabaseError:
+        return False
+    return not hot_journal(db_path)
+
+
 def open_ro(db_path: str):
     """Salt-okunur bağlantı. Sıcak günlük varsa 'immutable' modda açar ve uyarır."""
     warn = ""
+    recover(db_path)
     if hot_journal(db_path):
         warn = "Engine DJ veritabanında yarım kalmış bir işlem var. Engine DJ'i bir kez açıp kapatın."
         con = sqlite3.connect(_uri(db_path, "ro") + "&immutable=1", uri=True)
@@ -253,6 +270,7 @@ def preflight(db_path: str):
         raise EngineError("Engine veritabanı bulunamadı: %s" % db_path)
     if is_running():
         problems.append("Engine DJ şu anda açık. Değişiklikler için Engine DJ'i kapatın.")
+    recover(db_path)
     if hot_journal(db_path):
         problems.append("Veritabanında yarım kalmış bir işlem var. Engine DJ'i bir kez açıp düzgünce kapatın.")
     try:
@@ -406,6 +424,7 @@ class Writer:
     def __init__(self, db_path: str, lib_dir: str, root: str, check_running: bool = True):
         if check_running and is_running():
             raise EngineError("Engine DJ açık. Değişiklik yapmak için Engine DJ'i kapatın.")
+        recover(db_path)
         if hot_journal(db_path):
             raise EngineError("Engine veritabanında yarım kalmış bir işlem var. Engine DJ'i bir kez açıp kapatın.")
         self.db_path = db_path
@@ -741,8 +760,20 @@ def undo_steps(w: Writer, steps, alias: dict, force: bool = False, managed=froze
             guard += 1
         return pid
 
-    for st in reversed(steps):
+    seq = list(reversed(steps))
+    i = 0
+    while i < len(seq):
+        st = seq[i]
         op = st["op"]
+        if op == "trk_del_added":
+            # ardışık eklemeler tek seferde geri alınır (binlerce parça için hızlı)
+            j = i
+            while j < len(seq) and seq[j]["op"] == "trk_del_added":
+                j += 1
+            _undo_added(w, [x["id"] for x in seq[i:j]], force, managed)
+            i = j
+            continue
+        i += 1
         if op == "pl_refs":
             pid = A(st["id"])
             if not w.pl(pid):
@@ -805,21 +836,32 @@ def undo_steps(w: Writer, steps, alias: dict, force: bool = False, managed=froze
             res = w.track_set_path(st["id"], st["path"], expect=None if force else st["expect"], record=False)
             if res == "degismis" and not force:
                 raise UndoConflict("Parçanın yolu sonradan değişmiş.")
-        elif op == "trk_del_added":
-            t = w.track(st["id"])
-            if not t:
-                continue
-            ref = (t["originDatabaseUuid"], t["originTrackId"])
-            lists = [r[0] for r in w.con.execute(
-                "SELECT DISTINCT listId FROM PlaylistEntity WHERE databaseUuid=? AND trackId=?", ref).fetchall()]
-            if any(lid not in managed for lid in lists) and not force:
-                raise UndoConflict("Eklenen parça sonradan listelere konmuş.")
-            if t["isAnalyzed"] and not force:
-                raise UndoConflict("Eklenen parça sonradan Engine'de analiz edilmiş.")
-            for (lid,) in w.con.execute("SELECT DISTINCT listId FROM PlaylistEntity WHERE databaseUuid=? AND trackId=?",
-                                         ref).fetchall():
-                w.pl_set_refs(lid, [r for r in w.refs(lid) if r != ref], record=False)
-            w.con.execute("DELETE FROM Track WHERE id=?", (st["id"],))
         else:
             raise EngineError("Bilinmeyen geri alma adımı: %s" % op)
     return alias
+
+
+def _undo_added(w: Writer, tids, force, managed):
+    """Programın eklediği parçaları koleksiyondan çıkarır (toplu)."""
+    rows = {}
+    for tid in tids:
+        t = w.track(tid)
+        if t:
+            rows[tid] = t
+    if not rows:
+        return
+    refs = {(t["originDatabaseUuid"], t["originTrackId"]) for t in rows.values()}
+    used = {}
+    for lid, u, t in w.con.execute("SELECT listId, databaseUuid, trackId FROM PlaylistEntity").fetchall():
+        if (u, t) in refs:
+            used.setdefault(lid, set()).add((u, t))
+    if not force:
+        if any(lid not in managed for lid in used):
+            raise UndoConflict("Eklenen parça sonradan listelere konmuş.")
+        analyzed = [tid for tid in rows if w.q1("SELECT isAnalyzed FROM Track WHERE id=?", (tid,))["isAnalyzed"]]
+        if analyzed:
+            raise UndoConflict("Eklenen parça sonradan Engine'de analiz edilmiş.")
+    for lid, rs in used.items():
+        w.pl_set_refs(lid, [r for r in w.refs(lid) if r not in rs], record=False)
+    for tid in rows:
+        w.con.execute("DELETE FROM Track WHERE id=?", (tid,))

@@ -349,7 +349,8 @@ const COLORS = { "Kürtçe Halay": "#c2410c", "Halay": "#dc2626", "Horon": "#0e7
 async function loadSetup(force) {
   if (!S.setup) {
     const saved = JSON.parse(localStorage.getItem("djd.setup") || "null");
-    S.setup = saved || { root: "Müzik", overrides: {}, genre_map: {}, extra: [] };
+    S.setup = saved || { root: "Müzik", overrides: {}, genre_map: {}, extra: [], engine_off: [] };
+    S.setup.engine_off = S.setup.engine_off || [];
   }
   const v = $("#view");
   if (!S.setupData || force) v.innerHTML = `<div class="setup"><h1>Düzen önerisi hazırlanıyor…</h1><p class="muted">Klasörlerin, Serato crate'lerin ve Engine listelerin inceleniyor.</p></div>`;
@@ -392,10 +393,12 @@ function renderSetup() {
       <div><b>${fmtN(d.ignore)}</b><span class="muted">dosyaya dokunulmayacak (sample, efekt)</span></div>
       <div><b>${fmtN(shown.length)}</b><span class="muted">tür klasörü</span></div>
     </div>
+    ${(() => { const add = d.genres.filter((g) => !su.engine_off.includes(g.name)).reduce((a, g) => a + g.to_engine, 0);
+      return add ? `<div class="hint blue"><span class="ic">ℹ</span><div><b>${fmtN(add)} şarkı Engine koleksiyonuna eklenecek</b> (şu an Engine'de ${fmtN(d.engine_tracks)} şarkı var). Hepsi Engine'de “Analiz bekleyenler” listesine girer; Engine DJ'de bir kere analiz ettirmen yeter${add > 800 ? " (çok şarkı: bilgisayar başında birkaç saat sürebilir, istersen gece çalıştır)" : ""}. Bir türü Engine'e koymak istemiyorsan aşağıda o türün <b>Engine</b> düğmesini kapat.</div></div>` : ""; })()}
     <div class="card">
       <h3>Türler</h3>
       <div class="muted small" style="margin-bottom:10px">Ada tıklayıp değiştirebilirsin (ör. “Halay” yerine “HALAYLAR”). ✕ o türü kaldırır; şarkılarını sonra tek tek seçersin.</div>
-      <div class="gchips">${d.genres.map((g) => `<span class="gchip" style="background:${esc(g.color)}"><span data-gren="${esc(g.name)}" style="cursor:pointer" title="Adını değiştir">${esc(g.folder)}</span><span class="n">${fmtN(g.count)}</span><button class="x" data-gdel="${esc(g.name)}" title="Kaldır">✕</button></span>`).join("")}
+      <div class="gchips">${d.genres.map((g) => { const off = su.engine_off.includes(g.name); return `<span class="gchip" style="background:${esc(g.color)}${off ? ";opacity:.75" : ""}"><span data-gren="${esc(g.name)}" style="cursor:pointer" title="Adını değiştir">${esc(g.folder)}</span><span class="n">${fmtN(g.count)}</span><button class="x" data-geng="${esc(g.name)}" title="${off ? "Engine'e eklenmeyecek — tıkla: ekle" : "Engine'e eklenecek — tıkla: ekleme"}" style="width:auto;padding:0 7px;${off ? "text-decoration:line-through" : ""}">Engine</button><button class="x" data-gdel="${esc(g.name)}" title="Kaldır">✕</button></span>`; }).join("")}
       <button class="btn sm" id="gadd">+ Tür ekle</button></div>
       <label class="field" style="max-width:340px;margin-top:16px"><span>Ana müzik klasörünün adı (SSD'de)</span><input id="sroot" value="${esc(su.root)}"></label>
     </div>
@@ -434,6 +437,13 @@ function renderSetup() {
       if (nv) { su.genre_map[n] = nv; setupRepreview(); }
       return;
     }
+    const ge = e.target.closest("[data-geng]");
+    if (ge) {
+      const n = ge.dataset.geng;
+      su.engine_off = su.engine_off.includes(n) ? su.engine_off.filter((x) => x !== n) : [...su.engine_off, n];
+      setupSave(); renderSetup();
+      return;
+    }
     const del = e.target.closest("[data-gdel]");
     if (del) {
       const n = del.dataset.gdel;
@@ -447,7 +457,7 @@ function renderSetup() {
         "-", { label: "Başka bir ad…", icon: "＋", fn: async () => { const n = await promptBox("Yeni tür", "Tür adı"); if (n) { su.extra.push(n); setupRepreview(); } } }]);
       return;
     }
-    if (e.target.id === "sreset") { S.setup = { root: su.root, overrides: {}, genre_map: {}, extra: [] }; setupRepreview(); return; }
+    if (e.target.id === "sreset") { S.setup = { root: su.root, overrides: {}, genre_map: {}, extra: [], engine_off: [] }; setupRepreview(); return; }
     if (e.target.id === "sapply") {
       const ok = await confirmBox("Düzeni kur", `${fmtN(d.moves)} şarkı ${su.root} altındaki tür klasörlerine taşınacak. Engine ve Serato listelerindeki yollar da güncellenecek. İstersen sonra tek tıkla geri alabilirsin.`, "Düzeni kur");
       if (!ok) return;
@@ -588,6 +598,7 @@ function dupesHtml() {
     g.members.map((m) => `<label class="m ${m.keeper ? "keep" : ""}"><input type="radio" name="k-${esc(g.id)}" value="${m.id}" ${m.keeper ? "checked" : ""}>
       <div style="flex:1;min-width:0"><div class="path">${m.genre ? `<span class="tag" style="color:${esc(m.color)};border-color:${esc(m.color)}">${esc(m.genre)}</span>` : ""}${esc(m.rel)}</div>
       <div class="small">${m.why.filter((w) => !(m.genre && w === m.genre + " klasöründe")).map((w) => `<span class="tag">${esc(w)}</span>`).join("")}${m.bitrate ? `<span class="tag">${m.bitrate} kbps</span>` : ""}</div></div>
+      ${m.content ? '<span class="tag blue" title="Bu kopyanın etiketleri (not, ton, cue) daha dolu: dosya, tutulan kopyanın yerine geçer; diğeri karantinaya gider.">etiketleri korunur</span>' : ""}
       ${m.keeper ? '<span class="tag st ok">tutulacak</span>' : '<span class="tag st">karantinaya</span>'}<button class="play" data-play="${m.id}" title="Dinle">▶</button></label>`).join("")}
     ${g.missing && g.missing.length ? `<div class="small" style="padding:8px 16px;color:var(--warn)">Dikkat: diğer kopyada ${g.missing.join(" ve ")} var, tutulacak kopyada yok.</div>` : ""}</div>`;
   return `<div class="head"><div style="flex:1"><h2>Kopyalar</h2><div class="sub">Aynı şarkının birden fazla kopyası. Biri kalır (önerilen işaretli), diğerleri silinmez: SSD'deki karantina klasörüne taşınır. Engine ve Serato listeleri kalan kopyayı gösterir.</div></div>
