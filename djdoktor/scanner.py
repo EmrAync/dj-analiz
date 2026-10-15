@@ -34,6 +34,12 @@ class RootInfo:
             cand = "/".join(names.sfm_to_ascii(x) for x in names.split_rel(rel))
         return names.long_path(names.join_os(self.root, cand))
 
+    def os_rel_of(self, rel: str) -> str:
+        """Kanonik (disk biçimi) yoldan bu işletim sisteminin göreceği göreli yol."""
+        if self.mac_exfat:
+            return "/".join(names.sfm_to_ascii(p) for p in names.split_rel(rel))
+        return "/".join(names.split_rel(rel))
+
     def to_dict(self):
         return {"root": self.root, "fstype": self.fstype, "mac_exfat": self.mac_exfat}
 

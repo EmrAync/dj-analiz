@@ -97,6 +97,26 @@ CREATE TABLE IF NOT EXISTS ext_items(
 );
 CREATE INDEX IF NOT EXISTS ix_ext_items_list ON ext_items(src, list_key, pos);
 CREATE INDEX IF NOT EXISTS ix_ext_items_file ON ext_items(file_id);
+
+-- v2 ------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS genre(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rel TEXT NOT NULL UNIQUE,
+  pos REAL NOT NULL DEFAULT 0,
+  color TEXT,
+  engine INTEGER NOT NULL DEFAULT 1,
+  created INTEGER
+);
+CREATE TABLE IF NOT EXISTS folder_rule(rel TEXT PRIMARY KEY, action TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS ev_meta(db TEXT NOT NULL, pid INTEGER NOT NULL, data TEXT, PRIMARY KEY(db, pid));
+CREATE TABLE IF NOT EXISTS entry_note(db TEXT NOT NULL, pid INTEGER NOT NULL, ref TEXT NOT NULL, note TEXT,
+  PRIMARY KEY(db, pid, ref));
+CREATE TABLE IF NOT EXISTS serato_link(db TEXT NOT NULL, pid INTEGER NOT NULL, crate TEXT, last_hash TEXT,
+  last_refs TEXT, dirty INTEGER DEFAULT 0, PRIMARY KEY(db, pid));
+CREATE TABLE IF NOT EXISTS pl_alias(db TEXT NOT NULL, old INTEGER NOT NULL, new INTEGER NOT NULL,
+  PRIMARY KEY(db, old));
+CREATE TABLE IF NOT EXISTS inbox_log(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, src TEXT, status TEXT,
+  rel TEXT, genre TEXT, note TEXT, journal INTEGER);
 """
 
 FILE_COLS = [
@@ -442,6 +462,114 @@ class Catalog:
 
     def journal_status(self, jid, status):
         self.x("UPDATE journal SET status=? WHERE id=?", (status, jid))
+
+    # ------------------------------------------------------------------
+    # v2: türler, klasör kuralları, etkinlik bilgileri, Serato bağları
+    # ------------------------------------------------------------------
+    def genres(self):
+        return self.q("SELECT * FROM genre ORDER BY pos, id")
+
+    def genre(self, gid):
+        return self.q1("SELECT * FROM genre WHERE id=?", (gid,))
+
+    def genre_add(self, rel, pos=None, color=None, engine=1):
+        if pos is None:
+            r = self.q1("SELECT COALESCE(MAX(pos),0)+1 AS p FROM genre")
+            pos = r["p"]
+        cur = self.x("INSERT INTO genre(rel, pos, color, engine, created) VALUES(?,?,?,?,?)",
+                     (rel, pos, color, int(engine), util.now()))
+        return cur.lastrowid
+
+    def genre_update(self, gid, **kw):
+        cols = [k for k in kw if k in ("rel", "pos", "color", "engine")]
+        if cols:
+            self.x("UPDATE genre SET %s WHERE id=?" % ",".join("%s=?" % c for c in cols),
+                   [kw[c] for c in cols] + [gid])
+
+    def genre_delete(self, gid):
+        self.x("DELETE FROM genre WHERE id=?", (gid,))
+
+    def folder_rules(self):
+        return {r["rel"]: r["action"] for r in self.q("SELECT rel, action FROM folder_rule")}
+
+    def set_folder_rule(self, rel, action):
+        if action:
+            self.x("INSERT INTO folder_rule(rel, action) VALUES(?,?) ON CONFLICT(rel) DO UPDATE SET action=excluded.action",
+                   (rel, action))
+        else:
+            self.x("DELETE FROM folder_rule WHERE rel=?", (rel,))
+
+    def update_rel(self, fid, rel, os_rel, mkey, lkey):
+        folder, name = (rel.rsplit("/", 1) if "/" in rel else ("", rel))
+        self.x("UPDATE files SET rel=?, os_rel=?, mkey=?, lkey=?, folder=?, name=? WHERE id=?",
+               (rel, os_rel, mkey, lkey, folder, name, fid))
+
+    def ev_meta(self, db, pid):
+        r = self.q1("SELECT data FROM ev_meta WHERE db=? AND pid=?", (db, pid))
+        return json.loads(r["data"]) if r and r["data"] else None
+
+    def ev_meta_all(self, db):
+        return {r["pid"]: json.loads(r["data"] or "{}") for r in self.q("SELECT pid, data FROM ev_meta WHERE db=?", (db,))}
+
+    def set_ev_meta(self, db, pid, data):
+        if data is None:
+            self.x("DELETE FROM ev_meta WHERE db=? AND pid=?", (db, pid))
+        else:
+            self.x("INSERT INTO ev_meta(db, pid, data) VALUES(?,?,?) ON CONFLICT(db, pid) DO UPDATE SET data=excluded.data",
+                   (db, pid, json.dumps(data, ensure_ascii=False)))
+
+    def notes(self, db, pid):
+        return {r["ref"]: r["note"] for r in self.q("SELECT ref, note FROM entry_note WHERE db=? AND pid=?", (db, pid))}
+
+    def set_note(self, db, pid, ref, note):
+        if note:
+            self.x("INSERT INTO entry_note(db, pid, ref, note) VALUES(?,?,?,?) ON CONFLICT(db, pid, ref) "
+                   "DO UPDATE SET note=excluded.note", (db, pid, ref, note))
+        else:
+            self.x("DELETE FROM entry_note WHERE db=? AND pid=? AND ref=?", (db, pid, ref))
+
+    def serato_links(self, db):
+        rows = self.q("SELECT * FROM serato_link WHERE db=?", (db,))
+        for r in rows:
+            r["last_refs"] = json.loads(r["last_refs"]) if r.get("last_refs") else None
+        return {r["pid"]: r for r in rows}
+
+    def set_serato_link(self, db, pid, crate=None, last_hash=None, last_refs=None, dirty=0):
+        self.x("INSERT INTO serato_link(db, pid, crate, last_hash, last_refs, dirty) VALUES(?,?,?,?,?,?) "
+               "ON CONFLICT(db, pid) DO UPDATE SET crate=excluded.crate, last_hash=excluded.last_hash, "
+               "last_refs=excluded.last_refs, dirty=excluded.dirty",
+               (db, pid, crate, last_hash, json.dumps(last_refs, ensure_ascii=False) if last_refs is not None else None,
+                int(dirty)))
+
+    def del_serato_link(self, db, pid):
+        self.x("DELETE FROM serato_link WHERE db=? AND pid=?", (db, pid))
+
+    def add_alias(self, db, old, new):
+        with self.tx() as c:
+            c.execute("INSERT INTO pl_alias(db, old, new) VALUES(?,?,?) ON CONFLICT(db, old) DO UPDATE SET new=excluded.new",
+                      (db, old, new))
+            for t in ("ev_meta", "entry_note", "serato_link"):
+                c.execute("UPDATE OR REPLACE %s SET pid=? WHERE db=? AND pid=?" % t, (new, db, old))
+
+    def aliases(self, db):
+        return {r["old"]: r["new"] for r in self.q("SELECT old, new FROM pl_alias WHERE db=?", (db,))}
+
+    def inbox_log_add(self, src, status, rel, genre, note="", journal=None):
+        self.x("INSERT INTO inbox_log(ts, src, status, rel, genre, note, journal) VALUES(?,?,?,?,?,?,?)",
+               (util.now(), src, status, rel, genre, note, journal))
+
+    def inbox_log(self, limit=40):
+        return self.q("SELECT * FROM inbox_log ORDER BY id DESC LIMIT ?", (limit,))
+
+    def journal_top(self):
+        """Geri alınabilecek en son işlem (LIFO)."""
+        r = self.q1("SELECT * FROM journal WHERE status='tamam' AND kind NOT IN ('geri_al') ORDER BY id DESC LIMIT 1")
+        if r:
+            try:
+                r["payload"] = json.loads(r["payload"] or "{}")
+            except ValueError:
+                r["payload"] = {}
+        return r
 
     # ------------------------------------------------------------------
     # Serato / Engine analiz önbelleği
