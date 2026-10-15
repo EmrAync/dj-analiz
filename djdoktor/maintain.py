@@ -147,7 +147,10 @@ def run(lib, op=None, progress=None):
                         continue  # önce çift birleştirilsin; Engine'de iki kez görünmesin
                     adds.append(f)
             want_lists = drive and bool(gens)
-            if not (pl["repairs"] or pl["relinks"] or adds or want_lists):
+            stale = set()
+            if drive and not gens:
+                stale = managed_ids(lib, data["uuid"], data)   # düzen geri alındı: programın listeleri kalkar
+            if not (pl["repairs"] or pl["relinks"] or adds or want_lists or stale):
                 out["missing"] += pl["missing"]
                 continue
             w = engine.Writer(d["path"], d["lib_dir"], lib.root)
@@ -164,6 +167,12 @@ def run(lib, op=None, progress=None):
                 n_rec = len(w.steps)
                 if want_lists:
                     out["pending"] = _managed_lists(lib, w, gens, prefs)
+                    out["lists"] = True
+                elif stale:
+                    for pid in sorted(stale, key=lambda x: -len(w.descendants(x)) if w.pl(x) else 0):
+                        if w.pl(pid):
+                            w.pl_delete_tree(pid, record=False)
+                    set_managed_meta(lib, data["uuid"], {})
                     out["lists"] = True
                 del w.steps[n_rec:]          # programın listeleri geri alma kaydına girmez
                 w.commit()
