@@ -15,14 +15,18 @@ import threading
 from . import util
 
 DEFAULT_PREFS = {
-    "engine_folder": "DJ Doktor",        # Engine'de bizim listelerin duracağı üst klasör
-    "serato_parent": "DJ Doktor",        # Serato'da bizim crate'lerin üst crate adı
     "serato_dialect": "auto",            # auto | mac | windows
-    "number_sections": True,             # etkinlik bölümlerini 01, 02 diye numarala
-    "theme": "dark",
+    "theme": "light",                    # light | dark
+    "text_size": "normal",               # normal | large
     "extra_excludes": [],
     "lowbitrate_kbps": 192,
     "long_path_limit": 240,
+    # v2
+    "inbox_dir": "",                     # boşsa: Müzik/DJ Gelen (bu bilgisayarda)
+    "archive_dir": "",                   # boşsa: Müzik/DJ Arşiv (bu bilgisayarda)
+    "auto_inbox": True,                  # gelen kutusunu kendiliğinden işle
+    "watch_downloads": True,             # İndirilenler'deki unutulan şarkıları göster
+    "genre_lists": True,                 # Engine'de 'Türler' listelerini tut
 }
 
 BUILTIN_EXCLUDES = {
@@ -71,7 +75,7 @@ class Settings:
         self.path = os.path.join(self.ws, "ayarlar.json")
         data = util.read_json(self.path, {}) or {}
         self.data = {
-            "version": 1,
+            "version": 2,
             "libraries": data.get("libraries", []),
             "active": data.get("active"),
             "prefs": dict(DEFAULT_PREFS, **(data.get("prefs") or {})),
@@ -97,7 +101,7 @@ class Settings:
             lib = self.data["libraries"][0]
         return lib
 
-    def add_library(self, root: str, name: str = "", shared_catalog: bool = False, readonly: bool = True):
+    def add_library(self, root: str, name: str = "", shared_catalog: bool = True, readonly: bool = False):
         root = os.path.abspath(root)
         with self.lock:
             for l in self.data["libraries"]:
@@ -114,7 +118,7 @@ class Settings:
             lib = {
                 "id": lid, "name": name or base, "root": root, "catalog": cat,
                 "shared_catalog": bool(shared_catalog), "readonly": bool(readonly),
-                "created": util.now(),
+                "created": util.now(), "v": 2,
             }
             self.data["libraries"].append(lib)
             self.data["active"] = lid
@@ -153,6 +157,32 @@ class Settings:
                 if k in DEFAULT_PREFS:
                     self.data["prefs"][k] = v
             self.save()
+
+    def upgrade_library(self, lib_id):
+        """v1 kaydı: katalog bilgisayardaydı. v2'de katalog SSD'de (_DJDoktor_/katalog.db) durur ki
+        Mac ve PC aynı bilgiyi görsün. Eski katalog dosyasına dokunulmaz."""
+        with self.lock:
+            lib = self.get_library(lib_id)
+            if not lib or lib.get("v") == 2:
+                return lib
+            lib["catalog_v1"] = lib.get("catalog")
+            lib["catalog"] = os.path.join(lib["root"], "_DJDoktor_", "katalog.db")
+            lib["shared_catalog"] = True
+            lib["readonly"] = False
+            lib["v"] = 2
+            self.save()
+            return lib
+
+    def relocate_library(self, lib_id, new_root):
+        """SSD başka bir sürücü harfi / bağlama noktasıyla takıldı."""
+        with self.lock:
+            lib = self.get_library(lib_id)
+            if not lib:
+                return None
+            lib["root"] = os.path.abspath(new_root)
+            lib["catalog"] = os.path.join(lib["root"], "_DJDoktor_", "katalog.db")
+            self.save()
+            return lib
 
     def backup_dir(self, lib_id: str, kind: str) -> str:
         p = os.path.join(self.ws, "yedekler", lib_id, kind)

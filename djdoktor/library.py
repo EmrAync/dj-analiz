@@ -106,7 +106,41 @@ class Library:
         if not force and self._estate is not None and self._estate_key == key:
             return self._estate
         data = engine.read(db["path"])
-        resolver = Resolver(self.catalog, self.root)
+        tracks, by_file, orphans, ref_of, tid_of_ref = self.engine_map(db, data)
+        status = {}
+        for fid, rows in by_file.items():
+            if len(rows) > 1:
+                status[fid] = "edup"
+                continue
+            tid, m = rows[0]
+            if m in ("unicode", "sfm"):
+                status[fid] = "broken"
+            elif tracks[tid].get("isAnalyzed"):
+                status[fid] = "ready"
+            else:
+                status[fid] = "pending"
+        fid_of_tid = {tid: fid for fid, rows in by_file.items() for tid, _m in rows}
+        lists_of = defaultdict(list)
+        from . import maintain
+        managed = maintain.managed_ids(self, data["uuid"])
+        for p in data["playlists"]:
+            if p["id"] in managed:
+                continue
+            path = " / ".join(p["path"])
+            for tid in p["entries"]:
+                fid = fid_of_tid.get(tid)
+                if fid is not None:
+                    lists_of[fid].append(path)
+        st = {"db": db, "uuid": data["uuid"], "schema": data["schema"], "tracks": tracks, "by_file": dict(by_file),
+              "orphans": orphans, "status": status, "playlists": data["playlists"], "lists_of": dict(lists_of),
+              "ref_of": ref_of, "tid_of_ref": tid_of_ref, "fid_of_tid": fid_of_tid, "warning": data["warning"]}
+        self._estate, self._estate_key = st, key
+        return st
+
+    def engine_map(self, db, data, resolver=None):
+        """Bir Engine veritabanındaki parçaları diskteki dosyalarla eşleştirir.
+        -> (tracks{tid}, by_file{fid: [(tid, eşleşme)]}, orphans[(tid, rel, eşleşme)], ref_of, tid_of_ref)"""
+        resolver = resolver or Resolver(self.catalog, self.root)
         tracks, by_file, orphans = {}, defaultdict(list), []
         ref_of, tid_of_ref = {}, {}
         for t in data["tracks"]:
@@ -123,31 +157,11 @@ class Library:
                 by_file[f["id"]].append((t["id"], m))
             else:
                 orphans.append((t["id"], rel, m))
-        status = {}
-        for fid, rows in by_file.items():
-            if len(rows) > 1:
-                status[fid] = "edup"
-                continue
-            tid, m = rows[0]
-            if m in ("unicode", "sfm"):
-                status[fid] = "broken"
-            elif tracks[tid].get("isAnalyzed"):
-                status[fid] = "ready"
-            else:
-                status[fid] = "pending"
-        fid_of_tid = {tid: fid for fid, rows in by_file.items() for tid, _m in rows}
-        lists_of = defaultdict(list)
-        for p in data["playlists"]:
-            path = " / ".join(p["path"])
-            for tid in p["entries"]:
-                fid = fid_of_tid.get(tid)
-                if fid is not None:
-                    lists_of[fid].append(path)
-        st = {"db": db, "uuid": data["uuid"], "schema": data["schema"], "tracks": tracks, "by_file": dict(by_file),
-              "orphans": orphans, "status": status, "playlists": data["playlists"], "lists_of": dict(lists_of),
-              "ref_of": ref_of, "tid_of_ref": tid_of_ref, "fid_of_tid": fid_of_tid, "warning": data["warning"]}
-        self._estate, self._estate_key = st, key
-        return st
+        return tracks, dict(by_file), orphans, ref_of, tid_of_ref
+
+    def engine_dbs(self):
+        """Yazılacak Engine veritabanları: SSD'deki (Prime 4) ve varsa bu bilgisayardaki."""
+        return engine.find_dbs(self.root)
 
     def db_uuid(self):
         return self.engine_state().get("uuid")
@@ -358,6 +372,7 @@ class Library:
                 "key": f.get("camelot") or "", "dur": round(f["duration"]) if f.get("duration") else None,
                 "note": f.get("note") or "", "dot": self.dot(s), "es": s["es"], "bad": s["bad"], "fmt": s["fmt"],
                 "dup": (s["dup"] or {}).get("n"), "keeper": (s["dup"] or {}).get("keeper"),
+                "dupk": (s["dup"] or {}).get("kind"), "group": (s["dup"] or {}).get("group"),
                 "genre": g["name"] if g else None, "gid": s["gid"], "sugg": suggest[0] if suggest else None,
                 "why": suggest[1] if suggest else None, "flags": fl, "search": f.get("search") or ""}
 
@@ -369,6 +384,9 @@ class Library:
         if view == "unsorted":
             mem = self.memberships()
             byname = {g["name"]: g for g in gens.values()}
+            canon = dict(byname)
+            for n, _c, _t, _s in G.CANON:
+                canon.setdefault(n, None)
             for s in states.values():
                 if s["place"] != "unsorted":
                     continue
@@ -376,8 +394,16 @@ class Library:
                 if s["dup"] and s["dup"].get("keeper_gid"):
                     kg = gens.get(s["dup"]["keeper_gid"])
                     dg = kg["name"] if kg else None
-                sug = G.suggest_file(s["f"], mem, byname, dupe_genre=dg)
-                rows.append(self.row(s, gens, sug if sug[0] else None))
+                sug = G.suggest_file(s["f"], mem, canon, dupe_genre=dg)
+                row = self.row(s, gens, sug if sug[0] else None)
+                if row["sugg"]:
+                    g = byname.get(row["sugg"])
+                    row["sugg_gid"] = g["id"] if g else None
+                    row["sugg_new"] = g is None
+                if s["dup"] and not s["dup"].get("keeper") and s["dup"]["kind"] in ("exact", "audio") and dg:
+                    row["copy_of"] = dg       # bu bir kopya: asıl dosya o türde
+                    row["group"] = s["dup"]["group"]
+                rows.append(row)
         else:
             for s in states.values():
                 if view == "all":

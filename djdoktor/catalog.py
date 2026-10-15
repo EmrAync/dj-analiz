@@ -117,6 +117,10 @@ CREATE TABLE IF NOT EXISTS pl_alias(db TEXT NOT NULL, old INTEGER NOT NULL, new 
   PRIMARY KEY(db, old));
 CREATE TABLE IF NOT EXISTS inbox_log(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, src TEXT, status TEXT,
   rel TEXT, genre TEXT, note TEXT, journal INTEGER);
+-- taşınan dosyaların eski yolları: Engine/Serato'da eski yolda kalmış kayıtları onarmak için
+CREATE TABLE IF NOT EXISTS rel_history(lkey TEXT PRIMARY KEY, fid INTEGER NOT NULL, ts INTEGER);
+-- gelen kutusunda bekletilen dosyalar (geri alınan eklemeler kendiliğinden tekrar alınmasın)
+CREATE TABLE IF NOT EXISTS inbox_hold(path TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, ts INTEGER);
 """
 
 FILE_COLS = [
@@ -501,8 +505,11 @@ class Catalog:
 
     def update_rel(self, fid, rel, os_rel, mkey, lkey):
         folder, name = (rel.rsplit("/", 1) if "/" in rel else ("", rel))
-        self.x("UPDATE files SET rel=?, os_rel=?, mkey=?, lkey=?, folder=?, name=? WHERE id=?",
-               (rel, os_rel, mkey, lkey, folder, name, fid))
+        with self.tx() as c:
+            # aynı yolda artık olmayan eski bir kayıt varsa onu kenara al (UNIQUE çakışmasın)
+            c.execute("UPDATE files SET rel=rel || '#' || id WHERE rel=? AND id<>? AND present=0", (rel, fid))
+            c.execute("UPDATE files SET rel=?, os_rel=?, mkey=?, lkey=?, folder=?, name=? WHERE id=?",
+                      (rel, os_rel, mkey, lkey, folder, name, fid))
 
     def ev_meta(self, db, pid):
         r = self.q1("SELECT data FROM ev_meta WHERE db=? AND pid=?", (db, pid))
@@ -560,6 +567,26 @@ class Catalog:
 
     def inbox_log(self, limit=40):
         return self.q("SELECT * FROM inbox_log ORDER BY id DESC LIMIT ?", (limit,))
+
+    def add_history(self, old_rel, fid):
+        from . import names
+        self.x("INSERT INTO rel_history(lkey, fid, ts) VALUES(?,?,?) ON CONFLICT(lkey) DO UPDATE SET fid=excluded.fid, "
+               "ts=excluded.ts", (names.loose_key(old_rel), fid, util.now()))
+
+    def history_fid(self, rel):
+        from . import names
+        r = self.q1("SELECT fid FROM rel_history WHERE lkey=?", (names.loose_key(rel),))
+        return r["fid"] if r else None
+
+    def holds(self):
+        return {r["path"]: r for r in self.q("SELECT * FROM inbox_hold")}
+
+    def set_hold(self, path, size=None, mtime=None, on=True):
+        if on:
+            self.x("INSERT INTO inbox_hold(path, size, mtime, ts) VALUES(?,?,?,?) ON CONFLICT(path) DO UPDATE SET "
+                   "size=excluded.size, mtime=excluded.mtime, ts=excluded.ts", (path, size, mtime, util.now()))
+        else:
+            self.x("DELETE FROM inbox_hold WHERE path=?", (path,))
 
     def journal_top(self):
         """Geri alınabilecek en son işlem (LIFO)."""

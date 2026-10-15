@@ -499,7 +499,7 @@ class Writer:
         self.changed_lists.add(pid)
         return pid
 
-    def pl_rename(self, pid: int, title: str):
+    def pl_rename(self, pid: int, title: str, record=True):
         p = self.pl(pid)
         if not p:
             raise EngineError("Liste bulunamadı.")
@@ -507,7 +507,8 @@ class Writer:
         if new == p["title"]:
             return new
         self.con.execute("UPDATE Playlist SET title=?, lastEditTime=datetime('now') WHERE id=?", (new, pid))
-        self.steps.append({"op": "pl_ren", "id": pid, "title": p["title"], "expect": new})
+        if record:
+            self.steps.append({"op": "pl_ren", "id": pid, "title": p["title"], "expect": new})
         self.changed_lists.add(pid)
         return new
 
@@ -545,7 +546,7 @@ class Writer:
                                "title": p["title"]})
         self.changed_lists.add(pid)
 
-    def pl_delete_tree(self, pid: int):
+    def pl_delete_tree(self, pid: int, record=True):
         """Listeyi alt listeleriyle siler; her birini geri getirmek için kaydeder."""
         if not self.pl(pid):
             return
@@ -553,9 +554,10 @@ class Writer:
         for nid in order:
             p = self.pl(nid)
             refs = self.refs(nid)
-            self.steps.append({"op": "pl_recreate", "old_id": nid, "title": p["title"],
-                               "parent": p["parentListId"], "before": p["nextListId"], "refs": refs,
-                               "persisted": p["isPersisted"], "exported": p["isExplicitlyExported"]})
+            if record:
+                self.steps.append({"op": "pl_recreate", "old_id": nid, "title": p["title"],
+                                   "parent": p["parentListId"], "before": p["nextListId"], "refs": refs,
+                                   "persisted": p["isPersisted"], "exported": p["isExplicitlyExported"]})
             self.con.execute("DELETE FROM PlaylistEntity WHERE listId=?", (nid,))
             self.con.execute("DELETE FROM Playlist WHERE id=?", (nid,))
             self.changed_lists.add(nid)
@@ -727,8 +729,10 @@ class Writer:
 # ---------------------------------------------------------------------------
 # Geri alma: kaydedilen adımları tersten uygular
 # ---------------------------------------------------------------------------
-def undo_steps(w: Writer, steps, alias: dict, force: bool = False):
-    """steps: Writer.steps (uygulama sırası). alias: {eski_liste_id: yeni_id} (güncellenir)."""
+def undo_steps(w: Writer, steps, alias: dict, force: bool = False, managed=frozenset()):
+    """steps: Writer.steps (uygulama sırası). alias: {eski_liste_id: yeni_id} (güncellenir).
+    managed: programın kendiliğinden tuttuğu listeler (Analiz bekleyenler, Türler); bunlardaki
+    kullanım çakışma sayılmaz, geri almadan sonra yeniden hesaplanır."""
 
     def A(pid):
         guard = 0
@@ -806,10 +810,12 @@ def undo_steps(w: Writer, steps, alias: dict, force: bool = False):
             if not t:
                 continue
             ref = (t["originDatabaseUuid"], t["originTrackId"])
-            used = w.con.execute("SELECT COUNT(*) FROM PlaylistEntity WHERE databaseUuid=? AND trackId=?",
-                                 ref).fetchone()[0]
-            if used and not force:
+            lists = [r[0] for r in w.con.execute(
+                "SELECT DISTINCT listId FROM PlaylistEntity WHERE databaseUuid=? AND trackId=?", ref).fetchall()]
+            if any(lid not in managed for lid in lists) and not force:
                 raise UndoConflict("Eklenen parça sonradan listelere konmuş.")
+            if t["isAnalyzed"] and not force:
+                raise UndoConflict("Eklenen parça sonradan Engine'de analiz edilmiş.")
             for (lid,) in w.con.execute("SELECT DISTINCT listId FROM PlaylistEntity WHERE databaseUuid=? AND trackId=?",
                                          ref).fetchall():
                 w.pl_set_refs(lid, [r for r in w.refs(lid) if r != ref], record=False)
