@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="tr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DJ Kütüphane Doktoru</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2323272f'/%3E%3Cg fill='%233e7bfa'%3E%3Crect x='5' y='13' width='3' height='6' rx='1'/%3E%3Crect x='10' y='8' width='3' height='16' rx='1'/%3E%3Crect x='15' y='11' width='3' height='10' rx='1'/%3E%3C/g%3E%3Cg fill='%2334c77b'%3E%3Crect x='20' y='6' width='3' height='20' rx='1'/%3E%3Crect x='25' y='12' width='3' height='8' rx='1'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><g fill="var(--blue)"><rect x="3" y="13" width="3" height="6" rx="1"/><rect x="8" y="8" width="3" height="16" rx="1"/><rect x="13" y="11" width="3" height="10" rx="1"/></g><g fill="var(--green)"><rect x="18" y="5" width="3" height="22" rx="1"/><rect x="23" y="12" width="3" height="8" rx="1"/></g></svg>
+      <div><b>DJ Kütüphane</b><span>Doktoru</span></div>
+    </div>
+    <nav id="nav"></nav>
+    <div class="side-foot" id="side-foot"></div>
+  </aside>
+  <header id="top"></header>
+  <main id="main"><div class="boot">Yükleniyor…</div></main>
+  <footer id="player"></footer>
+</div>
+<div id="modal-root"></div>
+<div id="drawer-root"></div>
+<div id="toasts" aria-live="polite"></div>
+<div id="taskbox"></div>
+<div id="menu-root"></div>
+<audio id="audio" preload="none"></audio>
+<script>window.DJD_TOKEN = "{{TOKEN}}"; window.DJD_VERSION = "{{VERSION}}";</script>
+<script src="/app.js"></script>
+</body>
+</html>
