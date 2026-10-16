@@ -418,7 +418,7 @@ def quarantine_files(lib, fids, label, op, files=None):
         if os.path.isfile(comp):
             cdst = os.path.join(os.path.dirname(dst), "._" + os.path.basename(dst))
             try:
-                os.rename(comp, cdst)
+                util.safe_rename(comp, cdst)
                 op.add({"k": "q", "fid": None, "old": os.path.relpath(comp, lib.root).replace(os.sep, "/"),
                         "dst": os.path.relpath(cdst, lib.root).replace(os.sep, "/"), "raw": True})
             except OSError:
@@ -433,7 +433,7 @@ def _move_into(lib, f, rel, op):
     if os.path.exists(dst):
         raise OSError("Hedef dolu: %s" % rel)
     os.makedirs(os.path.dirname(dst), exist_ok=True)
-    os.rename(src, dst)
+    util.safe_rename(src, dst)
     op.add({"k": "mv", "fid": f["id"], "old": f["rel"], "new": rel})
     lib.catalog.update_rel(f["id"], rel, lib.rootinfo.os_rel_of(rel), names.match_key(rel), names.loose_key(rel))
 

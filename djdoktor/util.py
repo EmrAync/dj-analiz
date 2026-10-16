@@ -79,6 +79,42 @@ def unique_path(path: str) -> str:
     return "%s_%d%s" % (base, k, ext)
 
 
+def safe_rename(src: str, dst: str) -> None:
+    """Yeniden adlandırır/taşır ama var olan BAŞKA bir dosyanın üstüne asla yazmaz.
+
+    Aynı klasörde yalnızca büyük/küçük harf (veya Unicode biçimi) değişiyorsa exFAT/Mac/Windows'ta bu
+    aynı kayıttır: klasör listesine bakılır (önbellek değil), başka eşleşen kayıt yoksa ara adla iki
+    adımda yeniden adlandırılır. Diğer durumlarda hedef varsa hata verilir (Mac'te rename üzerine yazar)."""
+    if src == dst:
+        return
+    from .names import loose_key
+    d_src, b_src = os.path.split(src)
+    d_dst, b_dst = os.path.split(dst)
+    if d_src == d_dst and loose_key(b_src) == loose_key(b_dst):
+        key = loose_key(b_dst)
+        try:
+            same = [e for e in os.listdir(d_dst or ".") if loose_key(e) == key]
+        except OSError:
+            same = []
+        if len(same) > 1:
+            raise FileExistsError("Hedef zaten var: %s" % dst)
+        tmp = src + ".djdtmp"
+        k = 1
+        while os.path.lexists(tmp):
+            k += 1
+            tmp = "%s.djdtmp%d" % (src, k)
+        os.rename(src, tmp)
+        try:
+            os.rename(tmp, dst)
+        except OSError:
+            os.rename(tmp, src)
+            raise
+        return
+    if os.path.lexists(dst):
+        raise FileExistsError("Hedef zaten var: %s" % dst)
+    os.rename(src, dst)
+
+
 QDIR = "_DJDoktor_Karantina"
 
 

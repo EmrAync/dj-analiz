@@ -286,7 +286,10 @@ def _file_step(lib, s):
         dst = lib.rootinfo.os_path(s["old"])
         if os.path.exists(src) and (not os.path.exists(dst) or names.loose_key(s["new"]) == names.loose_key(s["old"])):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            _rename(src, dst)
+            try:
+                _rename(src, dst)
+            except OSError:
+                return  # eski yerde başka bir dosya var: dosya yeni yerinde kalır, katalog da öyle bilir
         if s.get("fid"):
             old = s["old"]
             cat.update_rel(s["fid"], old, lib.rootinfo.os_rel_of(old), names.match_key(old), names.loose_key(old))
@@ -312,12 +315,7 @@ def _alias(cat, db, pid):
 
 
 def _rename(src, dst):
-    if src != dst and names.loose_key(src) == names.loose_key(dst):
-        tmp = src + ".djdtmp"
-        os.rename(src, tmp)
-        os.rename(tmp, dst)
-    else:
-        os.rename(src, dst)
+    util.safe_rename(src, dst)
 
 
 def undo_last(lib, force=False, progress=None):

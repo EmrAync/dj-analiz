@@ -166,15 +166,9 @@ def _unique_targets(lib, moves):
 
 
 def _rename(src, dst):
-    """Büyük/küçük harf farkı olan yeniden adlandırmalar için ara ad kullanır (exFAT/Windows/Mac)."""
-    if os.path.normcase(src) != os.path.normcase(dst) and os.path.exists(dst):
-        raise OSError("Hedef zaten var: %s" % dst)
-    if src != dst and names.loose_key(src) == names.loose_key(dst):
-        tmp = src + ".djdtmp"
-        os.rename(src, tmp)
-        os.rename(tmp, dst)
-    else:
-        os.rename(src, dst)
+    """Büyük/küçük harf farkı olan yeniden adlandırmalar için ara ad kullanır (exFAT/Windows/Mac);
+    başka bir dosyanın üstüne asla yazmaz."""
+    util.safe_rename(src, dst)
 
 
 def _fs_move(lib, f, new_rel, op):
@@ -230,9 +224,9 @@ def _cleanup_dirs(lib, dirs, op, protect=()):
             if qdir_rel is None:
                 qdir_rel = lib.quarantine_rel("bos_klasor_copu")
             dst_rel = qdir_rel + "/" + d + "/" + e
-            dst = lib.rootinfo.os_path(dst_rel)
+            dst = util.unique_path(lib.rootinfo.os_path(dst_rel))
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            os.rename(src, dst)
+            util.safe_rename(src, dst)
             op.add({"k": "q", "fid": None, "old": d + "/" + e, "dst": _rel_of(lib, dst), "raw": True})
         try:
             os.rmdir(p)

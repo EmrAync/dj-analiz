@@ -98,6 +98,7 @@ def recover(db_path: str) -> bool:
             con.close()
     except sqlite3.DatabaseError:
         return False
+    _wrote()
     return not hot_journal(db_path)
 
 
@@ -125,13 +126,28 @@ def schema_of(con):
     return r["uuid"], (r["schemaVersionMajor"], r["schemaVersionMinor"], r["schemaVersionPatch"])
 
 
+_WRITES = [0]   # bu programın yaptığı Engine yazımlarının sayacı (önbellekler için)
+
+
+def _wrote():
+    _WRITES[0] += 1
+
+
 def db_stamp(db_path: str):
-    """Değişiklik algılamak için ucuz damga (boyut + değiştirilme zamanı)."""
-    out = []
-    for p in (db_path, db_path + "-journal", db_path + "-wal"):
+    """Değişiklik algılamak için ucuz damga.
+
+    Yalnızca boyut + zaman yetmez: exFAT'te değiştirilme zamanı 1–2 saniye hassasiyetinde olabilir ve
+    liste adı değiştirmek dosya boyutunu değiştirmez. Bu yüzden SQLite başlığı (her kayıtta artan
+    'değişiklik sayacı' dahil, ilk 100 bayt), WAL başlığı ve programın kendi yazma sayacı da eklenir."""
+    out = [_WRITES[0]]
+    for p, head in ((db_path, 100), (db_path + "-journal", 0), (db_path + "-wal", 32)):
         try:
             st = os.stat(p)
-            out.append((st.st_size, int(st.st_mtime_ns)))
+            h = ""
+            if head:
+                with open(p, "rb") as f:
+                    h = hashlib.md5(f.read(head)).hexdigest()[:16]
+            out.append((st.st_size, int(st.st_mtime_ns), h))
         except OSError:
             out.append(None)
     return tuple(out)
@@ -398,6 +414,7 @@ def restore(db_path: str, backup_path: str):
     dst = sqlite3.connect(db_path, timeout=3)
     try:
         src.backup(dst)
+        _wrote()
         ok = dst.execute("PRAGMA quick_check").fetchone()[0]
         if ok != "ok":
             raise EngineError("Geri yükleme sonrası denetim başarısız: %s" % ok)
@@ -714,6 +731,7 @@ class Writer:
             self.rollback()
             raise EngineError("Bütünlük denetimi başarısız (yabancı anahtar); değişiklikler geri alındı.")
         self.con.execute("COMMIT")
+        _wrote()
         ok = self.con.execute("PRAGMA quick_check").fetchone()[0]
         self.con.close()
         self._open = False

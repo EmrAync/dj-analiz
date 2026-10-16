@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(HERE, ".."))
 
 import make_fixture  # noqa: E402
 
-TMP = tempfile.mkdtemp(prefix="djd_v2_")
+TMP = tempfile.mkdtemp(prefix="djd_v2_", dir=os.environ.get("DJD_TEST_BASE"))  # örn. exFAT bağlama noktası
 os.environ["DJDOKTOR_HOME"] = os.path.join(TMP, "ws")
 os.environ["HOME"] = os.path.join(TMP, "home")
 os.makedirs(os.path.join(TMP, "home", "Music"), exist_ok=True)

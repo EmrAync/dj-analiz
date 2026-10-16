@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(HERE, ".."))
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(tempfile.gettempdir(), "djd_ui")
 os.makedirs(OUT, exist_ok=True)
 
-TMP = tempfile.mkdtemp(prefix="djd_ui_")
+TMP = tempfile.mkdtemp(prefix="djd_ui_", dir=os.environ.get("DJD_TEST_BASE"))  # örn. exFAT bağlama noktası
 os.environ["DJDOKTOR_HOME"] = os.path.join(TMP, "ws")
 os.environ["HOME"] = os.path.join(TMP, "home")
 os.makedirs(os.path.join(TMP, "home", "Music"), exist_ok=True)
