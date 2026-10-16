@@ -392,6 +392,9 @@ def test_events_and_exports():
     assert head.startswith("Başlık;Sanatçı") and c["rows"] >= 8, (head, c)
     tab = lib.library_table()
     assert tab["rows"] and len(tab["rows"][0]) == len(tab["cols"])
+    from djdoktor import server
+    page = server._print_list(lib, ev["id"])
+    assert "Halay" in page and "1 şarkı" in page, page[:400]
 
 
 def test_inbox():

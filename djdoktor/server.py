@@ -814,6 +814,8 @@ def _print_list(lib, pid):
     blocks = [(data["title"], data["items"])]
     for ch in by_parent.get(pid, []):
         blocks.append((ch["title"], lists.items(lib, ch["id"])["items"]))
+    n_all = sum(len(b[1]) for b in blocks)
+    d_all = sum(it["dur"] or 0 for b in blocks for it in b[1])
     e = html.escape
     out = ["<!doctype html><html lang='tr'><head><meta charset='utf-8'><title>%s</title>" % e(data["title"]),
            "<style>body{font:14px/1.45 system-ui,sans-serif;margin:28px;color:#111}h1{font-size:22px;margin:0 0 4px}"
@@ -822,12 +824,15 @@ def _print_list(lib, pid):
            "td.n{color:#888;width:28px}td.k,td.b,td.d{width:56px;color:#444}.note{color:#a15c00}"
            "@media print{body{margin:10mm}}</style></head><body>"]
     out.append("<h1>%s</h1><div class='meta'>%s</div>" % (e(data["title"]), e(" · ".join(
-        x for x in (ev.get("date"), ev.get("venue"), ev.get("notes")) if x))))
+        x for x in (ev.get("date"), ev.get("venue"), ev.get("notes"), "%d şarkı" % n_all,
+                    util.fmt_dur(d_all) if d_all else "") if x))))
     for title, items in blocks:
         if not items:
             continue
         if title != data["title"]:
-            out.append("<h2>%s</h2>" % e(title))
+            dur = sum(it["dur"] or 0 for it in items)
+            out.append("<h2>%s <small style='font-weight:400;color:#666'>%d şarkı%s</small></h2>"
+                       % (e(title), len(items), (" · " + util.fmt_dur(dur)) if dur else ""))
         out.append("<table>")
         for i, it in enumerate(items, 1):
             note = it.get("note") or ""

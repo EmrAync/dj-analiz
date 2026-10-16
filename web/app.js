@@ -266,6 +266,7 @@ function renderTop() {
     ["music", "Müzikler", attn ? `<span class="badge">${attn}</span>` : ""],
     ["lists", "Listeler", ""],
     ["inbox", "Gelen", inb ? `<span class="badge">${inb}</span>` : ""],
+    ["tools", "Araçlar", ""],
   ].map(([k, l, b]) => `<button class="tab ${S.tab === k ? "on" : ""}" data-tab="${k}">${l}${b}</button>`).join("") : "";
   let html = "";
   if (st.active) {
@@ -281,6 +282,8 @@ function renderTop() {
 }
 
 document.addEventListener("click", async (e) => {
+  const inf = e.target.closest("#view [data-info]");
+  if (inf && !e.target.closest("button, input, select, a, .folder-chip")) { openTrack(+inf.dataset.info); return; }
   const t = e.target.closest("[data-tab]");
   if (t) {
     S.tab = t.dataset.tab; localStorage.setItem("djd.tab", S.tab);
@@ -307,7 +310,7 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     undo();
   }
-  if (e.key === "Escape") { $("#menu").innerHTML = ""; }
+  if (e.key === "Escape") { $("#menu").innerHTML = ""; if (!$("#modal").innerHTML) closeDrawer(); }
 });
 
 async function refresh(force) {
@@ -330,6 +333,7 @@ async function refresh(force) {
   try {
     if (S.tab === "lists") await loadLists();
     else if (S.tab === "inbox") await loadInbox();
+    else if (S.tab === "tools") await loadTools();
     else await loadMusic();
   } catch (e) { toast(e.message, "err"); }
   renderTop();
@@ -1128,7 +1132,8 @@ function listMainHtml() {
       <div class="sub">${esc(it.path.slice(0, -1).join(" / ") || "En üst")} · ${fmtN(it.items.length)} şarkı · ${fmtLong(it.dur)}${l.kids ? ` · ${l.kids} alt liste` : ""}${pend ? ` · <span style="color:var(--warn)">${pend} analiz bekliyor</span>` : ""}</div>
       ${it.ev ? `<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><input type="date" class="search" style="max-width:170px" id="evdate" value="${esc(ev.date || "")}"><input class="search" style="max-width:260px" id="evvenue" placeholder="Yer / salon" value="${esc(ev.venue || "")}"></div>` : ""}
     </div>
-    <div style="display:flex;gap:8px;align-items:center">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      ${it.items.length || l.kids ? `<button class="btn sm" id="gigbtn" title="Etkinlikten önce: her şarkı yerinde, analiz edilmiş, Prime 4 çalar mı?">✓ Kontrol et</button><button class="btn sm" id="printbtn" title="Yazdırılabilir liste">🖨 Yazdır</button>` : ""}
       ${S.st.active.has_serato ? `<label class="switch ${l.serato ? "on" : ""}" id="sertog" title="Bu liste Serato'da da crate olarak dursun; değişiklikler iki yönlü eşitlenir"><i></i>Serato'da da</label>` : ""}
       <button class="icon-btn" id="lmenu" title="Diğer">⋯</button></div></div>
     <div class="body">${it.managed ? `<div class="hint blue"><span class="ic">ℹ</span><div>${l.kind === "analysis" ? "Bu liste Engine'de analiz edilmemiş şarkıları gösterir. Engine DJ'de bu listeyi seç → tümünü seç → sağ tık → <b>Analyze / Re-analyze tracks</b>. Bitenler kendiliğinden düşer." : "Bu listeyi program tutar (tür klasörünün aynısı). Değiştirmek için kopyasını al."}</div></div>` : ""}
@@ -1143,22 +1148,34 @@ function afterListMain() {
 
 function pickerHtml() {
   const gs = (S.ov && S.ov.genres) || [];
-  return `<div class="ph"><input class="search" id="psearch" placeholder="Şarkı ekle: ara…" value="${esc(S.pick.q)}">
-    <div class="chips"><span class="chip ${!S.pick.gid ? "on" : ""}" data-pg="">Hepsi</span>${gs.map((g) => `<span class="chip ${S.pick.gid === g.id ? "on" : ""}" data-pg="${g.id}">${esc(g.name)}</span>`).join("")}</div></div>
+  const sg = S.pick.gid === "sugg";
+  return `<div class="ph"><input class="search" id="psearch" placeholder="Şarkı ekle: ara…" value="${esc(S.pick.q)}" ${sg ? "disabled" : ""}>
+    <div class="chips"><span class="chip sugg ${sg ? "on" : ""}" data-pg="sugg" title="Bu bölüme uygun şarkılar (bölüm adı, tür, tempo)">✨ Öneri</span><span class="chip ${!S.pick.gid ? "on" : ""}" data-pg="">Hepsi</span>${gs.map((g) => `<span class="chip ${S.pick.gid === g.id ? "on" : ""}" data-pg="${g.id}">${esc(g.name)}</span>`).join("")}</div></div>
     <div class="scroll" id="pres">${pickResHtml()}</div>`;
 }
 
 function pickResHtml() {
   const inList = new Set(((S.items && S.items.items) || []).map((r) => r.fid));
-  return S.pick.res.map((r) => `<div class="res ${inList.has(r.id) ? "in" : ""}" draggable="true" data-fid="${r.id}">${dotHtml(r.dot)}
-      <div class="meta"><div class="ttl">${esc(r.title)}</div><div class="art">${esc(r.artist || "—")}${r.genre ? ` · ${esc(r.genre)}` : ""}${r.bpm ? ` · ${r.bpm}` : ""}${r.key ? ` · ${esc(r.key)}` : ""}</div></div>
-      <button class="play" data-play="${r.id}">▶</button><button class="add" data-add="${r.id}" title="Listeye ekle">${inList.has(r.id) ? "✓" : "＋"}</button></div>`).join("") || '<div class="empty small">Sonuç yok.</div>';
+  let head = "";
+  if (S.pick.gid === "sugg") {
+    if (!S.cur) return '<div class="empty small">Önce soldan bir bölüm / liste seç; ona uygun şarkılar burada çıkar.</div>';
+    head = `<div class="muted small" style="padding:8px 12px">${S.pick.sinfo ? `“${esc(S.pick.sinfo.title)}” için${S.pick.sinfo.genre ? ` · tür: <b>${esc(S.pick.sinfo.genre)}</b>` : ""}` : ""}</div>`;
+  }
+  return head + (S.pick.res.map((r) => `<div class="res ${inList.has(r.id) ? "in" : ""}" draggable="true" data-fid="${r.id}">${dotHtml(r.dot)}
+      <div class="meta" data-info="${r.id}"><div class="ttl">${esc(r.title)}</div><div class="art">${esc(r.artist || "—")}${r.genre ? ` · ${esc(r.genre)}` : ""}${r.bpm ? ` · ${r.bpm}` : ""}${r.key ? ` · ${esc(r.key)}` : ""}</div>${r.why ? `<div class="why">${esc(r.why)}</div>` : ""}</div>
+      <button class="play" data-play="${r.id}">▶</button><button class="add" data-add="${r.id}" title="Listeye ekle">${inList.has(r.id) ? "✓" : "＋"}</button></div>`).join("") || `<div class="empty small">${S.pick.gid === "sugg" ? "Bu bölüm için öneri bulunamadı. Aramayı kullan." : "Sonuç yok."}</div>`);
 }
 
 async function pickSearch() {
   const q = S.pick.q, g = S.pick.gid;
   try {
-    S.pick.res = await api(`/api/search?q=${encodeURIComponent(q)}${g ? "&gid=" + g : ""}&limit=300`);
+    if (g === "sugg") {
+      if (!S.cur) { S.pick.res = []; return; }
+      const r = await api(`/api/suggest?list=${S.cur}`);
+      S.pick.res = r.items; S.pick.sinfo = r;
+    } else {
+      S.pick.res = await api(`/api/search?q=${encodeURIComponent(q)}${g ? "&gid=" + g : ""}&limit=300`);
+    }
     S.pick.loaded = true;
   } catch (e) { S.pick.res = []; }
 }
@@ -1166,6 +1183,7 @@ async function pickSearch() {
 async function selectList(id) {
   S.cur = id;
   try { S.items = await api("/api/list/" + id); } catch (e) { toast(e.message, "err"); S.items = null; }
+  if (S.pick.gid === "sugg") await pickSearch();
   $("#lmain").innerHTML = listMainHtml();
   afterListMain();
   $("#tree").innerHTML = treeHtml();
@@ -1187,6 +1205,7 @@ async function refreshLists() {
   S.lists = await api("/api/lists");
   if (S.cur && !S.lists.lists.some((l) => l.id === S.cur)) S.cur = null;
   S.items = S.cur ? await api("/api/list/" + S.cur) : null;
+  if (S.pick.gid === "sugg") await pickSearch();
   const sc = $("#lmain .body") ? $("#lmain .body").scrollTop : 0;
   renderLists();
   const b = $("#lmain .body"); if (b) b.scrollTop = sc;
@@ -1216,7 +1235,9 @@ function wireLists() {
       return;
     }
     const pg = e.target.closest("[data-pg]");
-    if (pg) { S.pick.gid = pg.dataset.pg ? +pg.dataset.pg : null; await pickSearch(); $("#picker").innerHTML = pickerHtml(); const f = $("#psearch"); if (f) f.focus(); return; }
+    if (pg) { S.pick.gid = pg.dataset.pg === "sugg" ? "sugg" : pg.dataset.pg ? +pg.dataset.pg : null; await pickSearch(); $("#picker").innerHTML = pickerHtml(); const f = $("#psearch"); if (f && !f.disabled) f.focus(); return; }
+    if (e.target.id === "gigbtn") { gigCheck(S.cur); return; }
+    if (e.target.id === "printbtn") { window.open(`/api/print/${S.cur}?t=${encodeURIComponent(TOKEN)}`, "_blank"); return; }
     const rm = e.target.closest("[data-rm]");
     if (rm) { await listOp("/api/list/remove", { id: S.cur, refs: [rm.dataset.rm] }); return; }
     if (e.target.id === "newev") { newEventDialog(); return; }
@@ -1314,6 +1335,10 @@ function listMenu(e) {
     { label: "Kopyasını al", icon: "⧉", fn: async () => { const r = await listOp("/api/list/duplicate", { id: it.id }, "Kopyası alındı."); if (r) await selectList(r.id); } },
     { label: "Bundan yeni etkinlik", icon: "📅", fn: () => newEventDialog(it.id) },
     { label: "Yazdır", icon: "🖨", fn: () => window.open(`/api/print/${it.id}?t=${encodeURIComponent(TOKEN)}`, "_blank") },
+    { label: "Etkinlik kontrolü", icon: "✓", fn: () => gigCheck(it.id) },
+    "-",
+    { label: "rekordbox XML olarak dışa aktar", icon: "⇪", fn: () => runExport("xml", "list:" + it.id) },
+    { label: "M3U8 olarak dışa aktar", icon: "⇪", fn: () => runExport("m3u", "list:" + it.id) },
   ];
   if (!it.managed) {
     items.push({ label: "Alt liste ekle", icon: "＋", fn: async () => { const n = await promptBox("Alt liste", "Adı", "", "Oluştur"); if (n) { const r = await listOp("/api/list/create", { parent: it.id, title: n }); if (r) await selectList(r.id); } } });
@@ -1465,6 +1490,348 @@ async function ingest(entries) {
     if (r.added) toast(`${r.added} şarkı eklendi; Engine'de “Analiz bekleyenler” listesinde.`, "ok");
   } catch (e) { /* */ }
   await refresh(true);
+}
+
+// ---------------------------------------------------------------------------
+// ARAÇLAR — v1'in profesyonel özellikleri: sağlık, tam tablo, dışa aktarma, geçmiş ve yedekler.
+// Basit kullanım (Müzikler / Listeler / Gelen) olduğu gibi kalır; buradakiler isteyene.
+// ---------------------------------------------------------------------------
+const TVIEWS = [["health", "🩺", "Sağlık"], ["table", "▤", "Kütüphane tablosu"], ["export", "⇪", "Dışa aktar"], ["history", "↶", "Geçmiş ve yedekler"]];
+const fmtSize = (n) => { n = +n || 0; if (n < 1048576) return Math.round(n / 1024) + " KB"; if (n < 1073741824) return (n / 1048576).toFixed(1).replace(".", ",") + " MB"; return (n / 1073741824).toFixed(1).replace(".", ",") + " GB"; };
+const fmtDate = (ts) => ts ? new Date(ts * 1000).toLocaleDateString("tr-TR") : "";
+const ENG_TXT = { ready: "hazır", pending: "analiz bekliyor", broken: "yolu bozuk", edup: "iki kez", none: "—" };
+
+async function loadTools() {
+  S.tview = S.tview || localStorage.getItem("djd.tview") || "health";
+  if (!S.ov) { try { S.ov = await api("/api/overview"); } catch (e) { /* */ } }
+  if (S.tview === "health") S.tdata = await api("/api/health");
+  else if (S.tview === "table") S.tdata = await api("/api/libtable");
+  else if (S.tview === "export") S.tdata = await api("/api/lists").catch(() => ({ lists: [] }));
+  else S.tdata = { journal: await api("/api/journal"), backups: await api("/api/backups") };
+  renderTools();
+}
+
+function renderTools() {
+  const v = $("#view");
+  const prev = $("#tmain .body");
+  const keep = prev && S._lastT === S.tview ? prev.scrollTop : 0;
+  const side = `<aside class="side"><div class="scroll">
+    ${TVIEWS.map(([k, ic, t]) => `<div class="nav-item ${S.tview === k ? "on" : ""}" data-tv="${k}"><span class="tic">${ic}</span><span class="name">${t}</span>${k === "health" && S.tview === "health" && S.tdata && S.tdata.problems ? `<span class="cnt">${fmtN(S.tdata.problems)}</span>` : ""}</div>`).join("")}
+    </div><div class="muted small" style="border-top:1px solid var(--line);padding:10px 16px">Günlük işler için <b>Müzikler</b>, <b>Listeler</b> ve <b>Gelen</b> yeter; buradakiler ileri araçlar.</div></aside>`;
+  let main = "";
+  if (S.tview === "health") main = healthHtml(S.tdata);
+  else if (S.tview === "table") main = libTableHtml();
+  else if (S.tview === "export") main = exportHtml();
+  else main = historyHtml();
+  v.innerHTML = `<div class="split">${side}<section class="main" id="tmain">${main}</section></div>`;
+  S._lastT = S.tview;
+  if (keep && $("#tmain .body")) $("#tmain .body").scrollTop = keep;
+  if (S.tview === "table") drawLibTable();
+  wireTools();
+}
+
+// --- Sağlık --------------------------------------------------------------
+const HACT = { quarantine: "Karantinaya al", missing: "Engine'den kaldır", repair: "Şimdi onar", rename: "Adları düzelt",
+  rename_emoji: "Emojileri temizle", junk: "Karantinaya taşı", dupes: "Kopyalara git" };
+
+function healthHtml(h) {
+  const st = h.stats;
+  const cats = h.categories.filter((c) => c.count);
+  S.hopen = S.hopen || new Set();
+  const fm = Object.entries(st.formats).slice(0, 6).map(([k, n]) => `${esc(k.replace(".", "").toUpperCase())} ${fmtN(n)}`).join(" · ");
+  const card = (c) => {
+    const open = S.hopen.has(c.key);
+    const items = open ? `<div class="hlist">${c.items.map((i) => `<div class="hrow">${i.id && c.key !== "junk" ? `<div class="meta" data-info="${i.id}">` : `<div class="meta">`}<div class="ttl">${esc(i.title)}${i.artist ? ` <span class="muted">— ${esc(i.artist)}</span>` : ""}</div><div class="art">${esc(i.rel)}${i.bitrate ? ` · ${i.bitrate} kbps` : ""}</div></div>${i.id && c.key !== "junk" ? `<button class="play" data-play="${i.id}">▶</button>` : ""}</div>`).join("")}${c.count > c.items.length ? `<div class="muted small" style="padding:8px 14px">… ve ${fmtN(c.count - c.items.length)} tane daha</div>` : ""}</div>` : "";
+    return `<div class="card hc ${c.action ? "act" : ""}"><div class="hc-h"><span class="hc-n">${fmtN(c.count)}</span><div style="flex:1;min-width:200px"><b>${esc(c.title)}</b>${c.size ? ` <span class="muted small">(${fmtSize(c.size)})</span>` : ""}<div class="muted small">${esc(c.hint)}</div></div>
+      ${c.action ? `<button class="btn sm ${c.action === "dupes" ? "" : "primary"}" data-hact="${c.action}" data-cat="${c.key}">${HACT[c.action]}</button>` : ""}
+      <button class="btn sm ghost" data-hshow="${c.key}">${open ? "Gizle ▴" : "Göster ▾"}</button></div>${items}</div>`;
+  };
+  return `<div class="head"><div style="flex:1"><h2>Sağlık</h2><div class="sub">${fmtN(st.songs)} şarkı · ${fmtLong(st.duration)} · ${fmtSize(st.size)} · Engine'de ${fmtN(st.engine)} (${fmtN(st.analyzed)} analiz edildi)</div>
+    <div class="sub">${fm}${st.with_note ? ` · notlu ${fmtN(st.with_note)}` : ""}${st.with_cues ? ` · cue'lu ${fmtN(st.with_cues)}` : ""}${st.with_key ? ` · tonu belli ${fmtN(st.with_key)}` : ""}</div></div></div>
+    <div class="body">${cats.length ? cats.map(card).join("") : `<div class="empty"><div class="big">🎉</div>Her şey yolunda.</div>`}
+    <div class="muted small" style="margin-top:6px">Düzeltmeler dosya silmez (karantinaya taşır), önce yedek alır ve tek tıkla <b>Geri al</b> ile döner.</div></div>`;
+}
+
+async function toolTask(path, body, msg) {
+  try { const r = await task(path, body); toast(msg(r), "ok"); } catch (e) { /* bildirildi */ }
+  await refresh(true);
+}
+
+async function healthAction(act, key) {
+  const c = ((S.tdata && S.tdata.categories) || []).find((x) => x.key === key) || { items: [], count: 0 };
+  if (act === "quarantine") { await quarantine(c.items.map((i) => i.id)); return; }
+  if (act === "dupes") { S.tab = "music"; S.view = "dupes"; localStorage.setItem("djd.tab", "music"); await refresh(true); return; }
+  if (act === "repair") { await toolTask("/api/health/repair", {}, (r) => `Engine onarıldı (${(r.repaired || 0) + (r.relinked || 0)} yol).`); return; }
+  if (act === "junk") {
+    if (await confirmBox("Çöp dosyalar", `${fmtN(c.count)} dosya SSD'deki karantinaya taşınacak (silinmez, geri alınabilir).`, "Taşı"))
+      await toolTask("/api/health/junk", {}, (r) => `${fmtN(r.moved)} dosya karantinaya taşındı.`);
+    return;
+  }
+  if (act === "missing") {
+    if (await confirmBox("Engine'den kaldır", `Dosyası diskte olmayan ${fmtN(c.count)} kayıt Engine koleksiyonundan ve listelerden kalkacak. Önce yedek alınır; Geri al ile döner. Engine DJ kapalı olmalı.`, "Kaldır", true))
+      await toolTask("/api/health/missing", {}, (r) => `${fmtN(r.removed)} kayıt Engine'den kaldırıldı.`);
+    return;
+  }
+  if (act === "rename" || act === "rename_emoji") { renameDialog(act === "rename_emoji"); }
+}
+
+async function renameDialog(emoji) {
+  let p;
+  try { p = await api("/api/health/rename" + (emoji ? "?emoji=1" : "")); } catch (e) { toast(e.message, "err"); return; }
+  if (!p.count) { toast("Düzeltilecek ad yok."); return; }
+  const m = modal(`<div class="dh">${emoji ? "Emojileri temizle" : "Adları düzelt"}</div><div class="db">
+    <div class="muted small" style="margin-bottom:8px">${fmtN(p.count)} ad değişecek. Türkçe harfler korunur; Engine ve Serato yolları birlikte güncellenir. Engine DJ ve Serato kapalı olmalı.</div>
+    <table class="t"><thead><tr><th></th><th>Şimdi</th><th>Yeni ad</th></tr></thead><tbody>${p.preview.map((x) => `<tr><td class="muted small">${esc(x.kind)}</td><td class="small" style="word-break:break-all">${esc(x.old)}</td><td class="small"><b>${esc(x.new)}</b></td></tr>`).join("")}</tbody></table></div>
+    <div class="df"><button class="btn" data-x="no">Vazgeç</button><button class="btn primary" data-x="yes">Düzelt</button></div>`, "wide");
+  m.el.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-x]");
+    if (!b) return;
+    m.close();
+    if (b.dataset.x === "yes") await toolTask("/api/health/rename", { emoji }, (r) => `${fmtN(r.renamed)} ad düzeltildi.`);
+  });
+}
+
+// --- Kütüphane tablosu -------------------------------------------------------
+const LCOLS = [
+  { k: "dot", t: "", w: 30, def: 1 }, { k: "title", t: "Başlık", def: 1 }, { k: "artist", t: "Sanatçı", w: 180, def: 1 },
+  { k: "genre", t: "Tür", w: 140, def: 1 }, { k: "bpm", t: "BPM", w: 62, def: 1, num: 1 }, { k: "key", t: "Ton", w: 54, def: 1 },
+  { k: "energy", t: "Enerji", w: 60, num: 1 }, { k: "dur", t: "Süre", w: 62, def: 1, num: 1, f: fmtDur },
+  { k: "kbps", t: "kbps", w: 60, def: 1, num: 1 }, { k: "ext", t: "Biçim", w: 60, def: 1 }, { k: "size", t: "Boyut", w: 80, num: 1, f: fmtSize },
+  { k: "note", t: "Not", w: 160, def: 1 }, { k: "cues", t: "Cue", w: 50, num: 1 }, { k: "album", t: "Albüm", w: 160 },
+  { k: "tag_genre", t: "Tür etiketi", w: 120 }, { k: "year", t: "Yıl", w: 56, num: 1 }, { k: "label", t: "Plak şirketi", w: 130 },
+  { k: "engine", t: "Engine", w: 120, def: 1, f: (x) => ENG_TXT[x] || x }, { k: "dup", t: "Kopya", w: 60, num: 1 },
+  { k: "serato", t: "Crate", w: 58, num: 1 }, { k: "lists", t: "Liste", w: 56, num: 1 }, { k: "added", t: "Eklenme", w: 96, num: 1, f: fmtDate },
+  { k: "rel", t: "Yol", w: 320 },
+];
+const LFILTERS = [["all", "Hepsi"], ["pending", "Analiz bekleyen"], ["none", "Engine'de değil"], ["note", "Notlu"], ["cues", "Cue'lu"],
+  ["nokey", "Tonu yok"], ["lowbr", "Düşük kalite"], ["notags", "Etiketsiz"], ["dup", "Kopyası olan"]];
+
+function lcolsOn() {
+  let on = null;
+  try { on = JSON.parse(localStorage.getItem("djd.lcols") || "null"); } catch (e) { on = null; }
+  return LCOLS.filter((c) => (on ? on.includes(c.k) : c.def) || c.k === "title");
+}
+
+function libObjs() {
+  const d = S.tdata;
+  if (!d || !d.cols) return [];
+  if (d._objs) return d._objs;
+  const cols = d.cols;
+  d._objs = d.rows.map((r) => { const o = {}; cols.forEach((c, i) => { o[c] = r[i]; }); return o; });
+  return d._objs;
+}
+
+function libRows() {
+  let rows = libObjs();
+  const q = fold(S.lq || "").split(/\s+/).filter(Boolean);
+  const fl = S.lflt || "all";
+  const lossless = new Set(["flac", "wav", "aif", "aiff", "alac"]);
+  const test = { pending: (r) => r.engine === "pending", none: (r) => r.engine === "none", note: (r) => !!r.note, cues: (r) => r.cues > 0,
+    nokey: (r) => !r.key, lowbr: (r) => r.kbps && r.kbps < 190 && !lossless.has(r.ext), notags: (r) => !r.artist, dup: (r) => r.dup > 0 }[fl];
+  if (test) rows = rows.filter(test);
+  if (q.length) rows = rows.filter((r) => { const s = r.search || fold(r.title + " " + r.artist); return q.every((w) => s.includes(w)); });
+  const so = S.lsort || { k: "artist", d: 1 };
+  const col = LCOLS.find((c) => c.k === so.k) || {};
+  const key = col.num ? (r) => (r[so.k] == null ? -Infinity : +r[so.k]) : (r) => fold(r[so.k] == null ? "" : String(r[so.k]));
+  const tie = (r) => fold(r.title);
+  return rows.slice().sort((a, b) => { const x = key(a), y = key(b); if (x < y) return -so.d; if (x > y) return so.d; const t1 = tie(a), t2 = tie(b); return t1 < t2 ? -1 : t1 > t2 ? 1 : 0; });
+}
+
+function libTableHtml() {
+  const cols = lcolsOn();
+  const so = S.lsort || { k: "artist", d: 1 };
+  return `<div class="head"><div style="flex:1;min-width:240px"><h2>Kütüphane tablosu</h2><div class="sub" id="lcount"></div></div>
+    <input class="search" id="lsearch" placeholder="Ara: şarkı, sanatçı, albüm, not, yol…" value="${esc(S.lq || "")}" style="max-width:300px">
+    <button class="btn" id="lcolbtn">Sütunlar ▾</button><button class="btn" id="lcsv" title="Excel'de açılır">⇪ CSV</button>
+    <div class="chips" style="width:100%;margin-top:0">${LFILTERS.map(([k, t]) => `<span class="chip ${(S.lflt || "all") === k ? "on" : ""}" data-lf="${k}">${t}</span>`).join("")}</div></div>
+    <div class="body"><table class="t v lt" id="libt"><colgroup>${cols.map((c) => `<col${c.w ? ` style="width:${c.w}px"` : ""}>`).join("")}<col style="width:44px"></colgroup>
+    <thead><tr>${cols.map((c) => `<th data-ls="${c.k}" class="${c.num ? "r" : ""}">${esc(c.t)}${so.k === c.k ? (so.d > 0 ? " ▲" : " ▼") : ""}</th>`).join("")}<th></th></tr></thead><tbody></tbody></table></div>`;
+}
+
+function libRowHtml(r) {
+  const cols = S._lcols;
+  return `<tr data-id="${r.id}">${cols.map((c) => {
+    if (c.k === "dot") return `<td class="c-dot">${dotHtml(r.dot)}</td>`;
+    if (c.k === "title") return `<td class="c-song" data-info="${r.id}" title="${esc(r.rel)}"><span class="ttl">${esc(r.title)}</span></td>`;
+    const v = r[c.k];
+    const txt = v == null || v === "" ? "" : c.f ? c.f(v) : v;
+    return `<td class="${c.num ? "r" : ""}${c.k === "note" ? " notec" : ""}" title="${esc(txt)}">${esc(txt)}</td>`;
+  }).join("")}<td class="c-act"><button class="play" data-play="${r.id}" title="Dinle">▶</button></td></tr>`;
+}
+
+function drawLibTable(reset) {
+  S._lcols = lcolsOn();
+  const rows = libRows();
+  const c = $("#lcount");
+  if (c) c.textContent = `${fmtN(rows.length)} şarkı${rows.length !== libObjs().length ? ` (toplam ${fmtN(libObjs().length)})` : ""} · başlığa tıkla: ayrıntılar · sütun adına tıkla: sırala`;
+  if (reset && $("#tmain .body")) $("#tmain .body").scrollTop = 0;
+  vtSet("libt", rows, libRowHtml);
+}
+
+function colMenu(e) {
+  const on = new Set(lcolsOn().map((c) => c.k));
+  menu(e, LCOLS.filter((c) => c.k !== "title" && c.k !== "dot").map((c) => ({ label: c.t, icon: on.has(c.k) ? "✓" : "", fn: () => {
+    if (on.has(c.k)) on.delete(c.k); else on.add(c.k);
+    on.add("title"); on.add("dot");
+    localStorage.setItem("djd.lcols", JSON.stringify(LCOLS.filter((x) => on.has(x.k)).map((x) => x.k)));
+    $("#tmain").innerHTML = libTableHtml(); drawLibTable(); colMenu(e);
+  } })));
+}
+
+// --- Dışa aktar ----------------------------------------------------------------
+function sourceOptions() {
+  const ls = ((S.tdata && S.tdata.lists) || []).filter((l) => !l.managed);
+  return `<option value="lists">Tüm listeler (Engine)</option><option value="genres">Tür klasörleri</option>${ls.length ? `<optgroup label="Tek liste / etkinlik">${ls.map((l) => `<option value="list:${l.id}">${esc(l.path.join(" / "))} (${l.n})</option>`).join("")}</optgroup>` : ""}`;
+}
+
+function exportHtml() {
+  const opts = sourceOptions();
+  return `<div class="head"><div style="flex:1"><h2>Dışa aktar</h2><div class="sub">Listelerini başka programlara taşı. Müzik dosyalarına ve Engine / Serato kütüphanelerine dokunulmaz.</div></div>
+    <button class="btn" id="openexp">📂 Dışa aktarım klasörü</button></div>
+    <div class="body">
+    <div class="card"><h3>rekordbox XML</h3><div class="muted small" style="margin-bottom:10px">Listeler, BPM, ton ve Serato cue noktalarıyla. rekordbox ve rekordbox XML okuyan programlar (Engine DJ, VirtualDJ, Traktor araçları) içe alabilir.</div>
+      <div class="exrow"><select id="xsrc" class="search">${opts}</select><label class="small"><input type="checkbox" id="xcues" checked> Cue noktaları</label><button class="btn primary" data-exp="xml">Dışa aktar</button></div></div>
+    <div class="card"><h3>M3U8 çalma listeleri</h3><div class="muted small" style="margin-bottom:10px">Her liste için bir dosya (VLC, Traktor, VirtualDJ, Mixxx…).</div>
+      <div class="exrow"><select id="msrc" class="search">${opts}</select><button class="btn primary" data-exp="m3u">Dışa aktar</button></div></div>
+    <div class="card"><h3>Kütüphane tablosu (CSV)</h3><div class="muted small" style="margin-bottom:10px">Tüm şarkılar tek tabloda: Excel / Numbers ile açılır (BPM, ton, süre, kalite, Engine durumu, yol).</div>
+      <div class="exrow"><button class="btn primary" data-exp="csv">CSV oluştur</button></div></div></div>`;
+}
+
+async function runExport(format, source, cues = true) {
+  let r;
+  try { r = await task("/api/export", { format, source, cues }); } catch (e) { return; }
+  const what = { xml: `rekordbox XML hazır: ${fmtN(r.tracks)} şarkı${r.cues ? `, ${fmtN(r.cues)} cue` : ""}`, m3u: `${fmtN(r.files)} çalma listesi dosyası hazır`, csv: `CSV hazır: ${fmtN(r.rows)} şarkı` }[format];
+  const m = modal(`<div class="dh">Dışa aktarıldı</div><div class="db"><p>${esc(what)}${r.missing ? ` <span class="muted">(${r.missing} şarkının dosyası yok, atlandı)</span>` : ""}.</p><div class="muted small" style="word-break:break-all">${esc(r.path || r.dir)}</div></div>
+    <div class="df"><button class="btn" data-x="no">Tamam</button><button class="btn primary" data-x="yes">📂 Klasörü aç</button></div>`);
+  m.el.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-x]");
+    if (!b) return;
+    m.close();
+    if (b.dataset.x === "yes") api("/api/open", r.path ? { path: r.path, select: true } : { path: r.dir }).catch((er) => toast(er.message, "err"));
+  });
+}
+
+// --- Geçmiş ve yedekler --------------------------------------------------------
+function historyHtml() {
+  const j = S.tdata.journal || [], b = S.tdata.backups || { items: [], dirs: {}, quarantine: {} };
+  const top = (S.st && S.st.undo) ? S.st.undo.id : null;
+  return `<div class="head"><div style="flex:1"><h2>Geçmiş ve yedekler</h2><div class="sub">Her işlem kayıtlı; en sondaki tek tıkla geri alınır. Yedekler SSD'de: _DJDoktor_/Yedekler.</div></div></div>
+    <div class="body">
+    <div class="card" style="padding:0"><div style="padding:12px 16px 6px"><h3>Son işlemler</h3></div>
+      ${j.map((x) => `<div class="ib"><span class="muted small nowrap">${new Date(x.ts * 1000).toLocaleString("tr-TR")}</span><div class="meta" style="${x.status !== "tamam" ? "color:var(--muted);text-decoration:line-through" : ""}">${esc(x.title)}</div>${x.id === top ? `<button class="btn sm" id="hundo">↶ Geri al</button>` : x.status === "geri_alindi" ? '<span class="tag">geri alındı</span>' : ""}</div>`).join("") || '<div class="empty small">Henüz işlem yok.</div>'}</div>
+    <div class="card"><h3>Yedekler ve karantina</h3>
+      <div class="exrow" style="flex-wrap:wrap"><button class="btn" data-od="engine">📂 Engine yedekleri</button><button class="btn" data-od="serato">📂 Serato yedekleri</button>
+      <button class="btn" data-od="karantina">📂 Karantina (${fmtN(b.quarantine.files || 0)} dosya, ${fmtSize(b.quarantine.size || 0)})</button></div>
+      <div class="small" style="margin-top:10px;max-height:320px;overflow:auto">${b.items.slice(0, 40).map((x) => `<div class="hrow"><span class="tag">${x.kind === "engine" ? "Engine" : "Serato"}</span><div class="meta">${esc(x.name)}</div><span class="muted nowrap">${new Date(x.ts * 1000).toLocaleString("tr-TR")} · ${fmtSize(x.size)}</span></div>`).join("") || '<span class="muted">Henüz yedek yok.</span>'}</div></div></div>`;
+}
+
+function wireTools() {
+  const v = $("#view");
+  v.onclick = async (e) => {
+    const tv = e.target.closest("[data-tv]");
+    if (tv) { S.tview = tv.dataset.tv; localStorage.setItem("djd.tview", S.tview); await loadTools(); return; }
+    const play = e.target.closest("[data-play]");
+    if (play) { playFid(+play.dataset.play, play); return; }
+    const hs = e.target.closest("[data-hshow]");
+    if (hs) { const k = hs.dataset.hshow; if (S.hopen.has(k)) S.hopen.delete(k); else S.hopen.add(k); renderTools(); return; }
+    const ha = e.target.closest("[data-hact]");
+    if (ha) { await healthAction(ha.dataset.hact, ha.dataset.cat); return; }
+    const lf = e.target.closest("[data-lf]");
+    if (lf) { S.lflt = lf.dataset.lf; $$(".chip[data-lf]").forEach((c) => c.classList.toggle("on", c === lf)); drawLibTable(true); return; }
+    const ls = e.target.closest("[data-ls]");
+    if (ls) { const k = ls.dataset.ls; const so = S.lsort || { k: "artist", d: 1 }; S.lsort = { k, d: so.k === k ? -so.d : 1 }; $("#tmain").innerHTML = libTableHtml(); drawLibTable(true); return; }
+    if (e.target.id === "lcolbtn") { colMenu(e); return; }
+    if (e.target.id === "lcsv") { runExport("csv", "all"); return; }
+    const ex = e.target.closest("[data-exp]");
+    if (ex) { const f = ex.dataset.exp; runExport(f, f === "xml" ? $("#xsrc").value : f === "m3u" ? $("#msrc").value : "all", f === "xml" ? $("#xcues").checked : true); return; }
+    if (e.target.id === "openexp") { const b = await api("/api/backups").catch(() => null); if (b) api("/api/open", { path: b.export_dir }).catch((er) => toast(er.message, "err")); return; }
+    const od = e.target.closest("[data-od]");
+    if (od) { api("/api/open", { path: S.tdata.backups.dirs[od.dataset.od] }).catch((er) => toast(er.message, "err")); return; }
+    if (e.target.id === "hundo") { await undo(); }
+  };
+  v.oninput = (e) => {
+    if (e.target.id === "lsearch") { S.lq = e.target.value; clearTimeout(S._lt); S._lt = setTimeout(() => drawLibTable(true), 140); }
+  };
+  v.onchange = null;
+}
+
+// ---------------------------------------------------------------------------
+// Parça ayrıntısı (sağdan açılan panel): etiketler, cue'lar, Engine, listeler, kopyalar, uyumlu şarkılar
+// ---------------------------------------------------------------------------
+async function openTrack(fid) {
+  let d;
+  try { d = await api("/api/track/" + fid); } catch (e) { toast(e.message, "err"); return; }
+  const f = d.file;
+  const kv = (k, v) => (v == null || v === "" ? "" : `<div class="k">${esc(k)}</div><div class="v">${esc(v)}</div>`);
+  const es = { ready: ["ready", "Engine'de, analiz edildi"], pending: ["pending", "Engine'de, analiz bekliyor"], broken: ["problem", "Engine'de yolu bozuk"], edup: ["pending", "Engine'de iki kez"], none: ["none", "Engine'de değil"] }[d.es] || ["none", ""];
+  const mk = d.markers || {};
+  const cues = (mk.cues || []).map((c) => `<span class="cue" style="border-color:${esc(c.color || "#cc0000")}"><i style="background:${esc(c.color || "#cc0000")}"></i>${fmtDur((c.ms || 0) / 1000) || "0:00"}${c.name ? " · " + esc(c.name) : ""}</span>`).join("")
+    + (mk.loops || []).map((l) => `<span class="cue loop">⟲ ${fmtDur((l.start || 0) / 1000) || "0:00"}–${fmtDur((l.end || 0) / 1000)}${l.name ? " · " + esc(l.name) : ""}</span>`).join("");
+  const grp = d.dupe_group;
+  const html = `<div class="drawer-bg" data-dx="1"></div><aside class="drawer" role="dialog" aria-label="Şarkı ayrıntısı">
+    <div class="dw-h"><div style="flex:1;min-width:0"><div class="dw-t">${esc(f.title || f.name)}</div><div class="muted">${esc(f.artist || "—")}</div>
+      <div style="margin-top:6px">${dotHtml(es[0])} <span class="small">${es[1]}</span>${d.genre ? ` <span class="tag" style="border-color:${esc(d.color)};color:${esc(d.color)}">${esc(d.genre)}</span>` : ""}</div></div>
+      <button class="icon-btn" data-dx="1" title="Kapat (Esc)">✕</button></div>
+    <div class="dw-b">
+      <div class="exrow" style="margin-bottom:12px;flex-wrap:wrap"><button class="btn sm" data-dplay="${f.id}">▶ Dinle</button><button class="btn sm" data-dopen="${f.id}">📂 Göster</button>
+        <button class="btn sm" data-dmove="${f.id}">Türe taşı ▾</button><button class="btn sm" data-dlist="${f.id}">Listeye ekle ▾</button></div>
+      ${d.issues && d.issues.length ? `<div class="dw-s"><h4>Sorunlar</h4>${d.issues.map((i) => `<div class="small"><span class="tag ${i.severity === "kritik" ? "bad" : i.severity === "uyari" ? "warn" : ""}">${esc(i.title)}</span> <span class="muted">${esc(i.desc)}</span></div>`).join("")}</div>` : ""}
+      <div class="dw-s"><h4>Bilgiler</h4><div class="kv">
+        ${kv("BPM", f.bpm ? Math.round(f.bpm * 10) / 10 : (d.engine && d.engine.bpm ? Math.round(d.engine.bpm * 10) / 10 + " (Engine)" : ""))}
+        ${kv("Ton", f.camelot || (d.engine && d.engine.key ? d.engine.key + " (Engine)" : ""))}${kv("Enerji (MIK)", f.mik_energy)}
+        ${kv("Süre", fmtDur(f.duration))}${kv("Kalite", [(f.ext || "").replace(".", "").toUpperCase(), f.bitrate ? f.bitrate + " kbps" : "", f.sample_rate ? (f.sample_rate / 1000) + " kHz" : ""].filter(Boolean).join(" · "))}
+        ${kv("Boyut", fmtSize(f.size))}${kv("Albüm", f.album)}${kv("Tür etiketi", f.genre)}${kv("Yıl", f.year)}${kv("Plak şirketi", f.label)}
+        ${kv("Besteci", f.composer)}${kv("Remix", f.remixer)}${kv("Not", f.note)}${kv("Yorum", f.comment && f.comment !== f.note ? f.comment : "")}
+        ${kv("Gruplama", f.grouping)}${kv("Yol", d.disp)}</div></div>
+      ${cues ? `<div class="dw-s"><h4>Cue noktaları (Serato)</h4><div class="cues">${cues}</div></div>` : ""}
+      ${d.engine ? `<div class="dw-s"><h4>Engine DJ</h4><div class="kv">${kv("Durum", d.engine.analyzed ? "analiz edildi" : "analiz bekliyor")}${kv("Beatgrid", d.engine.grid ? "var" : "")}${kv("Engine yolu", d.engine.path)}${d.engine.copies > 1 ? kv("Uyarı", "Engine'de " + d.engine.copies + " kez kayıtlı") : ""}</div></div>` : ""}
+      ${(d.engine_lists.length || d.serato_lists.length) ? `<div class="dw-s"><h4>Listeler</h4>${d.engine_lists.map((x) => `<span class="tag blue">${esc(x)}</span>`).join("")}${d.serato_lists.map((x) => `<span class="tag" title="Serato crate">S · ${esc(x)}</span>`).join("")}</div>` : ""}
+      ${grp ? `<div class="dw-s"><h4>Kopyalar (${grp.members.length})</h4>${grp.members.map((m) => `<div class="small" style="padding:2px 0"><span class="tag ${m.keeper ? "ok" : ""}">${m.keeper ? "tutulacak" : "kopya"}</span>${esc(m.rel)}</div>`).join("")}<button class="btn sm" data-dgo="dupes" style="margin-top:6px">Kopyalara git</button></div>` : ""}
+      <div class="dw-s"><h4>Uyumlu şarkılar <span class="muted small">(aynı / komşu ton, ±%6 BPM)</span></h4>
+        ${d.compatible.length ? d.compatible.map((c) => `<div class="hrow"><div class="meta" data-info="${c.id}"><div class="ttl">${esc(c.title)}</div><div class="art">${esc(c.artist || "—")} · ${c.bpm || "?"} · ${esc(c.key)} · ${esc(c.match)}${c.genre ? " · " + esc(c.genre) : ""}</div></div><button class="play" data-play="${c.id}">▶</button><button class="icon-btn" data-dlist="${c.id}" title="Listeye ekle">＋</button></div>`).join("")
+          : `<div class="muted small">${f.camelot || f.bpm || d.engine ? "Bu tona ve tempoya uyan şarkı bulunamadı." : "Ton ve BPM bilgisi yok (Engine'de analiz edilince gelir)."}</div>`}</div>
+    </div></aside>`;
+  const root = $("#drawer");
+  root.innerHTML = html;
+  root.onclick = async (e) => {
+    if (e.target.closest("[data-dx]")) { closeDrawer(); return; }
+    const pl = e.target.closest("[data-dplay], [data-play]");
+    if (pl) { playFid(+(pl.dataset.dplay || pl.dataset.play), pl); return; }
+    const op = e.target.closest("[data-dopen]");
+    if (op) { api("/api/open", { fid: +op.dataset.dopen }).catch((er) => toast(er.message, "err")); return; }
+    const mv = e.target.closest("[data-dmove]");
+    if (mv) { if (!S.ov) S.ov = await api("/api/overview"); pickGenreMenu(e, [+mv.dataset.dmove]); return; }
+    const li = e.target.closest("[data-dlist]");
+    if (li) { addToListMenu(e, [+li.dataset.dlist]); return; }
+    if (e.target.closest("[data-dgo]")) { closeDrawer(); S.tab = "music"; S.view = "dupes"; localStorage.setItem("djd.tab", "music"); await refresh(true); return; }
+    const inf = e.target.closest("[data-info]");
+    if (inf) { openTrack(+inf.dataset.info); }
+  };
+}
+function closeDrawer() { const r = $("#drawer"); if (r) r.innerHTML = ""; }
+
+// ---------------------------------------------------------------------------
+// Etkinlik kontrolü (gig check)
+// ---------------------------------------------------------------------------
+async function gigCheck(pid) {
+  if (!pid) return;
+  let g;
+  try { g = await api("/api/gigcheck/" + pid); } catch (e) { toast(e.message, "err"); return; }
+  const b = { tamam: ["ok", "✓ Hazır", "Her şarkı yerinde, analiz edilmiş ve Prime 4'te çalar."], uyari: ["warn", "Neredeyse hazır", "Küçük eksikler var."], kritik: ["bad", "Dikkat", "Etkinlikten önce düzelt."] }[g.status];
+  const sev = { kritik: "bad", uyari: "warn", bilgi: "" };
+  const m = modal(`<div class="dh">Kontrol: ${esc(g.title)}</div><div class="db">
+    <div class="gc ${b[0]}"><b>${b[1]}</b> · ${fmtN(g.tracks)} şarkı · ${fmtLong(g.duration)}<div class="small">${b[2]}</div></div>
+    ${g.checks.map((c, i) => `<details class="gcx" ${c.severity === "kritik" ? "open" : ""}><summary><span class="tag ${sev[c.severity]}">${c.severity === "kritik" ? "önemli" : c.severity === "uyari" ? "uyarı" : "bilgi"}</span> <b>${esc(c.title)}</b>${c.action === "repair" ? ` <button class="btn sm primary" data-grepair="${i}">Şimdi onar</button>` : ""}</summary>
+      <div class="muted small" style="margin:4px 0 6px">${esc(c.detail)}</div><div class="small gci">${c.items.slice(0, 60).map((x) => `<div>${esc(x)}</div>`).join("")}${c.items.length > 60 ? `<div class="muted">… ve ${c.items.length - 60} tane daha</div>` : ""}</div></details>`).join("")}
+    ${g.sections.length > 1 ? `<h4 style="margin:14px 0 6px">Bölümler</h4><table class="t"><tbody>${g.sections.map((s) => `<tr><td style="padding-left:${8 + Math.max(0, s.depth - 1) * 14}px">${esc(s.title)}</td><td class="c-num">${s.n}</td><td class="c-num">${fmtLong(s.dur)}</td></tr>`).join("")}</tbody></table>` : ""}
+    </div><div class="df"><button class="btn" data-x="print">🖨 Yazdır</button><button class="btn primary" data-x="ok">Tamam</button></div>`, "wide");
+  m.el.addEventListener("click", async (e) => {
+    if (e.target.closest("[data-grepair]")) { e.preventDefault(); m.close(); await toolTask("/api/health/repair", {}, (r) => `Engine onarıldı (${(r.repaired || 0) + (r.relinked || 0)} yol).`); gigCheck(pid); return; }
+    const x = e.target.closest("[data-x]");
+    if (!x) return;
+    if (x.dataset.x === "print") window.open(`/api/print/${pid}?t=${encodeURIComponent(TOKEN)}`, "_blank");
+    m.close();
+  });
 }
 
 // ---------------------------------------------------------------------------
