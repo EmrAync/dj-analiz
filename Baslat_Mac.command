@@ -1,5 +1,5 @@
 #!/bin/bash
-# DJ Kütüphane Doktoru — Mac başlatıcı. Çift tıklayın; program tarayıcıda açılır.
+# DJ Doktor 2 — Mac başlatıcı. Çift tıklayın; program tarayıcıda açılır.
 # Kapatmak için bu Terminal penceresini kapatın.
 cd "$(dirname "$0")" || exit 1
 export PYTHONUTF8=1

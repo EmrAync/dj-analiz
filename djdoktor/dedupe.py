@@ -240,7 +240,7 @@ def dup_index(lib):
                 continue
             idx[m["id"]] = {"n": len(g["members"]) if g["kind"] != "engine" else len(g.get("tracks") or []),
                             "keeper": m["keeper"], "keeper_gid": keeper.get("gid"), "group": g["id"],
-                            "kind": g["kind"]}
+                            "kind": g["kind"], "content": bool(m.get("content"))}
     return idx
 
 

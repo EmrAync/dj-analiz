@@ -214,6 +214,10 @@ def ingest(lib, entries, progress=None, auto=False):
     cat = lib.catalog
     gens = {g["id"]: g for g in lib.genre_rows()}
     month = time.strftime("%Y-%m")
+    if lib.engine_db() and lib.engine_open():
+        # SSD'ye kopyalama + Engine'e ekleme tek işlem olsun (tek tıkla geri alınabilsin)
+        raise _err("Engine DJ açık. Engine DJ'i kapatınca şarkı SSD'ye ve Engine'e birlikte eklenir"
+                   " (Otomatik ekle açıksa kendiliğinden).", "engine_open")
     with lib.lock:
         cur = {i["path"]: i for i in scan(lib, settle=0 if not auto else 2.0)["items"]}
         todo = []
@@ -328,7 +332,7 @@ def auto_tick(lib):
     s = scan(lib)
     new = [{"path": i["path"]} for i in s["items"] if i["status"] == "new"]
     res = {}
-    if new:
+    if new and not (lib.engine_db() and lib.engine_open()):   # Engine DJ açıksa kapanmasını bekler
         res = ingest(lib, new, auto=True)
     for i in s["items"]:
         if i["status"] == "exists":

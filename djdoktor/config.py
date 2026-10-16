@@ -1,7 +1,8 @@
 """Çalışma alanı, ayarlar ve kütüphane kayıtları.
 
-Çalışma alanı (yedekler, raporlar, dışa aktarımlar, katalog) BİLGİSAYARDA durur:
-  Windows/Mac: Belgeler/DJ Kutuphane Doktoru
+Bilgisayardaki çalışma alanında yalnızca ayarlar ve günlük durur:
+  Windows/Mac: Belgeler/DJ Doktor
+(Katalog, yedekler ve karantina SSD'dedir: _DJDoktor_/. v1'in 'DJ Kutuphane Doktoru' klasörüne dokunulmaz.)
 Programın yanına 'portable.txt' konursa çalışma alanı programın yanında açılır.
 """
 from __future__ import annotations
@@ -54,9 +55,9 @@ def workspace_dir() -> str:
         home = os.path.expanduser("~")
         docs = os.path.join(home, "Documents")
         base = docs if os.path.isdir(docs) else home
-        p = os.path.join(base, "DJ Kutuphane Doktoru")
+        p = os.path.join(base, "DJ Doktor")   # v1'in klasöründen ayrı: v1 ayarları olduğu gibi kalır
     os.makedirs(p, exist_ok=True)
-    for sub in ("yedekler", "raporlar", "disari_aktarim", "kutuphaneler", "gunluk"):
+    for sub in ("gunluk",):
         os.makedirs(os.path.join(p, sub), exist_ok=True)
     return p
 

@@ -334,8 +334,24 @@ def test_engine_open_guard():
             assert e.code == "engine_open"
         r = maintain.run(lib)
         assert r.get("skipped") == "engine_open"
+        # gelen kutusu Engine kapanana kadar bekler (kopya + Engine kaydı tek işlem kalsın)
+        ib, _ar = inbox.ensure_dirs(lib)
+        p = os.path.join(ib, "Halay", "Bekleyen Halay.mp3")
+        make_fixture.write_mp3(p, 103, 150, "Bekleyen Halay", "W")
+        os.utime(p, (1, 1700000000))
+        r = inbox.auto_tick(lib)
+        assert not r or not r.get("added"), r
+        assert os.path.isfile(p) and not disk(lib, "Müzik/Halay/Bekleyen Halay.mp3")
+        try:
+            inbox.ingest(lib, [{"path": p}])
+            raise AssertionError("Engine açıkken gelen eklendi")
+        except UserError as e:
+            assert e.code == "engine_open"
     finally:
         E.is_running = orig
+    r = inbox.auto_tick(lib)   # Engine kapandı: şimdi eklenir
+    assert r and r.get("added") == 1, r
+    assert disk(lib, "Müzik/Halay/Bekleyen Halay.mp3")
 
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

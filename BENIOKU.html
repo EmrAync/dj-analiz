@@ -3,227 +3,147 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DJ Kütüphane Doktoru — Kılavuz</title>
+<title>DJ Doktor 2 — Kısa kılavuz</title>
 <style>
 :root {
-  --bg: #f4f5f7; --paper: #ffffff; --ink: #1d2128; --muted: #5d6573; --line: #dfe3ea;
-  --blue: #2f6be0; --green: #1f9d5c; --amber: #b7791f; --red: #d0453f; --code: #eef1f6;
-}
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #1b1e24; --paper: #23272f; --ink: #e8ebf0; --muted: #a2a9b6; --line: #343a45;
-          --blue: #6a9bff; --green: #34c77b; --amber: #f2b33d; --red: #f0524f; --code: #2c313b; }
+  --bg: #f4f5f7; --paper: #fff; --ink: #1d2128; --muted: #5d6573; --line: #e1e5eb;
+  --blue: #2563eb; --blue-soft: #e8efff; --green: #16a34a; --green-soft: #e7f6ec;
+  --amber: #c27c0e; --amber-soft: #fdf3e1; --red: #dc2626;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink);
-  font: 16px/1.6 "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif; }
-main { max-width: 860px; margin: 0 auto; padding: 32px 20px 64px; }
-header { margin-bottom: 28px; }
-h1 { font-family: Bahnschrift, "DIN Alternate", "Segoe UI", sans-serif; font-weight: 600; font-size: 2rem;
-  letter-spacing: .01em; margin: 0 0 6px; }
-.lead { color: var(--muted); font-size: 1.08rem; margin: 0; max-width: 68ch; }
-h2 { font-family: Bahnschrift, "DIN Alternate", "Segoe UI", sans-serif; font-weight: 600; font-size: 1.35rem;
-  margin: 40px 0 10px; padding-top: 8px; border-top: 1px solid var(--line); }
-h3 { font-size: 1.05rem; margin: 22px 0 6px; }
-p, li { max-width: 74ch; }
-section > ol > li, section > ul > li { margin: 6px 0; }
-code, kbd { font-family: Consolas, "SF Mono", Menlo, monospace; font-size: .92em; background: var(--code);
-  padding: 1px 5px; border-radius: 4px; }
-pre { background: var(--code); padding: 12px 14px; border-radius: 8px; overflow-x: auto; font-size: .9rem; }
-.card { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin: 14px 0; }
-.two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
+main { max-width: 900px; margin: 0 auto; padding: 28px 16px 56px; }
+h1 { font-size: 1.9rem; margin: 0 0 4px; letter-spacing: -.01em; }
+.lead { color: var(--muted); margin: 0 0 22px; max-width: 70ch; }
+h2 { font-size: 1.25rem; margin: 34px 0 10px; }
+p, li { max-width: 72ch; }
+li { margin: 4px 0; }
+.card { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; margin: 12px 0; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .two .card { margin: 0; }
-.card h3 { margin-top: 0; }
-.note { border-left: 4px solid var(--blue); }
-.warn { border-left: 4px solid var(--amber); }
-.safe { border-left: 4px solid var(--green); }
-nav ol { columns: 2; column-gap: 32px; padding-left: 20px; margin: 0; }
-a { color: var(--blue); }
-nav a { text-decoration: none; }
-nav a:hover { text-decoration: underline; }
+.card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+code, kbd { font-family: ui-monospace, Consolas, Menlo, monospace; font-size: .9em; background: #eef1f6;
+  padding: 1px 6px; border-radius: 5px; }
 .muted { color: var(--muted); }
-table { border-collapse: collapse; width: 100%; font-size: .95rem; }
-td, th { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { color: var(--muted); font-weight: 600; }
-@media (max-width: 640px) { .two { grid-template-columns: 1fr; } nav ol { columns: 1; } h1 { font-size: 1.6rem; } }
-@media print { body { background: #fff; color: #000; } .card { break-inside: avoid; } h2 { break-after: avoid; } }
+.flow { display: flex; align-items: stretch; gap: 6px; flex-wrap: wrap; margin: 10px 0 6px; }
+.st { flex: 1 1 140px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.st b { display: block; font-size: .95rem; }
+.st span { display: block; color: var(--muted); font-size: .86rem; line-height: 1.4; margin-top: 2px; }
+.st.engine { border-color: #c9d8ff; background: var(--blue-soft); }
+.st.done { border-color: #bfe5cc; background: var(--green-soft); }
+.ar { align-self: center; color: var(--muted); font-size: 1.2rem; }
+.side { margin-top: 6px; font-size: .9rem; color: var(--muted); }
+.dots { list-style: none; padding: 0; display: flex; gap: 18px; flex-wrap: wrap; }
+.dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+.ok { border-left: 4px solid var(--green); }
+.warn { border-left: 4px solid var(--amber); }
+.info { border-left: 4px solid var(--blue); }
+details { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 10px 16px; margin: 8px 0; }
+summary { cursor: pointer; font-weight: 600; }
+details p { margin: 8px 0 4px; }
+@media (max-width: 640px) { .two { grid-template-columns: 1fr; } .ar { display: none; } h1 { font-size: 1.55rem; } }
 </style>
 </head>
 <body>
 <main>
-<header>
-  <h1>DJ Kütüphane Doktoru</h1>
-  <p class="lead">Serato (Mac) ile Engine DJ / Denon Prime 4 arasında kaybolan, kırmızı görünen, çift kopyalanmış
-  ve dağınık müzikler için. Program müzik dosyalarınızı hiçbir zaman silmez; Serato veya Engine dosyasını
-  değiştirmeden önce yedek alır ve her işlemi geri almanıza izin verir.</p>
-</header>
 
-<nav class="card">
-  <ol>
-    <li><a href="#kurulum">Kurulum ve çalıştırma</a></li>
-    <li><a href="#ilk">İlk kullanım: önce kopyada deneyin</a></li>
-    <li><a href="#sira">SSD'yi düzeltme sırası</a></li>
-    <li><a href="#etkinlik">Düğün ve etkinlik listeleri</a></li>
-    <li><a href="#yeni">Yeni müzik eklerken çiftleri önleme</a></li>
-    <li><a href="#kurallar">Mac, Windows ve Prime 4 için altın kurallar</a></li>
-    <li><a href="#geri">Geri alma, yedekler, karantina</a></li>
-    <li><a href="#sorun">Sorun giderme</a></li>
-  </ol>
-</nav>
+<h1>DJ Doktor 2</h1>
+<p class="lead">Her şarkının SSD'de <b>tek bir evi</b> olur: <code>Müzik/&lt;Tür&gt;</code>. Engine DJ listelerini doğrudan
+düzenlersin; Serato'da da görünmesini istediğin listeler kendiliğinden eşitlenir. Hiçbir dosya silinmez, her işlem tek tıkla geri alınır.</p>
 
-<section id="kurulum">
-<h2>1. Kurulum ve çalıştırma</h2>
-<p>Zip dosyasını bir klasöre çıkarın (ör. Belgeler). Program Windows'ta ve Mac'te aynı şekilde çalışır;
-ekranı tarayıcınızda açılır. İnternet gerekmez ve hiçbir veri bilgisayarınızın dışına çıkmaz.</p>
+<h2>1 · Başlat</h2>
 <div class="two">
   <div class="card">
     <h3>Windows</h3>
     <ol>
-      <li>Zip'i çıkarmadan önce: zip'e sağ tıklayın → <b>Özellikler</b> → <b>Engellemeyi kaldır</b> → Tamam.</li>
-      <li><code>Baslat_Windows.bat</code> dosyasına çift tıklayın.</li>
-      <li>Python yüklü değilse program bunu söyler ve tek tuşla kurmayı önerir (Windows 10/11).
-      İsterseniz <a href="https://www.python.org/downloads/windows/">python.org</a>'dan da kurabilirsiniz;
-      kurulumda <b>Add python.exe to PATH</b> kutusunu işaretleyin.</li>
+      <li>Zip'i açmadan önce: sağ tık → <b>Özellikler</b> → <b>Engellemeyi kaldır</b> → Tamam.</li>
+      <li><code>Baslat_Windows.bat</code>'a çift tıkla. Program tarayıcıda açılır.</li>
+      <li>Python yoksa program söyler ve kurmayı önerir.</li>
     </ol>
   </div>
   <div class="card">
     <h3>Mac</h3>
     <ol>
-      <li><code>Baslat_Mac.command</code> dosyasına çift tıklayın.</li>
-      <li>"Doğrulanamadı" uyarısı çıkarsa: <b>Sistem Ayarları → Gizlilik ve Güvenlik</b> → en altta
-      <b>Yine de Aç</b>. (Eski macOS'ta: dosyaya sağ tık → Aç → Aç.)</li>
-      <li>Python yoksa macOS geliştirici araçlarını kurmayı önerir; <b>Yükle</b>'ye basın ve dosyayı tekrar açın.</li>
-      <li>"Harici diskteki dosyalara erişim" sorulursa <b>İzin Ver</b> deyin.</li>
+      <li><code>Baslat_Mac.command</code>'a çift tıkla.</li>
+      <li>"Doğrulanamadı" derse: <b>Sistem Ayarları → Gizlilik ve Güvenlik → Yine de Aç</b>.</li>
+      <li>Python yoksa macOS kurmayı önerir: <b>Yükle</b>, sonra dosyayı tekrar aç.</li>
     </ol>
   </div>
 </div>
-<p>Program açıkken siyah pencere (Mac'te Terminal) açık kalmalıdır. <b>Kapatmak için bu pencereyi kapatın.</b>
-Tarayıcı kendiliğinden açılmazsa pencerede yazan adresi (genellikle <code>http://127.0.0.1:8765</code>) tarayıcıya yazın.</p>
-<p class="muted">Program kendi dosyalarını (katalog, yedekler, raporlar) <code>Belgeler/DJ Kutuphane Doktoru</code>
-klasöründe tutar. Her şeyin program klasöründe durmasını isterseniz (ör. USB bellekten kullanım) program
-klasörüne <code>portable.txt</code> adlı boş bir dosya koyun.</p>
-</section>
+<p class="muted">Kapatmak için açılan siyah/Terminal penceresini kapat. İnternet gerekmez; hiçbir şey bilgisayarın dışına çıkmaz.</p>
 
-<section id="ilk">
-<h2>2. İlk kullanım: önce kopyada deneyin</h2>
-<ol>
-  <li><b>Kütüphane ekle</b> → masaüstündeki <code>melis_dj_muzik</code> kopyasını seçin.</li>
-  <li>Eklenen her kütüphane <b>salt-okunur</b> başlar: program yalnızca okur, hiçbir şeyi değiştirmez.
-  Üst çubukta bunu gösteren bir etiket vardır.</li>
-  <li><b>Genel bakış</b> sorunları önem sırasıyla gösterir. <b>Sorunlar</b> ve <b>Çiftler</b> sayfalarında
-  hangi dosyanın nerede olduğunu görürsünüz; parçaya tıklayıp dinleyebilirsiniz.</li>
-  <li>Düzeltmeleri önce kopyada deneyin. Bir düzeltme düğmesine bastığınızda program salt-okunur modu
-  kapatmak için izin ister. Sonuç beğendiyseniz aynı adımları SSD'de uygulayın.</li>
-</ol>
-<div class="card note">
-  <b>Neden Prime 4 bazı parçaları okumuyor?</b> Mac, Türkçe harfleri (ü, ğ, ş, ç, ö, İ) dosya yollarında
-  "ayrık" biçimde yazar (ör. <i>ü</i> = <i>u</i> + iki nokta). Serato'nun ve Mac'teki Engine'in veritabanına bu
-  biçim kaydedilir. Mac bunu tolere eder ama Windows ve Prime 4 (Linux) harfi harfine arar ve dosyayı
-  bulamaz. Engine'in "Serato'dan içe aktar" özelliği de bu yolları olduğu gibi kopyalar. Ayrıca Mac'te
-  klasör adına yazılan <code>/</code> veya <code>:</code> (ör. <code>ROMAN : MEZDEKE</code>) ve sondaki
-  nokta (ör. <code>Pop yeni 10.04.</code>) diskte görünmez özel karakterlere dönüşür. Bu klasörlerdeki
-  parçalar da Prime 4'te kırmızı görünür.
+<h2>2 · Bir şarkının yolu</h2>
+<div class="flow">
+  <div class="st"><b>1 · İndir</b><span>Bilgisayarda <code>Müzik/DJ Gelen/Halay</code> gibi türün klasörüne kaydet</span></div><span class="ar">→</span>
+  <div class="st"><b>2 · Kontrol</b><span>Program bakar: yarım mı, Prime 4 çalar mı, zaten var mı?</span></div><span class="ar">→</span>
+  <div class="st"><b>3 · SSD</b><span><code>Müzik/Halay</code> — tek ev, tek kopya</span></div><span class="ar">→</span>
+  <div class="st engine"><b>4 · Engine</b><span>Bir kez eklenir, <b>“Analiz bekleyenler”</b> listesine girer</span></div><span class="ar">→</span>
+  <div class="st done"><b>5 · Hazır</b><span>Engine DJ'de analiz et → programda yeşil görünür</span></div>
 </div>
-</section>
+<p class="side">Orijinal dosya bilgisayarda <code>Müzik/DJ Arşiv/&lt;ay&gt;/&lt;tür&gt;</code> klasörüne kaldırılır (yedek; Engine'e girmez).
+Gelen klasörüne türsüz bırakılan şarkı, program <b>Gelen</b> sekmesinde senden tür ister.</p>
 
-<section id="sira">
-<h2>3. SSD'yi düzeltme sırası</h2>
-<p>Başlamadan önce <b>Engine DJ'i ve Serato'yu tamamen kapatın</b>. Açıkken kapanırken kendi
-kayıtlarını bizim değişikliklerimizin üzerine yazarlar. Program bunu kontrol eder ve uyarır.</p>
+<h2>3 · İlk kurulum (bir kez)</h2>
 <ol>
-  <li><b>Kütüphane ekle</b> → SSD'nin kökünü seçin (Windows'ta <code>D:\</code>, Mac'te <code>/Volumes/…</code>).</li>
-  <li><b>Serato ve Engine → Engine yol onarımı.</b> Prime 4'te kırmızı görünen parçaları düzeltir.
-  Yalnızca Engine veritabanındaki yol yazımı değişir; müzik dosyalarına dokunulmaz.</li>
-  <li><b>Güvenli ad düzeltme.</b> Mac'e özel karakterli klasör ve dosya adlarını düzeltir
-  (<code>ROMAN : MEZDEKE</code> → <code>ROMAN - MEZDEKE</code>). Serato crate'leri ve Engine yolları
-  aynı anda güncellenir; listeleriniz bozulmaz.</li>
-  <li><b>Çöp dosyalar.</b> Mac'in harici disklere bıraktığı <code>._</code> ile başlayan dosyaları karantinaya taşır.
-  Bu dosyalar Engine'de bozuk parça gibi görünebilir.</li>
-  <li><b>Çiftler.</b> Program her grupta notu ve cue noktaları olan kopyayı tutmayı önerir. Diğer kopyalar
-  karantinaya gider; Serato crate'leri ve Engine listeleri tutulan kopyaya yönlendirilir. Grupları tek tek
-  gözden geçirin. "Muhtemelen aynı şarkı" grupları farklı kayıtlar olabilir; emin değilseniz dokunmayın.</li>
-  <li>SSD'yi Prime 4'e takıp kontrol edin.</li>
+  <li><b>SSD'yi seç.</b> Program önce yalnızca okur.</li>
+  <li><b>“Düzeni kuralım”</b> ekranında türlere bak: ada tıkla → değiştir, <b>✕</b> → kaldır, <b>Engine</b> düğmesi → o tür Engine'e eklensin mi.
+      Aşağıdaki tabloda her klasörün nereye gideceği yazar; istersen değiştir.</li>
+  <li><b>Düzeni kur</b>'a bas. Şarkılar <code>Müzik/&lt;Tür&gt;</code> klasörlerine taşınır; Engine ve Serato listeleri yeni yerleri gösterir.</li>
+  <li>Sol menüde sırayla: <b>Türü belli değil</b> (öneriye tıkla) → <b>Kopyalar</b> (birleştir; not/cue/ton olan kopyanın etiketleri korunur) → <b>Sorunlar</b>.</li>
+  <li><b>Engine DJ</b>'yi aç → sol altta SSD'nin altındaki <b>“Analiz bekleyenler”</b> listesi → <kbd>Ctrl+A</kbd> (Mac: <kbd>⌘A</kbd>) → sağ tık →
+      <b>Analyze / Re-analyze tracks</b>. Bitenler listeden kendiliğinden düşer.</li>
 </ol>
-</section>
 
-<section id="etkinlik">
-<h2>4. Düğün ve etkinlik listeleri</h2>
-<ol>
-  <li><b>Etkinlikler → Yeni etkinlik.</b> Bir şablon seçin: Düğün (Karşılama, Giriş, İlk Dans, Pasta, Takı,
-  Halay, Kürtçe Halay / Grani, Horon, Roman / Mezdeke, Oyun Havası, Türkçe Pop, Yabancı Pop / Dans, Arabic,
-  Çıkış, Notfall / Yedek), Kına Gecesi, Nişan / Söz, Sünnet Düğünü, Matine, Doğum Günü / Parti, Konser / Sahne,
-  Kulüp / Bar ya da boş. Bölümleri ekleyip silebilirsiniz.</li>
-  <li>Bir bölüme tıklayın. Sağda o bölüme uygun <b>öneriler</b> ve <b>arama</b> çıkar; bir parçayı tıklayarak
-  ya da sürükleyerek ekleyin. Sırayı sürükleyerek değiştirin, parçalara not yazın (ör. "gelin girişi").
-  Aynı parçanın kopyaları önerilmez.</li>
-  <li><b>Gig kontrolü:</b> Prime 4'te sorun çıkaracak parçaları önceden bulur: dosyası kayıp, Engine'de
-  analiz edilmemiş, adında sorunlu karakter olan ya da bozuk dosyalar.</li>
-  <li><b>Engine'e gönder (Prime 4)</b>: Engine DJ kapalıyken, etkinlik sayfasından ya da <b>Serato ve Engine</b> sayfasından. SSD'de <code>DJ Doktor</code> klasörü altında
-  <code>2026-10-24 Ayşe &amp; Mehmet Düğün</code> ve içinde <code>01 Giriş</code>, <code>02 Halay</code>…
-  listeleri oluşur. Prime 4 bunları doğrudan okur. Listeyi değiştirip tekrar gönderdiğinizde Engine'deki
-  hâli güncellenir, kopya oluşmaz. Programın kendi klasörü dışındaki Engine listelerinize dokunulmaz.</li>
-  <li>İsterseniz <b>Serato'ya crate olarak yaz</b> ile Serato'ya da gönderin (Mac'te Serato kapalıyken). Ayrıca rekordbox XML
-  (Serato cue'larıyla) ve M3U8 olarak dışa aktarabilirsiniz.</li>
-  <li><b>Yazdır:</b> etkinliğin akış kâğıdını (bölümler, parçalar, notlar) yazdırabilirsiniz.</li>
-</ol>
-</section>
-
-<section id="yeni">
-<h2>5. Yeni müzik eklerken çiftleri önleme</h2>
-<p><b>Yeni müzik ekle</b> sayfasında indirdiğiniz klasörü seçin. Program her dosyayı kütüphanenizle
-karşılaştırır: <i>birebir aynı</i>, <i>aynı ses (etiketi farklı)</i> veya <i>muhtemelen aynı şarkı (başka kayıt
-ya da kalite)</i>. Yalnızca gerçekten yeni olanları temiz adlarla SSD'deki hedef klasöre kopyalar ve
-isterseniz bir listeye ekler. İndirilen kaynak dosyalara dokunulmaz.</p>
-</section>
-
-<section id="kurallar">
-<h2>6. Mac, Windows ve Prime 4 için altın kurallar</h2>
-<ul>
-  <li>Listeleri Engine'e bu programla gönderin. Engine'in "Serato'dan içe aktar" özelliğini kullandıysanız
-  ardından <b>Engine yol onarımı</b> çalıştırın.</li>
-  <li>Engine DJ'de parça eklerken SSD'deki parçaları kullanın. Bilgisayardaki koleksiyondan sürüklerseniz
-  Engine dosyayı <code>Engine Library/Music</code> içine kopyalar ve çift oluşur.</li>
-  <li>Mac'te klasör ve dosya adlarında <code>/ : \ * ? " &lt; &gt; |</code> kullanmayın, adı nokta veya boşlukla bitirmeyin.</li>
-  <li>SSD'yi her zaman <b>Çıkar</b> (Mac) / <b>Donanımı güvenli kaldır</b> (Windows) ile çıkarın.
-  Aksi hâlde Engine veritabanı bozulabilir.</li>
-  <li>Her etkinlikten önce <b>Gig kontrolü</b> çalıştırın.</li>
-</ul>
-</section>
-
-<section id="geri">
-<h2>7. Geri alma, yedekler, karantina</h2>
-<div class="card safe">
+<h2>4 · Her gün</h2>
+<div class="card">
   <ul>
-    <li><b>Hiçbir dosya silinmez.</b> Çöp dosyalar ve çift kopyalar SSD'de
-    <code>_DJDoktor_Karantina</code> klasörüne taşınır. İnceledikten sonra isterseniz kendiniz silersiniz.</li>
-    <li>Engine ve Serato dosyaları her değişiklikten önce <code>Belgeler/DJ Kutuphane Doktoru/yedekler</code>
-    klasörüne yedeklenir.</li>
-    <li><b>Geçmiş</b> sayfasında her işlem tek tıkla geri alınır. Bir işlemden sonra Engine DJ'de, Prime 4'te
-    veya Serato'da başka bir değişiklik yaptıysanız (cue, analiz, crate), geri alma önce sizi uyarır;
-    o değişiklikler habersiz kaybolmaz. Yine de devam ederseniz o anki hâlin de yedeği alınır.</li>
-    <li>Program müzik dosyalarının içeriğine ve etiketlerine yazmaz. Engine'deki cue, beatgrid ve analiz
-    verilerinize dokunmaz.</li>
+    <li><b>Yeni etkinlik:</b> Listeler → <b>+ Yeni etkinlik</b> → tarih, isim, şablon (Düğün, Kına, Nişan, Sünnet, Matine, Parti) ya da eski bir listenin kopyası.
+        Sağdaki aramadan <b>+</b> ile şarkı ekle, satırları sürükleyerek sırala, “not ekle” ile not düş.</li>
+    <li><b>Serato'da da:</b> listenin sağ üstündeki düğme. Açıksa o liste Serato'da crate olarak görünür; hangisinde değiştirirsen öbürüne geçer.</li>
+    <li><b>Tür / klasör adı:</b> Müzikler → türün yanındaki <b>✎</b>. Engine ve Serato yolları kendiliğinden düzelir.</li>
+    <li><b>Yanlış türdeki şarkı:</b> satırı soldaki türün üstüne sürükle ya da işaretleyip <b>Türe taşı</b>.</li>
+    <li><b>Geri al:</b> sağ üstteki düğme ya da <kbd>Ctrl+Z</kbd> — en son işlemden başlayarak.</li>
   </ul>
 </div>
-<p class="muted">Yedekler zamanla yer kaplar. Engine veritabanı büyükse her yedek onlarca MB olabilir. Geçmiş
-sayfası toplam boyutu gösterir; eski yedekleri "Yedekler klasörü"nden kendiniz silebilirsiniz.
-Geri alabilmek için en yenilerini saklayın.</p>
-</section>
+<ul class="dots">
+  <li><span class="dot" style="background:var(--green)"></span>Engine'de, analiz edildi</li>
+  <li><span class="dot" style="background:var(--amber)"></span>Analiz bekliyor</li>
+  <li><span class="dot" style="border:2px solid #9aa3af"></span>Engine'de değil</li>
+  <li><span class="dot" style="background:var(--red)"></span>Sorun (bozuk, çalmaz, yol hatalı)</li>
+</ul>
 
-<section id="sorun">
-<h2>8. Sorun giderme</h2>
-<table>
-  <tr><th>Durum</th><th>Ne yapmalı</th></tr>
-  <tr><td>"Engine DJ açık" / "Serato DJ açık"</td><td>Programı tamamen kapatın (Windows'ta sistem tepsisini de kontrol edin) ve tekrar deneyin.</td></tr>
-  <tr><td>"Veritabanında yarım kalmış bir işlem var"</td><td>Engine DJ'i bir kez açıp düzgünce kapatın, sonra tekrar deneyin.</td></tr>
-  <tr><td>Tarayıcı açılmadı</td><td>Siyah pencerede yazan adresi tarayıcıya yazın.</td></tr>
-  <tr><td>Windows "bilgisayarınızı korudu" uyarısı</td><td><b>Ek bilgi → Yine de çalıştır</b>. Ya da zip'i çıkarmadan önce "Engellemeyi kaldır".</td></tr>
-  <tr><td>Mac "doğrulanamadı" uyarısı</td><td>Sistem Ayarları → Gizlilik ve Güvenlik → <b>Yine de Aç</b>. Alternatif: Terminal'de program klasörüne gidip <code>python3 baslat.py</code> yazın.</td></tr>
-  <tr><td>SSD listede görünmüyor</td><td>Klasör seçicinin açılış ekranında diskler listelenir. Görünmüyorsa yolu üstteki kutuya elle yazın (<code>D:\</code> veya <code>/Volumes/SSD-adı</code>).</td></tr>
-  <tr><td>Bir işlemin sonucunu beğenmediniz</td><td>Geçmiş sayfasından geri alın.</td></tr>
-</table>
-<p class="muted" style="margin-top:28px">DJ Kütüphane Doktoru 1.0 · Etiket okuma için <a href="https://github.com/quodlibet/mutagen">mutagen</a>
-kütüphanesi kullanılır (GPL-2.0-or-later; lisansı <code>vendor/mutagen/COPYING.txt</code> içinde).</p>
-</section>
+<h2>5 · Altın kurallar</h2>
+<div class="card warn">
+  <ul>
+    <li>Engine DJ'de bu SSD'nin <b>kendi kütüphanesiyle</b> çalış (sol altta SSD adı). Şarkıları Engine'e <b>elle sürükleme</b>, bilgisayardan SSD'ye
+        <b>senkron/dışa aktarma yapma</b>: ikisi de aynı şarkıyı SSD'ye ikinci kez kopyalar. Eklemeyi program yapar, bir kez.</li>
+    <li>Program <b>Engine DJ açıkken Engine'e yazmaz</b> (üstte “Engine DJ açık · kilitli”), <b>Serato açıkken Serato'ya yazmaz</b>; kapatınca kendisi tamamlar.</li>
+    <li>SSD'yi çıkarmadan önce programı, Engine DJ'i ve Serato'yu kapat; sonra <b>güvenli çıkar</b>.</li>
+  </ul>
+</div>
+
+<h2>6 · Güvenlik</h2>
+<div class="card ok">
+  <ul>
+    <li><b>Hiçbir dosya silinmez.</b> Fazla kopyalar SSD'de <code>_DJDoktor_/Karantina</code> klasörüne taşınır.</li>
+    <li>Engine ve Serato dosyalarının yedeği her değişiklikten önce <code>_DJDoktor_/Yedekler</code> klasörüne alınır.</li>
+    <li>Katalog da SSD'dedir (<code>_DJDoktor_</code>): Mac'te ve PC'de aynı düzeni görürsün. Gelen ve Arşiv her bilgisayarda ayrıdır.</li>
+  </ul>
+</div>
+
+<h2>Sık sorulanlar</h2>
+<details><summary>Geri alırken “emin misin?” diye soruyor.</summary>
+<p>O işlemden sonra Engine, Prime 4 ya da Serato aynı yeri değiştirmiş. Geri alırsan o sonraki değişiklik de geri gider; istemiyorsan vazgeç.</p></details>
+<details><summary>Karantinadaki dosyaları silebilir miyim?</summary>
+<p>Birkaç hafta sorunsuz çaldıktan sonra evet, elle silebilirsin. Program kendisi asla silmez. Ayarlar → <b>Karantinayı aç</b>.</p></details>
+<details><summary>SSD'ye başka harf verildi / başka bilgisayarda açtım.</summary>
+<p>Sorun değil. Program SSD'yi bulamazsa sorar; listeden SSD'ni seç (<b>Bu SSD</b>). Engine'deki yollar SSD'ye göre göreli olduğu için bozulmaz.</p></details>
+<details><summary>Eski sürüm (v1) ne olacak?</summary>
+<p>v1'in klasörlerine ve ayarlarına dokunulmaz; v2 ayarlarını <code>Belgeler/DJ Doktor</code> klasöründe tutar. v2'den memnunsan v1 klasörünü silebilirsin.</p></details>
+<details><summary>Bir şey ters gitti.</summary>
+<p>Önce <b>Geri al</b>. Olmadıysa programı kapatıp açın; SSD'deki <code>_DJDoktor_/Yedekler</code> klasöründe her değişiklik öncesi Engine ve Serato yedekleri durur.</p></details>
+
 </main>
 </body>
 </html>

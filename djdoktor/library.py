@@ -431,6 +431,7 @@ class Library:
                 if s["dup"] and not s["dup"].get("keeper") and s["dup"]["kind"] in ("exact", "audio") and dg:
                     row["copy_of"] = dg       # bu bir kopya: asıl dosya o türde
                     row["group"] = s["dup"]["group"]
+                    row["keep_tags"] = bool(s["dup"].get("content"))  # not/cue/ton bu kopyada: o korunur
                 rows.append(row)
         else:
             for s in states.values():

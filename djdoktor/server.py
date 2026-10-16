@@ -673,7 +673,7 @@ def _print_list(lib, pid):
     return "".join(out)
 
 
-def run(port=8765, open_browser=True):
+def run(port=8770, open_browser=True):
     app = App()
     Handler.app = app
     srv = None

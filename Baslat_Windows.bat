@@ -1,12 +1,12 @@
 @echo off
 setlocal EnableExtensions
-title DJ Kutuphane Doktoru
+title DJ Doktor
 cd /d "%~dp0"
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
 
 rem ---------------------------------------------------------------
-rem  DJ Kutuphane Doktoru - Windows baslatici
+rem  DJ Doktor 2 - Windows baslatici
 rem  Cift tiklayin. Program tarayicida acilir.
 rem  Kapatmak icin bu siyah pencereyi kapatin.
 rem ---------------------------------------------------------------

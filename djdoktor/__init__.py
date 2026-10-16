@@ -1,5 +1,5 @@
-"""DJ Kütüphane Doktoru — Serato / Engine DJ kütüphane analiz, liste ve senkron aracı."""
+"""DJ Doktor — Serato / Engine DJ müzik düzeni, listeler ve senkron (v2)."""
 
-APP_NAME = "DJ Kütüphane Doktoru"
+APP_NAME = "DJ Doktor"
 APP_ID = "djdoktor"
 VERSION = "2.0.0"

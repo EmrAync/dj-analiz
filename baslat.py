@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DJ Kütüphane Doktoru — başlatıcı.
+"""DJ Doktor — başlatıcı.
 
 Kullanım:  python baslat.py            (arayüzü tarayıcıda açar)
            python baslat.py --port 8800 --no-browser
@@ -26,8 +26,8 @@ for stream in (sys.stdout, sys.stderr):
 
 def main():
     import argparse
-    ap = argparse.ArgumentParser(description="DJ Kütüphane Doktoru")
-    ap.add_argument("--port", type=int, default=8765)
+    ap = argparse.ArgumentParser(description="DJ Doktor")
+    ap.add_argument("--port", type=int, default=8770)  # v1 8765 kullanır; ikisi karışmasın
     ap.add_argument("--no-browser", action="store_true")
     args = ap.parse_args()
     # Zaten çalışıyorsa ikinci kopyayı açmak yerine tarayıcıyı ona yönlendir

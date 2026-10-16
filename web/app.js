@@ -538,7 +538,7 @@ function tracksHtml() {
   let hint = "";
   if (ov.maint && ov.maint.pending && (isG || S.view === "all")) {
     hint = `<div class="hint"><span class="ic">⏳</span><div><b>${fmtN(ov.maint.pending)} şarkı analiz bekliyor.</b> Engine DJ'yi aç, sol tarafta SSD'nin altındaki <b>“Analiz bekleyenler”</b> listesini seç
-      <div class="steps"><span>Ctrl+A (Mac: ⌘A)</span><i>→</i><span>sağ tık</span><i>→</i><span>Analyze Tracks</span></div>Bitince burada yeşil görünür, listeden de kendiliğinden düşer.</div></div>`;
+      <div class="steps"><span>Ctrl+A (Mac: ⌘A)</span><i>→</i><span>sağ tık</span><i>→</i><span>Analyze / Re-analyze tracks</span></div>Bitince burada yeşil görünür, listeden de kendiliğinden düşer.</div></div>`;
   }
   if (S.view === "unsorted" && rows.some((r) => r.sugg && !r.copy_of)) {
     const n = rows.filter((r) => r.sugg && !r.copy_of).length;
@@ -550,7 +550,8 @@ function tracksHtml() {
     const g = r.gid ? genreById(r.gid) : null;
     let extra = "";
     if (S.view === "unsorted") {
-      if (r.copy_of) extra = `<button class="btn sm" data-dropcopy="${esc(r.group)}" title="Bu dosyanın aynısı ${esc(r.copy_of)} klasöründe var. Bu kopya karantinaya taşınır; listeler asıl dosyayı gösterir.">⧉ ${esc(r.copy_of)} içinde var · kopyayı kaldır</button>`;
+      if (r.copy_of && r.keep_tags) extra = `<button class="btn sm" data-dropcopy="${esc(r.group)}" title="Bu dosyanın aynısı ${esc(r.copy_of)} klasöründe var. Bu kopyadaki not / cue / ton bilgisi daha zengin: bu dosya asıl yere geçer, eski dosya karantinaya taşınır. Listeler değişmez.">⧉ ${esc(r.copy_of)} içinde var · birleştir <span class="tag blue">etiketleri korunur</span></button>`;
+      else if (r.copy_of) extra = `<button class="btn sm" data-dropcopy="${esc(r.group)}" title="Bu dosyanın aynısı ${esc(r.copy_of)} klasöründe var. Bu kopya karantinaya taşınır; listeler asıl dosyayı gösterir.">⧉ ${esc(r.copy_of)} içinde var · kopyayı kaldır</button>`;
       else if (r.sugg) extra = `<button class="gbtn ${r.sugg_new ? "outline" : ""}" style="background:${COLORS[r.sugg] || (genreByName(r.sugg) || {}).color || "#64748b"};color:${r.sugg_new ? COLORS[r.sugg] || "#64748b" : "#fff"}" data-sugg="${r.id}" title="${esc(r.why || "")}${r.sugg_new ? " (yeni tür oluşturulur)" : ""}">→ ${esc(r.sugg)}</button>`;
       extra += ` <button class="btn sm" data-pickg="${r.id}">Tür seç ▾</button>`;
     } else if (S.view === "problems") {
@@ -932,7 +933,7 @@ function listMainHtml() {
     <div style="display:flex;gap:8px;align-items:center">
       ${S.st.active.has_serato ? `<label class="switch ${l.serato ? "on" : ""}" id="sertog" title="Bu liste Serato'da da crate olarak dursun; değişiklikler iki yönlü eşitlenir"><i></i>Serato'da da</label>` : ""}
       <button class="icon-btn" id="lmenu" title="Diğer">⋯</button></div></div>
-    <div class="body">${it.managed ? `<div class="hint blue"><span class="ic">ℹ</span><div>${l.kind === "analysis" ? "Bu liste Engine'de analiz edilmemiş şarkıları gösterir. Engine DJ'de bu listeyi seç → tümünü seç → sağ tık → <b>Analyze</b>. Bitenler kendiliğinden düşer." : "Bu listeyi program tutar (tür klasörünün aynısı). Değiştirmek için kopyasını al."}</div></div>` : ""}
+    <div class="body">${it.managed ? `<div class="hint blue"><span class="ic">ℹ</span><div>${l.kind === "analysis" ? "Bu liste Engine'de analiz edilmemiş şarkıları gösterir. Engine DJ'de bu listeyi seç → tümünü seç → sağ tık → <b>Analyze / Re-analyze tracks</b>. Bitenler kendiliğinden düşer." : "Bu listeyi program tutar (tür klasörünün aynısı). Değiştirmek için kopyasını al."}</div></div>` : ""}
     ${it.items.length ? `<table class="t" id="ltab"><thead><tr><th></th><th></th><th>Şarkı</th><th>BPM</th><th>Ton</th><th>Süre</th><th>Not</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
       : `<div class="empty"><div class="big">＋</div>Liste boş. Sağdan şarkı ara ve <b>＋</b> ile ekle ya da sürükleyip bırak.</div>`}</div>`;
 }
@@ -1228,7 +1229,7 @@ function renderInbox() {
     <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap"><button class="btn" id="openin">📂 Gelen klasörünü aç</button><button class="btn" id="openar">🗄 Arşivi aç</button>
       <span class="muted small" style="align-self:center">Tür klasörleri: ${gs.map((g) => esc(g.name)).join(", ")}</span></div>
     ${wait.length ? `<div class="card" style="padding:0"><div style="padding:12px 16px 4px"><h3>Senden karar bekleyenler (${wait.length})</h3></div>${wait.map(row).join("")}</div>` : ""}
-    ${going.length ? `<div class="card" style="padding:0"><div style="padding:12px 16px 4px"><h3>Sırada</h3></div>${going.map((i) => `<div class="ib"><span class="tag blue">${i.status === "downloading" ? "iniyor…" : "ekleniyor…"}</span><div class="meta"><div class="ttl">${esc(i.title || i.name)}</div><div class="art">${esc(i.genre || "")}</div></div></div>`).join("")}</div>` : ""}
+    ${going.length ? `<div class="card" style="padding:0"><div style="padding:12px 16px 4px"><h3>Sırada</h3></div>${going.map((i) => `<div class="ib"><span class="tag blue">${i.status === "downloading" ? "iniyor…" : S.st.engine_open ? "Engine DJ kapanınca eklenecek" : "ekleniyor…"}</span><div class="meta"><div class="ttl">${esc(i.title || i.name)}</div><div class="art">${esc(i.genre || "")}</div></div></div>`).join("")}</div>` : ""}
     ${!wait.length && !going.length ? `<div class="empty" style="padding:28px"><div class="big">📥</div>Gelen kutusu boş. Yeni indirdiğin şarkıyı <b>${esc(ib.inbox)}${sepName}Halay</b> gibi bir tür klasörüne kaydet.</div>` : ""}
     ${dl.length ? `<div class="card" style="padding:0"><div style="padding:12px 16px 4px"><h3>İndirilenler klasöründe unutulanlar (${dl.length})</h3><div class="muted small">Türünü seçersen gelen kutusuna alınır.</div></div>
       ${dl.map((d) => `<div class="ib"><div class="meta"><div class="ttl">${esc(d.name)}</div></div><div class="acts">${gs.map((g) => `<button class="gbtn" style="background:${esc(g.color)}" data-take="${esc(d.path)}" data-g="${g.id}">${esc(g.name)}</button>`).join("")}<button class="btn sm ghost" data-ign="${esc(d.path)}">Yoksay</button></div></div>`).join("")}</div>` : ""}
