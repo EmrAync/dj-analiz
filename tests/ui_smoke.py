@@ -59,6 +59,32 @@ with sync_playwright() as p:
     page.goto(URL)
     page.wait_for_selector("text=Merhaba")
     shot(page, "01_ssd_sec")
+    # yanlış sürücü: uyarı çıkar; yine de taranırsa ✕ ile durdurulur ve seçim geri alınır (iz kalmaz)
+    WRONG = os.path.join(TMP, "YanlisDisk")
+    os.makedirs(os.path.join(WRONG, "Belgeler"), exist_ok=True)
+    for i in range(25):
+        make_fixture.write_mp3(os.path.join(WRONG, "Belgeler", "kayit %02d.mp3" % i), 400 + i, 120, "Kayit %d" % i, "Y")
+    import djdoktor.scanner as SC  # noqa: E402
+    _orig_build = SC.build_record
+
+    def _slow_build(*a, **k):
+        time.sleep(0.15)
+        return _orig_build(*a, **k)
+    SC.build_record = _slow_build
+    page.evaluate("p => wrongDriveDialog(p, null)", WRONG)
+    page.wait_for_selector("text=Burada müzik kütüphanesi görünmüyor")
+    shot(page, "01b_yanlis_surucu")
+    page.click(".dialog [data-x=yes]")
+    page.wait_for_selector(".task .tx", state="visible", timeout=20000)
+    shot(page, "01c_tarama_durdur")
+    page.click(".task .tx")
+    page.wait_for_function("() => !document.querySelector('#taskbar .task')", timeout=20000)
+    page.wait_for_selector("text=Merhaba", timeout=20000)
+    SC.build_record = _orig_build
+    nlib = page.evaluate("() => api('/api/state').then((s) => s.libraries.length)")
+    assert nlib == 0, nlib
+    assert not os.path.exists(os.path.join(WRONG, "_DJDoktor_")), os.listdir(WRONG)
+    shot(page, "01d_secim_geri_alindi")
     page.evaluate("root => chooseRoot(root)", ROOT)
     page.wait_for_selector("text=Düzeni kuralım", timeout=60000)
     shot(page, "02_kurulum")

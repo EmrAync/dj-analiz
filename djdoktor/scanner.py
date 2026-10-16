@@ -44,15 +44,19 @@ class RootInfo:
         return {"root": self.root, "fstype": self.fstype, "mac_exfat": self.mac_exfat}
 
 
-def walk(root_info: RootInfo, extra_excludes=(), cancel=None):
-    """(os_rel, kind, stat) üretir."""
+def walk(root_info: RootInfo, extra_excludes=(), cancel=None, tick=None):
+    """(os_rel, kind, stat) üretir. tick(klasör_sayısı) her klasörde çağrılır (ilerleme için)."""
     root = root_info.root
     excl = {names.fold(x) for x in BUILTIN_EXCLUDES} | {names.fold(x) for x in extra_excludes if x}
     stack = [("", 0)]
+    ndirs = 0
     while stack:
         rel_dir, depth = stack.pop()
         if cancel and cancel():
             return
+        ndirs += 1
+        if tick:
+            tick(ndirs)
         abs_dir = names.long_path(names.join_os(root, rel_dir)) if rel_dir else root
         try:
             it = list(os.scandir(abs_dir))
@@ -150,7 +154,13 @@ def scan(catalog, root_info: RootInfo, prefs=None, progress=None, cancel=None, l
     now_ts = util.now()
     if progress:
         progress(0.0, "Klasörler listeleniyor…")
-    entries = list(walk(root_info, prefs.get("extra_excludes") or (), cancel))
+    entries = []
+
+    def tick(nd):
+        if progress and nd % 100 == 0:
+            progress(0.0, "Klasörler listeleniyor… %d klasör, %d dosya" % (nd, len(entries)))
+    for e in walk(root_info, prefs.get("extra_excludes") or (), cancel, tick):
+        entries.append(e)
     if cancel and cancel():
         return {"cancelled": True}
     index = catalog.file_index()
@@ -185,22 +195,26 @@ def scan(catalog, root_info: RootInfo, prefs=None, progress=None, cancel=None, l
                     "first_seen": now_ts, "last_seen": now_ts, "tag_error": "tarama hatası: %s" % e}
 
     workers = 4 if total > 20 else 1
+    stop = False
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        it = ex.map(work, todo)
-        for rec in it:
-            done += 1
-            if rec.get("tag_error"):
-                errors += 1
-            batch.append(rec)
-            if len(batch) >= 200:
-                catalog.upsert_files(batch)
-                batch = []
-            if progress and (done % 10 == 0 or done == total):
-                el = time.time() - t0
-                eta = (el / done) * (total - done) if done else 0
-                progress(0.02 + 0.93 * done / max(1, total),
-                         "%d / %d dosya okundu (kalan ~%s)" % (done, total, util.fmt_dur(eta) or "0:00"))
-            if cancel and cancel():
+        # küçük paketler: durdurulunca en fazla bir paket beklenir (hepsi değil)
+        for i in range(0, total, 32):
+            for rec in ex.map(work, todo[i:i + 32]):
+                done += 1
+                if rec.get("tag_error"):
+                    errors += 1
+                batch.append(rec)
+                if len(batch) >= 200:
+                    catalog.upsert_files(batch)
+                    batch = []
+                if progress and (done % 10 == 0 or done == total):
+                    el = time.time() - t0
+                    eta = (el / done) * (total - done) if done else 0
+                    progress(0.02 + 0.93 * done / max(1, total),
+                             "%d / %d dosya okundu (kalan ~%s)" % (done, total, util.fmt_dur(eta) or "0:00"))
+                if cancel and cancel():
+                    stop = True
+            if stop:
                 break
     if batch:
         catalog.upsert_files(batch)

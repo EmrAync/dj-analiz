@@ -35,6 +35,7 @@ class App:
         self.port = None
         self.bg = {"engine_open": None, "serato_open": None, "last_scan": 0, "last_inbox": 0, "last_mirror": 0,
                    "events": []}
+        self.sel_tokens = {}      # kütüphane -> son seçimin jetonu (eski iptal edilmiş tarama yeni seçimi silmesin)
         self._stop = False
 
     def log(self, text):
@@ -51,6 +52,14 @@ class App:
                 if required:
                     raise UserError("Henüz SSD seçilmedi.", "no_library")
                 return None
+            if util.is_system_root(rec["root"]):
+                # sistem diskinin tamamı kütüphane olamaz (2.0.0'da yanlışlıkla seçilebiliyordu): seçimi geri al
+                self.forget_library(rec["id"], remove_state=True)
+                rec = self.settings.active_library()
+                if rec is None:
+                    if required:
+                        raise UserError("Henüz SSD seçilmedi.", "no_library")
+                    return None
             if rec.get("v") != 2:
                 rec = self.settings.upgrade_library(rec["id"])
             if self._lib is None or self._lib.id != rec["id"] or self._lib.root != rec["root"]:
@@ -70,6 +79,26 @@ class App:
             if self._lib is not None:
                 self._lib.catalog.close()
             self._lib = None
+
+    def forget_library(self, lib_id, remove_state=False):
+        """Seçimden vazgeç: kütüphane kaydını kaldırır. remove_state=True ise sürücüde programın açtığı
+        _DJDoktor_ klasörünü de kaldırır — yalnızca içinde kendi katalog dosyamızdan başka bir şey yoksa."""
+        with self._lib_lock:
+            rec = self.settings.get_library(lib_id)
+            if self._lib is not None and self._lib.id == lib_id:
+                try:
+                    self._lib.catalog.close()
+                except Exception:
+                    pass
+                self._lib = None
+            self.settings.remove_library(lib_id)
+        if rec and remove_state:
+            _remove_fresh_state(rec["root"])
+        return rec
+
+    def stop_scans(self):
+        """Başka SSD seçilmeden önce süren taramayı durdurur (yanlış sürücüde takılıp kalmasın)."""
+        return self.tasks.cancel_kind("scan")
 
     def note(self, text):
         self.bg["events"].append({"ts": time.time(), "text": text})
@@ -325,6 +354,8 @@ class Handler(BaseHTTPRequestHandler):
         if r0 == "drives":
             return self._json(_drives())
         if r0 == "task":
+            if len(parts) > 2 and parts[2] == "cancel" and method == "POST":
+                return self._json({"ok": app.tasks.cancel(parts[1])})
             t = app.tasks.get(parts[1])
             return self._json(t) if t else self._err("Görev yok", 404)
         if r0 == "library":
@@ -333,6 +364,10 @@ class Handler(BaseHTTPRequestHandler):
                 root = (body.get("root") or "").strip().strip('"')
                 if not root or not os.path.isdir(root):
                     raise UserError("Klasör bulunamadı: %s" % root)
+                if util.is_system_root(root):
+                    raise UserError("Bu, bilgisayarın sistem diski. Tamamı taranmaz; müziklerin bilgisayarda bir "
+                                    "klasördeyse “Klasör seç” ile o klasörü seç.", "system_drive")
+                app.stop_scans()
                 app.reset_lib()
                 old = app.settings.active_library()
                 if old and body.get("relocate") and old.get("id") == body.get("relocate"):
@@ -340,12 +375,15 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     app.settings.add_library(root, body.get("name") or "")
                 lib = app.lib()
-                return self._task("scan", "SSD taranıyor", lambda p, c: _scan_and_maintain(lib, p, c))
+                tok = app.sel_tokens[lib.id] = object()
+                return self._task("scan", "SSD taranıyor", _scan_task(app, lib, tok))
             if act == "select":
+                app.stop_scans()
                 app.reset_lib()
                 app.settings.set_active(body.get("id"))
                 return self._json({"ok": True})
             if act == "remove":
+                app.stop_scans()
                 app.reset_lib()
                 app.settings.remove_library(body.get("id"))
                 return self._json({"ok": True})
@@ -358,7 +396,8 @@ class Handler(BaseHTTPRequestHandler):
         lib = app.lib()
         # ---------------- genel ----------------
         if r0 == "scan" and method == "POST":
-            return self._task("scan", "SSD taranıyor", lambda p, c: _scan_and_maintain(lib, p, c))
+            tok = app.sel_tokens.setdefault(lib.id, object())
+            return self._task("scan", "SSD taranıyor", _scan_task(app, lib, tok))
         if r0 == "undo" and method == "POST":
             force = bool(body.get("force"))
             return self._task("undo", "Geri alınıyor", lambda p, c: journal.undo_last(lib, force=force, progress=p))
@@ -543,6 +582,57 @@ def _after(lib, res, inbox_dirs=False):
     return res
 
 
+def _scan_task(app, lib, tok):
+    """Tarama görevi. Kütüphanenin İLK taraması durdurulur ya da hata verirse seçim geri alınır:
+    kayıt silinir, sürücüde az önce açılan katalog kaldırılır (yanlış sürücü seçildiyse iz kalmaz).
+    Aynı sürücü bu arada yeniden seçildiyse (jeton değiştiyse) eski görev hiçbir şeyi geri almaz."""
+    def mine():
+        return app.sel_tokens.get(lib.id) is tok
+
+    try:
+        was_done = bool(lib.catalog.get_meta("last_scan"))   # görev oluşturulurken (katalog açıkken) bakılır
+    except Exception:
+        was_done = True                                      # emin değilsek hiçbir şeyi geri alma
+
+    def run(progress, cancel):
+        try:
+            res = _scan_and_maintain(lib, progress, cancel)
+        except Exception:
+            if not was_done and mine():
+                app.sel_tokens.pop(lib.id, None)
+                app.forget_library(lib.id, remove_state=True)
+            raise
+        if res.get("cancelled") and not was_done and mine():
+            app.sel_tokens.pop(lib.id, None)
+            app.forget_library(lib.id, remove_state=True)
+            res["forgotten"] = True
+        return res
+    return run
+
+
+def _remove_fresh_state(root):
+    """Sürücüde programın açtığı _DJDoktor_ klasörünü kaldırır; YALNIZCA içinde kendi katalog dosyamızdan
+    başka hiçbir şey yoksa (yedek, karantina vb. varsa dokunmaz)."""
+    d = os.path.join(root, STATE_DIR)
+    ours = {"katalog.db", "katalog.db-journal", "katalog.db-wal", "katalog.db-shm"}
+    try:
+        entries = os.listdir(d)
+    except OSError:
+        return False
+    if any(e not in ours for e in entries):
+        return False
+    for e in entries:
+        try:
+            os.remove(os.path.join(d, e))
+        except OSError:
+            return False
+    try:
+        os.rmdir(d)
+        return True
+    except OSError:
+        return False
+
+
 def _scan_and_maintain(lib, progress, cancel):
     res = lib.full_scan(lambda r, m: progress(r * 0.85, m), cancel)
     if res.get("cancelled"):
@@ -603,14 +693,21 @@ def _drives():
     out = []
     for d in util.list_drives():
         p = d["path"]
-        mark = {"serato": False, "engine": False, "djd": False}
-        try:
-            ents = {e.lower() for e in os.listdir(p)}
-            mark = {"serato": "_serato_" in ents, "engine": "engine library" in ents, "djd": "_djdoktor_" in ents}
-        except OSError:
-            pass
-        out.append(dict(d, **mark))
+        out.append(dict(d, **_marks(p, probe=not d.get("net"))))
     return out
+
+
+def _marks(p, probe=True):
+    """Klasörde Serato / Engine / DJ Doktor izi var mı? (yalnızca ilk düzeye bakar)"""
+    mark = {"serato": False, "engine": False, "djd": False}
+    if not probe:
+        return mark
+    try:
+        ents = {e.lower() for e in os.listdir(p)}
+        mark = {"serato": "_serato_" in ents, "engine": "engine library" in ents, "djd": "_djdoktor_" in ents}
+    except OSError:
+        pass
+    return mark
 
 
 def _browse(path):
@@ -632,7 +729,7 @@ def _browse(path):
     parent = os.path.dirname(p.rstrip("\\/"))
     if parent == p or not parent:
         parent = ""
-    return {"path": p, "parent": parent, "dirs": dirs}
+    return {"path": p, "parent": parent, "dirs": dirs, "system": util.is_system_root(p), **_marks(p)}
 
 
 def _print_list(lib, pid):

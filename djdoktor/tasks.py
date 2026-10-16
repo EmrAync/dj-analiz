@@ -7,6 +7,8 @@ import threading
 import time
 import traceback
 
+CANCELLABLE = {"scan"}   # yarıda durdurulması güvenli görevler (yalnızca okuyan işler)
+
 
 class Task:
     _ids = itertools.count(1)
@@ -30,7 +32,9 @@ class Task:
     def to_dict(self):
         return {"id": self.id, "kind": self.kind, "title": self.title, "status": self.status,
                 "progress": round(self.progress, 4), "message": self.message, "result": self.result,
-                "error": self.error, "code": self.code, "started": self.started, "finished": self.finished}
+                "error": self.error, "code": self.code, "started": self.started, "finished": self.finished,
+                "cancellable": self.kind in CANCELLABLE and self.status in ("sirada", "calisiyor"),
+                "cancelling": self._cancel and self.status in ("sirada", "calisiyor")}
 
 
 class TaskManager:
@@ -65,24 +69,34 @@ class TaskManager:
 
     def cancel(self, tid):
         t = self.tasks.get(int(tid))
-        if t:
+        if t and t.kind in CANCELLABLE and t.status in ("sirada", "calisiyor"):
             t._cancel = True
+            t.message = "Durduruluyor…"
             return True
         return False
+
+    def cancel_kind(self, kind, timeout=8.0):
+        """O türdeki sıradaki/çalışan görevleri durdurur ve bitmelerini bekler (en çok timeout sn)."""
+        hit = [t for t in list(self.tasks.values()) if t.kind == kind and t.status in ("sirada", "calisiyor")]
+        for t in hit:
+            t._cancel = True
+            t.message = "Durduruluyor…"
+        end = time.time() + timeout
+        while time.time() < end and any(t.status == "calisiyor" for t in hit):
+            time.sleep(0.05)
+        return len(hit)
 
     def _run(self):
         from .journal import UndoNeedsForce
         from .library import UserError
         while True:
             t = self.q.get()
-            if t._cancel:
-                t.status = "iptal"
-                t.finished = time.time()
-                continue
+            # sırada beklerken durdurulan tarama da bir kez çağrılır: hemen 'durdu' der ve
+            # ilk taramaysa seçimi geri alır (yanlış sürücüde iz kalmaz)
             self.busy = True
             t.status = "calisiyor"
             t.started = time.time()
-            t.message = "Başladı…"
+            t.message = "Durduruluyor…" if t._cancel else "Başladı…"
 
             def progress(r, msg=None, t=t):
                 t.progress = max(0.0, min(1.0, float(r)))
@@ -90,10 +104,12 @@ class TaskManager:
                     t.message = msg
 
             try:
-                t.result = t.fn(progress, lambda t=t: t._cancel)
-                t.status = "iptal" if t._cancel else "bitti"
+                res = t.fn(progress, lambda t=t: t._cancel)
+                t.result = res
+                stopped = bool(res.get("cancelled")) if isinstance(res, dict) else t._cancel
+                t.status = "iptal" if stopped else "bitti"
                 t.progress = 1.0
-                t.message = "İptal edildi" if t._cancel else "Tamamlandı"
+                t.message = "Durduruldu" if stopped else "Tamamlandı"
             except UndoNeedsForce as e:
                 t.status = "hata"
                 t.error = str(e)

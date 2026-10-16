@@ -354,6 +354,87 @@ def test_engine_open_guard():
     assert disk(lib, "Müzik/Halay/Bekleyen Halay.mp3")
 
 
+def test_wrong_drive_cancel():
+    """Yanlış sürücü seçildi: ilk tarama ✕ ile durdurulunca seçim geri alınır, sürücüde iz kalmaz.
+    Önceden taranmış bir SSD'de durdurmak ise yalnızca taramayı durdurur."""
+    import time as _t
+    from djdoktor import server, util
+    from djdoktor.tasks import TaskManager
+    app = server.App()
+    for rec in app.settings.libraries():
+        app.settings.remove_library(rec["id"])
+    wrong = os.path.join(TMP, "yanlis_disk")
+    os.makedirs(os.path.join(wrong, "Belgeler"), exist_ok=True)
+    for i in range(30):
+        make_fixture.write_mp3(os.path.join(wrong, "Belgeler", "ses %02d.mp3" % i), 300 + i, 120, "Ses %d" % i, "X")
+    app.settings.add_library(wrong, "Yanlış")
+    lib = app.lib()
+    assert os.path.isfile(os.path.join(wrong, "_DJDoktor_", "katalog.db"))
+    tok = app.sel_tokens[lib.id] = object()
+    res = server._scan_task(app, lib, tok)(lambda r, m=None: None, lambda: True)
+    assert res.get("cancelled") and res.get("forgotten"), res
+    assert not app.settings.libraries(), app.settings.libraries()
+    assert not os.path.exists(os.path.join(wrong, "_DJDoktor_")), os.listdir(wrong)
+    assert sorted(os.listdir(os.path.join(wrong, "Belgeler")))[0] == "ses 00.mp3"   # kullanıcı dosyalarına dokunulmadı
+    # görev yöneticisi üzerinden: çalışan tarama durdurulur, durum 'iptal'
+    tm = TaskManager()
+    def slow(progress, cancel):
+        for _ in range(400):
+            if cancel():
+                return {"cancelled": True}
+            _t.sleep(0.01)
+        return {"ok": True}
+    tid = tm.submit("scan", "SSD taranıyor", slow)
+    _t.sleep(0.05)
+    assert tm.get(tid)["cancellable"]
+    assert tm.cancel(tid)
+    for _ in range(100):
+        if tm.get(tid)["status"] != "calisiyor":
+            break
+        _t.sleep(0.02)
+    assert tm.get(tid)["status"] == "iptal", tm.get(tid)
+    # taranmamış görev türleri durdurulamaz (yazan işler yarıda kesilmez)
+    tid2 = tm.submit("kurulum", "Düzen kuruluyor", lambda p, c: {"ok": True})
+    assert not tm.cancel(tid2)
+    # önceden taranmış SSD: durdurmak seçimi geri ALMAZ
+    lib2, _fx = fresh("cancel_ok")
+    app.settings.add_library(lib2.root, "SSD")
+    lib2b = app.lib()
+    tok2 = app.sel_tokens[lib2b.id] = object()
+    res2 = server._scan_task(app, lib2b, tok2)(lambda r, m=None: None, lambda: True)
+    assert res2.get("cancelled") and not res2.get("forgotten"), res2
+    assert any(r["root"] == lib2.root for r in app.settings.libraries())
+    assert os.path.isfile(os.path.join(lib2.root, "_DJDoktor_", "katalog.db"))
+    # sistem diskinin kökü kütüphane olamaz; 2.0.0'dan kalan böyle bir kayıt kendiliğinden unutulur
+    assert util.is_system_root("/") and not util.is_system_root(lib2.root)
+    app.reset_lib()
+    app.settings.data["libraries"].append({"id": "sistem-x", "name": "System", "root": "/",
+                                          "catalog": os.path.join("/", "_DJDoktor_", "katalog.db"), "v": 2})
+    app.settings.set_active("sistem-x")
+    l3 = app.lib(required=False)
+    assert l3 is None or l3.root != "/", l3
+    assert not any(r["id"] == "sistem-x" for r in app.settings.libraries())
+    # 2.0.0'da sistem diski (C:\) seçilip takılmış hâl: açılışta seçim geri alınır, kendi kataloğu kaldırılır
+    fakec = os.path.join(TMP, "sahte_C")
+    os.makedirs(os.path.join(fakec, "Windows"), exist_ok=True)
+    app.settings.add_library(fakec, "System")
+    app.lib()                                   # katalog oluşur: sahte_C/_DJDoktor_/katalog.db
+    app.reset_lib()
+    keep = os.path.join(TMP, "sahte_D")         # içinde başka şey olan _DJDoktor_ asla silinmez
+    os.makedirs(os.path.join(keep, "_DJDoktor_", "Yedekler"), exist_ok=True)
+    assert server._remove_fresh_state(keep) is False and os.path.isdir(os.path.join(keep, "_DJDoktor_", "Yedekler"))
+    orig = util.is_system_root
+    util.is_system_root = lambda p: os.path.abspath(p) == os.path.abspath(fakec) or orig(p)
+    try:
+        app2 = server.App()
+        assert app2.lib(required=False) is None or app2.lib(required=False).root != fakec
+        assert not any(r["root"] == fakec for r in app2.settings.libraries()), app2.settings.libraries()
+        assert not os.path.exists(os.path.join(fakec, "_DJDoktor_")), os.listdir(fakec)
+        assert os.path.isdir(os.path.join(fakec, "Windows"))
+    finally:
+        util.is_system_root = orig
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 
 if __name__ == "__main__":

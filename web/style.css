@@ -257,11 +257,19 @@ tr.changed td { background: var(--accent-soft) !important; }
 .drive { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); cursor: pointer; margin-bottom: 8px; }
 .drive:hover { border-color: var(--accent); }
 .drive .ic { font-size: 1.6em; }
+.drive .right { margin-left: auto; }
+.pick-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 8px; }
+.empty-drives { padding: 18px 16px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); background: var(--panel); }
 
 /* ---------- görev çubuğu / bildirim / pencere ---------- */
 #taskbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 50; }
 .task { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-lg); padding: 12px 16px; width: 420px; max-width: 92vw; }
-.task .tt { display: flex; justify-content: space-between; gap: 10px; font-weight: 600; }
+.task .tt { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-weight: 600; }
+.task .tr { display: inline-flex; align-items: center; gap: 8px; }
+.task .tx { border: 1px solid var(--line); background: var(--panel-2); color: var(--ink-2); border-radius: 8px; width: 28px; height: 28px;
+  font-size: 14px; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.task .tx:hover { border-color: var(--bad); color: var(--bad); }
+.task .tx[hidden] { display: none; }
 .task .msg { color: var(--muted); font-size: .9em; margin-top: 2px; }
 .prog { height: 6px; background: var(--line-2); border-radius: 3px; overflow: hidden; margin-top: 8px; }
 .prog i { display: block; height: 100%; background: var(--accent); transition: width .3s; }

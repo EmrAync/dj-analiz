@@ -206,8 +206,27 @@ def process_running(names) -> list:
     return found
 
 
+def is_system_root(path: str) -> bool:
+    """Bilgisayarın sistem diskinin kökü mü? (Windows: C:\\, Mac/Linux: /). Böyle bir kök tümüyle taranmaz."""
+    if IS_WIN:
+        sd = (os.environ.get("SystemDrive") or "C:").rstrip("\\/").lower()
+        p = (path or "").strip().rstrip("\\/").lower()
+        if len(p) == 2 and p[1] == ":":           # sürücü kökü: diske dokunmadan karşılaştır (ağ sürücüsü bekletmesin)
+            return p == sd
+        try:
+            p = os.path.abspath(path).rstrip("\\/").lower()
+        except (OSError, ValueError):
+            return False
+        return p == sd
+    try:
+        p = os.path.realpath(os.path.abspath(path))
+    except (OSError, ValueError):
+        return False
+    return p == "/"
+
+
 def list_drives():
-    """Klasör seçici için kök konumlar."""
+    """Klasör seçici için kök konumlar. Sürücülerde 'system' (sistem diski) ve 'net' (ağ sürücüsü) işaretlenir."""
     res = []
     home = os.path.expanduser("~")
     res.append({"label": "Ev klasörü", "path": home})
@@ -232,16 +251,19 @@ def list_drives():
                     label = volume_label(p) if dtype in (2, 3, 6) else ""
                     if dtype == 4:
                         label = "Ağ sürücüsü"
-                    res.append({"label": (label + " (" + letter + ":)") if label else (letter + ":"), "path": p})
+                    res.append({"label": (label + " (" + letter + ":)") if label else (letter + ":"), "path": p,
+                                "drive": True, "system": is_system_root(p), "net": dtype == 4,
+                                "removable": dtype == 2})
         except Exception:
             for letter in "CDEFGHIJ":
                 p = letter + ":\\"
                 if os.path.exists(p):
-                    res.append({"label": letter + ":", "path": p})
+                    res.append({"label": letter + ":", "path": p, "drive": True, "system": is_system_root(p)})
     elif IS_MAC:
         try:
             for n in sorted(os.listdir("/Volumes")):
-                res.append({"label": n, "path": os.path.join("/Volumes", n)})
+                p = os.path.join("/Volumes", n)
+                res.append({"label": n, "path": p, "drive": True, "system": is_system_root(p)})
         except OSError:
             pass
     else:
@@ -250,7 +272,7 @@ def list_drives():
                 for n in sorted(os.listdir(base)):
                     p = os.path.join(base, n)
                     if os.path.isdir(p):
-                        res.append({"label": n, "path": p})
+                        res.append({"label": n, "path": p, "drive": True, "system": is_system_root(p)})
             except OSError:
                 pass
     return res

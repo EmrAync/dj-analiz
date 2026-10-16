@@ -48,6 +48,29 @@ async function api(path, body) {
   return data;
 }
 
+// Görev kartı: bir kez kurulur, sonra yalnızca metin ve çubuk güncellenir (✕ tıklaması kaybolmasın)
+function taskCard(t) {
+  const bar = $("#taskbar");
+  let el = bar.querySelector(".task");
+  if (!el || el.dataset.id !== String(t.id)) {
+    bar.innerHTML = `<div class="task" data-id="${t.id}"><div class="tt"><span class="tn"></span><span class="tr"><span class="tp muted"></span>
+      <button class="tx" type="button" title="Durdur" aria-label="Durdur" hidden>✕</button></span></div>
+      <div class="msg"></div><div class="prog"><i></i></div></div>`;
+    el = bar.querySelector(".task");
+    const x = el.querySelector(".tx");
+    x.onclick = async () => {
+      x.hidden = true; el.dataset.stopping = "1";
+      el.querySelector(".msg").textContent = "Durduruluyor…";
+      try { await api("/api/task/" + t.id + "/cancel", {}); } catch (e) { /* */ }
+    };
+  }
+  el.querySelector(".tn").textContent = t.title;
+  el.querySelector(".tp").textContent = Math.round(t.progress * 100) + "%";
+  if (!el.dataset.stopping || t.cancelling) el.querySelector(".msg").textContent = t.message || "";
+  el.querySelector(".prog i").style.width = Math.round(t.progress * 100) + "%";
+  el.querySelector(".tx").hidden = !(t.cancellable && !t.cancelling && !el.dataset.stopping);
+}
+
 async function task(path, body, opts = {}) {
   let res;
   try {
@@ -59,10 +82,14 @@ async function task(path, body, opts = {}) {
   try {
     for (;;) {
       const t = await api("/api/task/" + res.task);
-      bar.innerHTML = `<div class="task"><div class="tt"><span>${esc(t.title)}</span><span class="muted">${Math.round(t.progress * 100)}%</span></div>
-        <div class="msg">${esc(t.message || "")}</div><div class="prog"><i style="width:${Math.round(t.progress * 100)}%"></i></div></div>`;
+      taskCard(t);
       if (t.status === "bitti") { bar.innerHTML = ""; S.busy = false; return t.result; }
-      if (t.status === "hata" || t.status === "iptal") {
+      if (t.status === "iptal") {
+        bar.innerHTML = ""; S.busy = false;
+        toast(t.result && t.result.forgotten ? "Tarama durduruldu; bu seçimden vazgeçildi." : "Tarama durduruldu.", "ok");
+        const e = new Error("durduruldu"); e.code = "cancelled"; throw e;
+      }
+      if (t.status === "hata") {
         bar.innerHTML = ""; S.busy = false;
         if (t.code === "needs_force" && !opts.noForce) {
           const ok = await confirmBox("Emin misin?", t.error, "Yine de geri al", true);
@@ -283,40 +310,93 @@ async function poll() {
 // ---------------------------------------------------------------------------
 // SSD seçimi
 // ---------------------------------------------------------------------------
+function ssdPickerHtml(title, sub, opts = {}) {
+  return `<div class="setup"><h1>${esc(title)}</h1>${sub ? `<p class="muted">${sub}</p>` : ""}
+    <div id="drives">Sürücüler aranıyor…</div>
+    <div class="pick-actions"><button class="btn" id="browse">📁 Klasör seç</button>
+      ${opts.retry ? `<button class="btn ghost" id="retry">Yeniden dene</button>` : ""}
+      ${opts.back ? `<button class="btn ghost" id="pback">Vazgeç</button>` : ""}</div>
+    <p class="muted small">SSD'n listede yoksa tak; birkaç saniye içinde burada görünür. Müziklerin bilgisayarda bir klasördeyse <b>Klasör seç</b>.</p></div>`;
+}
+
+function renderPicker(v, title, sub, opts = {}) {
+  v.innerHTML = ssdPickerHtml(title, sub, opts);
+  drivesInto($("#drives"), opts.relocateId || null);
+  $("#browse").onclick = () => browseDialog(opts.relocateId || null);
+  if (opts.retry) $("#retry").onclick = () => refresh(true);
+  if (opts.back) $("#pback").onclick = () => refresh(true);
+}
+
 async function renderNoLib(v) {
-  v.innerHTML = `<div class="setup"><h1>Merhaba 👋</h1><p class="muted">Müziklerinin durduğu SSD'yi seç. Program önce yalnızca okur; hiçbir şeyi sen onaylamadan taşımaz.</p><div id="drives">Sürücüler aranıyor…</div>
-    <p class="muted small">Listede yoksa <a href="#" id="browse">klasörü elle seç</a>.</p></div>`;
-  drivesInto($("#drives"), null);
-  $("#browse").onclick = (e) => { e.preventDefault(); browseDialog(null); };
+  renderPicker(v, "Merhaba 👋", "Müziklerinin durduğu SSD'yi seç. Program önce yalnızca okur; hiçbir şeyi sen onaylamadan taşımaz.");
 }
 
 async function renderMissing(v) {
   const r = S.st.missing_root;
-  v.innerHTML = `<div class="setup"><h1>SSD takılı değil</h1><p class="muted">“${esc(r.name)}” (${esc(r.root)}) bulunamadı. SSD'yi tak; başka bir sürücü harfiyle takıldıysa aşağıdan seç.</p><div id="drives">Sürücüler aranıyor…</div>
-    <p><button class="btn" id="retry">Yeniden dene</button> <a href="#" id="browse">klasörü elle seç</a></p></div>`;
-  drivesInto($("#drives"), r.id);
-  $("#retry").onclick = () => refresh(true);
-  $("#browse").onclick = (e) => { e.preventDefault(); browseDialog(r.id); };
+  renderPicker(v, "SSD takılı değil", `“${esc(r.name)}” (${esc(r.root)}) bulunamadı. SSD'yi tak; başka bir harfle takıldıysa aşağıdan seç.`,
+    { retry: true, relocateId: r.id });
 }
 
+function renderOtherSsd() {
+  renderPicker($("#view"), "SSD seç", "Hangi SSD ile çalışmak istiyorsun?", { back: true });
+}
+
+const hasMarks = (d) => !!(d.serato || d.engine || d.djd);
+
 async function drivesInto(el, relocateId) {
-  let ds = [];
-  try { ds = await api("/api/drives"); } catch (e) { el.textContent = e.message; return; }
-  ds = ds.filter((d) => d.serato || d.engine || d.djd || /^[A-Z]:\\$/.test(d.path) || d.path.startsWith("/Volumes/"));
-  ds.sort((a, b) => (b.serato + b.engine + b.djd) - (a.serato + a.engine + a.djd));
-  el.innerHTML = ds.map((d) => `<div class="drive" data-root="${esc(d.path)}"><span class="ic">💽</span><div><b>${esc(d.label)}</b><div class="muted small">${esc(d.path)}
-    ${d.serato ? ' · <span class="tag blue">Serato</span>' : ""}${d.engine ? ' <span class="tag blue">Engine</span>' : ""}${d.djd ? ' <span class="tag ok">DJ Doktor</span>' : ""}</div></div>
-    <button class="btn primary right">Bu SSD</button></div>`).join("") || `<div class="muted">Sürücü bulunamadı.</div>`;
+  let last = "";
+  const draw = async () => {
+    let ds = [];
+    try { ds = await api("/api/drives"); } catch (e) { el.textContent = e.message; return; }
+    // sistem diski ve ağ sürücüleri burada gösterilmez (yanlışlıkla seçilmesin); onlar "Klasör seç"te
+    ds = ds.filter((d) => d.drive && !d.system && !d.net);
+    ds.sort((a, b) => (hasMarks(b) - hasMarks(a)) || a.label.localeCompare(b.label, "tr"));
+    const cur = S.st && S.st.active ? S.st.active.root : "";
+    const key = JSON.stringify(ds.map((d) => [d.path, d.label, d.serato, d.engine, d.djd]).concat([cur]));
+    if (key === last) return;
+    last = key;
+    el.innerHTML = ds.map((d) => `<div class="drive" data-root="${esc(d.path)}" data-marks="${hasMarks(d) ? 1 : 0}"><span class="ic">💽</span><div><b>${esc(d.label)}</b><div class="muted small">${esc(d.path)}
+      ${d.serato ? ' · <span class="tag blue">Serato</span>' : ""}${d.engine ? ' <span class="tag blue">Engine</span>' : ""}${d.djd ? ' <span class="tag ok">DJ Doktor</span>' : ""}${!hasMarks(d) ? ' · <span class="tag">müzik kütüphanesi görünmüyor</span>' : ""}${cur && cur === d.path ? ' <span class="tag ok">şu an seçili</span>' : ""}</div></div>
+      <button class="btn primary right">Bu SSD</button></div>`).join("")
+      || `<div class="empty-drives">Takılı bir SSD bulunamadı. SSD'ni tak; burada kendiliğinden görünür.</div>`;
+  };
+  await draw();
+  const timer = setInterval(() => {
+    if (!document.body.contains(el)) { clearInterval(timer); return; }
+    if (!$("#modal").innerHTML && !S.busy) draw();
+  }, 3000);
   el.onclick = (e) => {
     const d = e.target.closest(".drive");
-    if (d) chooseRoot(d.dataset.root, relocateId);
+    if (!d) return;
+    if (d.dataset.marks === "1") chooseRoot(d.dataset.root, relocateId);
+    else wrongDriveDialog(d.dataset.root, relocateId);
   };
+}
+
+// Serato / Engine izi olmayan sürücü ya da klasör: yanlış seçim olabilir
+function wrongDriveDialog(root, relocateId, fromBrowse) {
+  const m = modal(`<div class="dh">Burada müzik kütüphanesi görünmüyor</div><div class="db">
+    <p><b>${esc(root)}</b> içinde Serato ya da Engine kütüphanesi yok. Yanlış ${fromBrowse ? "klasör" : "sürücü"} olabilir.</p>
+    <p class="muted small">Müziklerin bunun içinde bir klasördeyse o klasörü seç. Yine de tararsan tarama istediğin an ✕ ile durdurulur ve seçim geri alınır.</p></div>
+    <div class="df"><button class="btn" data-x="no">Vazgeç</button><button class="btn" data-x="pick">📁 Klasör seç</button><button class="btn primary" data-x="yes">Yine de tara</button></div>`);
+  m.el.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-x]");
+    if (!b) return;
+    if (b.dataset.x === "no") m.close();
+    else if (b.dataset.x === "pick") browseDialog(relocateId, root);
+    else { m.close(); chooseRoot(root, relocateId); }
+  });
 }
 
 async function chooseRoot(root, relocateId) {
   try {
     await task("/api/library/add", { root, relocate: relocateId || undefined });
-  } catch (e) { return; }
+  } catch (e) {
+    if (e.code === "system_drive") { browseDialog(relocateId, root); return; }
+    closeModal();
+    await refresh(true);
+    return;
+  }
   closeModal();
   await refresh(true);
 }
@@ -324,15 +404,20 @@ async function chooseRoot(root, relocateId) {
 async function browseDialog(relocateId, path = "") {
   let d;
   try { d = await api("/api/browse?path=" + encodeURIComponent(path || "")); } catch (e) { toast(e.message, "err"); return; }
-  const m = modal(`<div class="dh">Klasör seç</div><div class="db"><div class="muted small">${esc(d.path || "Konumlar")}</div>
+  const marks = d.path ? `${d.serato ? '<span class="tag blue">Serato</span>' : ""}${d.engine ? '<span class="tag blue">Engine</span>' : ""}${d.djd ? '<span class="tag ok">DJ Doktor</span>' : ""}` : "";
+  const m = modal(`<div class="dh">Klasör seç</div><div class="db"><div class="muted small">${esc(d.path || "Konumlar")} ${marks}</div>
+    ${d.system ? '<div class="muted small" style="margin-top:6px">Bu, bilgisayarın sistem diski: tamamı seçilemez. İçinden müziklerinin olduğu klasörü aç.</div>' : ""}
     <div style="margin-top:8px">${d.parent !== null && d.path ? `<div class="nav-item" data-p="${esc(d.parent)}">⬆ Üst klasör</div>` : ""}
     ${d.dirs.map((x) => `<div class="nav-item" data-p="${esc(x.path)}">📁 ${esc(x.label)}</div>`).join("")}</div></div>
-    <div class="df"><button class="btn" data-x="no">Vazgeç</button>${d.path ? `<button class="btn primary" data-x="yes">Bu klasör</button>` : ""}</div>`, "wide");
+    <div class="df"><button class="btn" data-x="no">Vazgeç</button>${d.path && !d.system ? `<button class="btn primary" data-x="yes">Bu klasör</button>` : ""}</div>`, "wide");
   m.el.addEventListener("click", (e) => {
     const it = e.target.closest("[data-p]");
     if (it) { browseDialog(relocateId, it.dataset.p); return; }
     const b = e.target.closest("[data-x]");
-    if (b) { if (b.dataset.x === "yes") chooseRoot(d.path, relocateId); else m.close(); }
+    if (!b) return;
+    if (b.dataset.x !== "yes") { m.close(); return; }
+    if (d.serato || d.engine || d.djd) chooseRoot(d.path, relocateId);
+    else wrongDriveDialog(d.path, relocateId, true);
   });
 }
 
@@ -360,7 +445,14 @@ async function loadSetup(force) {
       S.st = await api("/api/state");
     }
     S.setupData = await api("/api/setup/preview", S.setup);
-  } catch (e) { v.innerHTML = `<div class="setup"><h1>Bir sorun oluştu</h1><p>${esc(e.message)}</p></div>`; return; }
+  } catch (e) {
+    if (e.code === "cancelled") { S.setupData = null; await refresh(true); return; }
+    v.innerHTML = `<div class="setup"><h1>Bir sorun oluştu</h1><p>${esc(e.message)}</p>
+      <div class="pick-actions"><button class="btn primary" id="sretry">Tekrar dene</button><button class="btn" id="sother">Başka SSD seç</button></div></div>`;
+    $("#sretry").onclick = () => refresh(true);
+    $("#sother").onclick = () => renderOtherSsd();
+    return;
+  }
   renderSetup();
 }
 
@@ -1294,7 +1386,7 @@ async function settingsDialog() {
     const sw = e.target.closest("[data-pref]");
     if (sw) { const k = sw.dataset.pref; const on = !sw.classList.contains("on"); sw.classList.toggle("on", on); const np = await api("/api/prefs", { [k]: on }); S.st.prefs = np; return; }
     if (e.target.id === "pscan") { m.close(); try { await task("/api/scan", {}); toast("Tarama bitti.", "ok"); } catch (er) { /* */ } await refresh(true); return; }
-    if (e.target.id === "pssd") { m.close(); const v = $("#view"); v.innerHTML = `<div class="setup"><h1>SSD seç</h1><div id="drives">…</div></div>`; drivesInto($("#drives"), null); return; }
+    if (e.target.id === "pssd") { m.close(); renderOtherSsd(); return; }
     if (e.target.id === "pq") { api("/api/open", { path: st.active.root + "/_DJDoktor_/Karantina" }).catch((er) => toast(er.message, "err")); return; }
     if (e.target.closest("[data-x]")) m.close();
   });
