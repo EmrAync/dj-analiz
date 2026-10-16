@@ -112,7 +112,7 @@ a { color: var(--accent); }
 .main .head { padding: 16px 22px 10px; display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
 .main .head h2 { margin: 0; font-size: 1.45em; letter-spacing: -.01em; }
 .main .head .sub { color: var(--muted); font-size: .92em; margin-top: 2px; }
-.main .body { flex: 1; overflow: auto; padding: 0 22px 22px; }
+.main .body { flex: 1; overflow: auto; padding: 0 22px 22px; position: relative; }
 .picker { width: 360px; flex: none; border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
 .picker .ph { padding: 12px; border-bottom: 1px solid var(--line-2); }
 .picker .scroll { flex: 1; overflow: auto; }
@@ -160,6 +160,15 @@ td.c-chk, th.c-chk { width: 28px; }
 td.c-num { width: 54px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
 td.c-idx { width: 34px; color: var(--muted); font-variant-numeric: tabular-nums; }
 td.c-act { width: 1%; white-space: nowrap; text-align: right; }
+/* sanal tablo: sabit satır yüksekliği, taşan yazı "…" ile kısalır */
+table.t.v { table-layout: fixed; }
+table.t.v td { height: 50px; padding-top: 0; padding-bottom: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+table.t.v td.c-act { width: auto; }
+table.t.v .ttl, table.t.v .art { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.t.v tr.vpad td { padding: 0; border: 0; background: transparent !important; }
+table.t.v td.c-dot, table.t.v td.c-chk, table.t.v td.c-idx { padding-left: 4px; padding-right: 4px; text-overflow: clip; }
+td.c-song { cursor: pointer; }
+td.c-song:hover .ttl { color: var(--accent); }
 .ttl { font-weight: 600; }
 .art { color: var(--muted); font-size: .9em; }
 .folder-chip { display: inline-block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

@@ -195,6 +195,7 @@ function menu(ev, items) {
   });
 }
 document.addEventListener("mousedown", (e) => { if (!e.target.closest(".menu")) $("#menu").innerHTML = ""; });
+document.addEventListener("pointermove", (e) => { if (S.drag && e.buttons === 0) S.drag = null; }, { passive: true });
 document.addEventListener("focusin", (e) => { if (e.target.matches("input, textarea, select")) S.editing = true; });
 document.addEventListener("focusout", (e) => { if (e.target.matches("input, textarea, select")) S.editing = false; });
 
@@ -204,6 +205,48 @@ function dotHtml(d, title) {
 }
 
 function genreById(id) { return ((S.ov && S.ov.genres) || []).find((g) => g.id === +id); }
+
+// ---------------------------------------------------------------------------
+// Sanal tablo: binlerce satırda yalnızca ekranda görünenler (ve biraz fazlası) çizilir.
+// Satır yüksekliği sabittir (CSS: table.t.v); ilk çizimde gerçek yükseklik ölçülür.
+// ---------------------------------------------------------------------------
+const VT = {};
+function vtSet(id, rows, rowHtml) {
+  const table = document.getElementById(id);
+  if (!table) return;
+  let st = VT[id];
+  if (!st || st.table !== table) {
+    st = VT[id] = { table, h: (st && st.h) || 48, raf: 0 };
+    st.scroller = table.closest(".body") || table.parentElement;
+    st.onScroll = () => { if (!st.raf) st.raf = requestAnimationFrame(() => { st.raf = 0; vtDraw(st); }); };
+    st.scroller.addEventListener("scroll", st.onScroll, { passive: true });
+  }
+  st.rows = rows; st.rowHtml = rowHtml; st.a = st.b = -1;
+  st.cols = table.tHead && table.tHead.rows[0] ? table.tHead.rows[0].cells.length : 1;
+  vtDraw(st, true);
+}
+function vtDraw(st, force) {
+  if (!document.body.contains(st.table)) return;
+  const n = st.rows.length;
+  const head = st.table.tHead ? st.table.tHead.offsetHeight : 0;
+  const y0 = st.scroller.scrollTop - st.table.offsetTop - head;
+  const vh = st.scroller.clientHeight || 800;
+  const over = 15;
+  const a = Math.max(0, Math.min(n, Math.floor(y0 / st.h)) - over);
+  const b = Math.min(n, Math.max(0, Math.ceil((y0 + vh) / st.h)) + over);
+  if (!force && a === st.a && b === st.b) return;
+  st.a = a; st.b = b;
+  let html = a > 0 ? `<tr class="vpad"><td colspan="${st.cols}" style="height:${a * st.h}px"></td></tr>` : "";
+  for (let i = a; i < b; i++) html += st.rowHtml(st.rows[i], i);
+  if (b < n) html += `<tr class="vpad"><td colspan="${st.cols}" style="height:${(n - b) * st.h}px"></td></tr>`;
+  st.table.tBodies[0].innerHTML = html;
+  if (!st.measured && b > a) {
+    st.measured = true;
+    const r = st.table.tBodies[0].querySelector("tr:not(.vpad)");
+    if (r && r.offsetHeight && Math.abs(r.offsetHeight - st.h) > 1) { st.h = r.offsetHeight; vtDraw(st, true); }
+  }
+}
+function vtRedraw(id) { const st = VT[id]; if (st) vtDraw(st, true); }
 
 // ---------------------------------------------------------------------------
 // Ana çerçeve
@@ -599,7 +642,15 @@ function renderMusic() {
   let main;
   if (S.view === "dupes") main = dupesHtml();
   else main = tracksHtml();
+  const prev = $("#mmain .body");
+  const keep = prev && S._lastView === S.view ? prev.scrollTop : 0;
+  const sideScroll = $(".side .scroll") ? $(".side .scroll").scrollTop : 0;
   v.innerHTML = `<div class="split">${side}<section class="main" id="mmain">${main}</section></div>`;
+  S._lastView = S.view;
+  const nb = $("#mmain .body");
+  if (nb && keep) nb.scrollTop = keep;
+  if ($(".side .scroll")) $(".side .scroll").scrollTop = sideScroll;
+  if (S.view !== "dupes") drawTracks();
   wireMusic();
 }
 
@@ -619,7 +670,42 @@ function viewTitle() {
 function filteredRows() {
   const q = fold(S.q).split(/\s+/).filter(Boolean);
   if (!q.length) return S.rows;
-  return S.rows.filter((r) => { const s = r.search || fold(r.title + " " + r.artist + " " + r.folder); return q.every((w) => s.includes(w)); });
+  if (S._fr && S._fr.rows === S.rows && S._fr.q === S.q) return S._fr.out;
+  const out = S.rows.filter((r) => { const s = r.search || fold(r.title + " " + r.artist + " " + r.folder); return q.every((w) => s.includes(w)); });
+  S._fr = { rows: S.rows, q: S.q, out };
+  return out;
+}
+
+// Satır HTML'i: sanal tablo yalnızca ekranda görünen satırları çizer
+function trackRowHtml(r) {
+  const isG = S.view.startsWith("g:");
+  const g = r.gid ? genreById(r.gid) : null;
+  let extra = "";
+  if (S.view === "unsorted") {
+    if (r.copy_of && r.keep_tags) extra = `<button class="btn sm" data-dropcopy="${esc(r.group)}" title="Bu dosyanın aynısı ${esc(r.copy_of)} klasöründe var. Bu kopyadaki not / cue / ton bilgisi daha zengin: bu dosya asıl yere geçer, eski dosya karantinaya taşınır. Listeler değişmez.">⧉ ${esc(r.copy_of)} içinde var · birleştir</button>`;
+    else if (r.copy_of) extra = `<button class="btn sm" data-dropcopy="${esc(r.group)}" title="Bu dosyanın aynısı ${esc(r.copy_of)} klasöründe var. Bu kopya karantinaya taşınır; listeler asıl dosyayı gösterir.">⧉ ${esc(r.copy_of)} içinde var · kaldır</button>`;
+    else if (r.sugg) extra = `<button class="gbtn ${r.sugg_new ? "outline" : ""}" style="background:${COLORS[r.sugg] || (genreByName(r.sugg) || {}).color || "#64748b"};color:${r.sugg_new ? COLORS[r.sugg] || "#64748b" : "#fff"}" data-sugg="${r.id}" title="${esc(r.why || "")}${r.sugg_new ? " (yeni tür oluşturulur)" : ""}">→ ${esc(r.sugg)}</button>`;
+    extra += ` <button class="btn sm" data-pickg="${r.id}">Tür seç ▾</button>`;
+  } else if (S.view === "problems") {
+    if (r.bad) extra = `<span class="tag bad">bozuk / yarım</span> <button class="btn sm" data-quar="${r.id}">Karantinaya al</button>`;
+    else if (r.fmt) extra = `<span class="tag warn">Prime 4 çalmaz</span>`;
+    else if (r.es === "broken") extra = `<span class="tag warn">Engine yolu bozuk · otomatik onarılacak</span>`;
+  } else if (r.dup && r.dupk !== "song") {
+    extra = `<span class="tag warn" title="Bu şarkının diskte başka kopyası var">⧉ ${r.dup} kopya</span>`;
+  }
+  const on = S.sel.has(r.id);
+  return `<tr data-id="${r.id}" draggable="true" class="${on ? "sel" : ""}">
+    <td class="c-chk"><input type="checkbox" ${on ? "checked" : ""}></td>
+    <td class="c-dot">${dotHtml(r.dot)}</td>
+    <td class="c-song" data-info="${r.id}" title="Ayrıntılar"><div class="ttl">${esc(r.title)}</div><div class="art">${esc(r.artist || "—")}${r.note ? ` · <span style="color:var(--warn)">${esc(r.note)}</span>` : ""}</div></td>
+    <td class="c-num">${r.bpm || ""}</td><td class="c-num">${esc(r.key)}</td><td class="c-num">${fmtDur(r.dur)}</td>
+    <td class="c-place">${!isG && g ? `<span class="tag" style="border-color:${esc(g.color)};color:${esc(g.color)}">${esc(g.name)}</span>` : ""}${r.folder ? `<span class="folder-chip" data-folder="${esc(r.rel.split("/").slice(0, -1).join("/"))}" title="${esc(r.rel)}">📁 ${esc(r.folder)}</span>` : ""}</td>
+    <td class="c-act">${extra} <button class="play" data-play="${r.id}" title="Dinle">▶</button></td></tr>`;
+}
+
+function trackCols() {
+  const act = S.view === "unsorted" ? 380 : S.view === "problems" ? 300 : 130;
+  return `<colgroup><col style="width:34px"><col style="width:28px"><col><col style="width:58px"><col style="width:58px"><col style="width:62px"><col style="width:${S.view.startsWith("g:") ? 180 : 250}px"><col style="width:${act}px"></colgroup>`;
 }
 
 function tracksHtml() {
@@ -637,38 +723,47 @@ function tracksHtml() {
     hint = `<div class="hint blue"><span class="ic">💡</span><div>${fmtN(n)} şarkı için öneri var. Tek tek tıklayabilir ya da <button class="btn sm primary" id="applyall">önerilerin hepsini uygula</button> diyebilirsin.
       ${rows.some((r) => r.copy_of) ? ` Kopya olanları da <button class="btn sm" id="dropcopies">kopyaları kaldır (${rows.filter((r) => r.copy_of).length})</button> ile temizle.` : ""}</div></div>`;
   }
-  const allChecked = rows.length && rows.every((r) => S.sel.has(r.id));
-  const body = rows.slice(0, 1500).map((r) => {
-    const g = r.gid ? genreById(r.gid) : null;
-    let extra = "";
-    if (S.view === "unsorted") {
-      if (r.copy_of && r.keep_tags) extra = `<button class="btn sm" data-dropcopy="${esc(r.group)}" title="Bu dosyanın aynısı ${esc(r.copy_of)} klasöründe var. Bu kopyadaki not / cue / ton bilgisi daha zengin: bu dosya asıl yere geçer, eski dosya karantinaya taşınır. Listeler değişmez.">⧉ ${esc(r.copy_of)} içinde var · birleştir <span class="tag blue">etiketleri korunur</span></button>`;
-      else if (r.copy_of) extra = `<button class="btn sm" data-dropcopy="${esc(r.group)}" title="Bu dosyanın aynısı ${esc(r.copy_of)} klasöründe var. Bu kopya karantinaya taşınır; listeler asıl dosyayı gösterir.">⧉ ${esc(r.copy_of)} içinde var · kopyayı kaldır</button>`;
-      else if (r.sugg) extra = `<button class="gbtn ${r.sugg_new ? "outline" : ""}" style="background:${COLORS[r.sugg] || (genreByName(r.sugg) || {}).color || "#64748b"};color:${r.sugg_new ? COLORS[r.sugg] || "#64748b" : "#fff"}" data-sugg="${r.id}" title="${esc(r.why || "")}${r.sugg_new ? " (yeni tür oluşturulur)" : ""}">→ ${esc(r.sugg)}</button>`;
-      extra += ` <button class="btn sm" data-pickg="${r.id}">Tür seç ▾</button>`;
-    } else if (S.view === "problems") {
-      if (r.bad) extra = `<span class="tag bad">bozuk / yarım</span> <button class="btn sm" data-quar="${r.id}">Karantinaya al</button>`;
-      else if (r.fmt) extra = `<span class="tag warn">Prime 4 çalmaz</span>`;
-      else if (r.es === "broken") extra = `<span class="tag warn">Engine yolu bozuk · otomatik onarılacak</span>`;
-    } else if (r.dup && r.dupk !== "song") {
-      extra = `<span class="tag warn" title="Bu şarkının diskte başka kopyası var">⧉ ${r.dup} kopya</span>`;
-    }
-    return `<tr data-id="${r.id}" draggable="true" class="${S.sel.has(r.id) ? "sel" : ""}">
-      <td class="c-chk"><input type="checkbox" ${S.sel.has(r.id) ? "checked" : ""}></td>
-      <td class="c-dot">${dotHtml(r.dot)}</td>
-      <td><div class="ttl">${esc(r.title)}</div><div class="art">${esc(r.artist || "—")}${r.note ? ` · <span style="color:var(--warn)">${esc(r.note)}</span>` : ""}</div></td>
-      <td class="c-num">${r.bpm || ""}</td><td class="c-num">${esc(r.key)}</td><td class="c-num">${fmtDur(r.dur)}</td>
-      <td>${!isG && g ? `<span class="tag" style="border-color:${esc(g.color)};color:${esc(g.color)}">${esc(g.name)}</span>` : ""}${r.folder ? `<span class="folder-chip" data-folder="${esc(r.rel.split("/").slice(0, -1).join("/"))}" title="${esc(r.rel)}">📁 ${esc(r.folder)}</span>` : ""}</td>
-      <td class="c-act">${extra} <button class="play" data-play="${r.id}" title="Dinle">▶</button></td></tr>`;
-  }).join("");
-  const more = rows.length > 1500 ? `<div class="muted small" style="padding:10px">İlk 1.500 şarkı gösteriliyor; aramayı daraltın.</div>` : "";
   const gActs = isG ? `<button class="icon-btn" id="grename" title="Adını değiştir">✎</button><button class="icon-btn" id="gmenu" title="Diğer">⋯</button>` : "";
   return `<div class="head"><div style="flex:1;min-width:240px"><h2>${esc(title)} ${gActs}</h2><div class="sub">${esc(sub)}</div></div>
       <input class="search" id="msearch" placeholder="Ara: şarkı, sanatçı, klasör…" value="${esc(S.q)}" style="max-width:320px"></div>
     <div class="body">${hint}
-    ${rows.length ? `<table class="t" id="ttab"><thead><tr><th class="c-chk"><input type="checkbox" id="chkall" ${allChecked ? "checked" : ""}></th><th></th><th>Şarkı</th><th>BPM</th><th>Ton</th><th>Süre</th><th>${isG ? "Alt klasör" : "Yer"}</th><th></th></tr></thead><tbody>${body}</tbody></table>${more}`
-      : `<div class="empty"><div class="big">${S.view === "unsorted" ? "🎉" : "♪"}</div>${S.view === "unsorted" ? "Hepsi yerli yerinde." : S.q ? "Aramaya uyan şarkı yok." : "Bu türde henüz şarkı yok. Yeni şarkıları <b>Gelen</b> sekmesinden ekleyebilirsin."}</div>`}
-    ${S.sel.size ? bulkHtml() : ""}</div>`;
+    <table class="t v" id="ttab" ${rows.length ? "" : "hidden"}>${trackCols()}<thead><tr><th class="c-chk"><input type="checkbox" id="chkall"></th><th></th><th>Şarkı <span class="muted" id="tcount"></span></th><th>BPM</th><th>Ton</th><th>Süre</th><th>${isG ? "Alt klasör" : "Yer"}</th><th></th></tr></thead><tbody></tbody></table>
+    <div id="tempty" ${rows.length ? "hidden" : ""}>${emptyTracksHtml()}</div>
+    <div id="bulkbar"></div></div>`;
+}
+
+function emptyTracksHtml() {
+  return `<div class="empty"><div class="big">${S.view === "unsorted" ? "🎉" : "♪"}</div>${S.view === "unsorted" ? "Hepsi yerli yerinde." : S.q ? "Aramaya uyan şarkı yok." : "Bu türde henüz şarkı yok. Yeni şarkıları <b>Gelen</b> sekmesinden ekleyebilirsin."}</div>`;
+}
+
+// Tabloyu (yeniden) bağla: arama ya da seçim değişince yalnızca görünen satırlar çizilir
+function drawTracks(resetScroll) {
+  const t = $("#ttab");
+  if (!t) return;
+  const rows = filteredRows();
+  t.hidden = !rows.length;
+  const em = $("#tempty");
+  if (em) { em.hidden = !!rows.length; if (!rows.length) em.innerHTML = emptyTracksHtml(); }
+  const c = $("#tcount");
+  if (c) c.textContent = S.q ? `(${fmtN(rows.length)} / ${fmtN(S.rows.length)})` : "";
+  if (resetScroll && t.closest(".body")) t.closest(".body").scrollTop = 0;
+  vtSet("ttab", rows, trackRowHtml);
+  syncSel();
+}
+
+// Seçim değişti: tüm tabloyu çizmeden yalnızca görünen satırların işaretini ve alt çubuğu güncelle
+function syncSel() {
+  $$("#ttab tbody tr[data-id]").forEach((tr) => {
+    const on = S.sel.has(+tr.dataset.id);
+    tr.classList.toggle("sel", on);
+    const c = tr.querySelector("input[type=checkbox]");
+    if (c) c.checked = on;
+  });
+  const rows = filteredRows();
+  const all = $("#chkall");
+  if (all) all.checked = !!rows.length && S.sel.size >= rows.length && rows.every((r) => S.sel.has(r.id));
+  const bb = $("#bulkbar");
+  if (bb) bb.innerHTML = S.sel.size ? bulkHtml() : "";
 }
 
 function genreByName(n) { return ((S.ov && S.ov.genres) || []).find((g) => g.name === n); }
@@ -713,7 +808,7 @@ function wireMusic() {
     if (e.target.id === "chkall") {
       const rows = filteredRows();
       if (e.target.checked) rows.forEach((r) => S.sel.add(r.id)); else S.sel.clear();
-      rerenderMain(); return;
+      syncSel(); return;
     }
     const tr = e.target.closest("tr[data-id]");
     if (tr && e.target.matches("input[type=checkbox]")) {
@@ -724,7 +819,7 @@ function wireMusic() {
         if (a >= 0 && b >= 0) rows.slice(Math.min(a, b), Math.max(a, b) + 1).forEach((x) => S.sel.add(x));
       } else if (e.target.checked) S.sel.add(id); else S.sel.delete(id);
       S.lastSel = id;
-      rerenderMain(); return;
+      syncSel(); return;
     }
     const fc = e.target.closest("[data-folder]");
     if (fc) { folderMenu(e, fc.dataset.folder); return; }
@@ -749,7 +844,7 @@ function wireMusic() {
     if (e.target.id === "bmove") { pickGenreMenu(e, [...S.sel]); return; }
     if (e.target.id === "blist") { addToListMenu(e, [...S.sel]); return; }
     if (e.target.id === "bquar") { await quarantine([...S.sel]); return; }
-    if (e.target.id === "bclear") { S.sel.clear(); rerenderMain(); return; }
+    if (e.target.id === "bclear") { S.sel.clear(); syncSel(); return; }
     const mg = e.target.closest("[data-merge]");
     if (mg) {
       const card = mg.closest("[data-group]");
@@ -783,7 +878,7 @@ function wireMusic() {
     if (e.target.id === "msearch") {
       S.q = e.target.value;
       clearTimeout(S._qt);
-      S._qt = setTimeout(() => { rerenderMain(); const f = $("#msearch"); if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } }, 150);
+      S._qt = setTimeout(() => drawTracks(true), 120);
     }
   };
   // sürükle-bırak: satırlar -> tür
@@ -816,6 +911,7 @@ function rerenderMain() {
   const st = m.querySelector(".body") ? m.querySelector(".body").scrollTop : 0;
   m.innerHTML = S.view === "dupes" ? dupesHtml() : tracksHtml();
   const b = m.querySelector(".body"); if (b) b.scrollTop = st;
+  if (S.view !== "dupes") drawTracks();
 }
 
 async function moveTo(fids, gid, gname) {
@@ -1001,7 +1097,20 @@ function renderLists() {
       <div class="scroll tree" id="tree">${treeHtml()}</div></aside>
     <section class="main" id="lmain">${listMainHtml()}</section>
     <aside class="picker" id="picker">${pickerHtml()}</aside></div>`;
+  afterListMain();
   wireLists();
+}
+
+const LIST_VT = 400;   // bundan uzun listeler sanal tabloyla çizilir
+
+function listRowHtml(r, i) {
+  const ro = S.lists.readonly || S.items.managed;
+  return `<tr data-ref="${esc(r.ref)}" ${ro ? "" : 'draggable="true"'}>
+      <td class="c-idx">${ro ? i + 1 : `<span class="grip" title="Sürükle">⋮⋮</span>`}</td><td class="c-dot">${dotHtml(r.dot, r.missing ? "Dosya bulunamadı" : undefined)}</td>
+      <td class="c-song" ${r.fid ? `data-info="${r.fid}" title="Ayrıntılar"` : ""}><div class="ttl">${esc(r.title)}</div><div class="art">${esc(r.artist || "—")}${r.genre ? ` · <span style="color:${esc(r.color)}">${esc(r.genre)}</span>` : ""}</div></td>
+      <td class="c-num">${r.bpm || ""}</td><td class="c-num">${esc(r.key)}</td><td class="c-num">${fmtDur(r.dur)}</td>
+      <td class="c-note">${ro ? `<span class="small" style="color:var(--warn)">${esc(r.note)}</span>` : `<input class="note" data-note="${esc(r.ref)}" value="${esc(r.note)}" placeholder="not ekle">`}</td>
+      <td class="c-act">${r.fid ? `<button class="play" data-play="${r.fid}">▶</button>` : ""}${ro ? "" : `<button class="icon-btn" data-rm="${esc(r.ref)}" title="Listeden çıkar">✕</button>`}</td></tr>`;
 }
 
 function listMainHtml() {
@@ -1010,13 +1119,10 @@ function listMainHtml() {
   const l = S.lists.lists.find((x) => x.id === it.id) || {};
   const ro = S.lists.readonly || it.managed;
   const ev = it.ev || {};
-  const rows = it.items.map((r, i) => `<tr data-ref="${esc(r.ref)}" ${ro ? "" : 'draggable="true"'}>
-      <td class="c-idx">${ro ? i + 1 : `<span class="grip" title="Sürükle">⋮⋮</span>`}</td><td class="c-dot">${dotHtml(r.dot, r.missing ? "Dosya bulunamadı" : undefined)}</td>
-      <td><div class="ttl">${esc(r.title)}</div><div class="art">${esc(r.artist || "—")}${r.genre ? ` · <span style="color:${esc(r.color)}">${esc(r.genre)}</span>` : ""}</div></td>
-      <td class="c-num">${r.bpm || ""}</td><td class="c-num">${esc(r.key)}</td><td class="c-num">${fmtDur(r.dur)}</td>
-      <td style="min-width:160px">${ro ? `<span class="small" style="color:var(--warn)">${esc(r.note)}</span>` : `<input class="note" data-note="${esc(r.ref)}" value="${esc(r.note)}" placeholder="not ekle">`}</td>
-      <td class="c-act">${r.fid ? `<button class="play" data-play="${r.fid}">▶</button>` : ""}${ro ? "" : `<button class="icon-btn" data-rm="${esc(r.ref)}" title="Listeden çıkar">✕</button>`}</td></tr>`).join("");
+  const big = it.items.length > LIST_VT;
+  const rows = big ? "" : it.items.map(listRowHtml).join("");
   const pend = it.items.filter((r) => r.dot === "pending").length;
+  const cols = `<colgroup><col style="width:40px"><col style="width:30px"><col><col style="width:58px"><col style="width:58px"><col style="width:62px"><col style="width:220px"><col style="width:84px"></colgroup>`;
   return `<div class="head"><div style="flex:1;min-width:260px">
       ${ro ? `<h2>${esc(it.title)}</h2>` : `<input class="title-edit" id="ltitle" value="${esc(it.title)}">`}
       <div class="sub">${esc(it.path.slice(0, -1).join(" / ") || "En üst")} · ${fmtN(it.items.length)} şarkı · ${fmtLong(it.dur)}${l.kids ? ` · ${l.kids} alt liste` : ""}${pend ? ` · <span style="color:var(--warn)">${pend} analiz bekliyor</span>` : ""}</div>
@@ -1026,8 +1132,13 @@ function listMainHtml() {
       ${S.st.active.has_serato ? `<label class="switch ${l.serato ? "on" : ""}" id="sertog" title="Bu liste Serato'da da crate olarak dursun; değişiklikler iki yönlü eşitlenir"><i></i>Serato'da da</label>` : ""}
       <button class="icon-btn" id="lmenu" title="Diğer">⋯</button></div></div>
     <div class="body">${it.managed ? `<div class="hint blue"><span class="ic">ℹ</span><div>${l.kind === "analysis" ? "Bu liste Engine'de analiz edilmemiş şarkıları gösterir. Engine DJ'de bu listeyi seç → tümünü seç → sağ tık → <b>Analyze / Re-analyze tracks</b>. Bitenler kendiliğinden düşer." : "Bu listeyi program tutar (tür klasörünün aynısı). Değiştirmek için kopyasını al."}</div></div>` : ""}
-    ${it.items.length ? `<table class="t" id="ltab"><thead><tr><th></th><th></th><th>Şarkı</th><th>BPM</th><th>Ton</th><th>Süre</th><th>Not</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+    ${it.items.length ? `<table class="t ${big ? "v" : ""}" id="ltab">${big ? cols : ""}<thead><tr><th></th><th></th><th>Şarkı</th><th>BPM</th><th>Ton</th><th>Süre</th><th>Not</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
       : `<div class="empty"><div class="big">＋</div>Liste boş. Sağdan şarkı ara ve <b>＋</b> ile ekle ya da sürükleyip bırak.</div>`}</div>`;
+}
+
+// Liste alanı çizildikten sonra: uzun listeyi sanal tabloyla doldur
+function afterListMain() {
+  if (S.items && S.items.items.length > LIST_VT) vtSet("ltab", S.items.items, listRowHtml);
 }
 
 function pickerHtml() {
@@ -1056,6 +1167,7 @@ async function selectList(id) {
   S.cur = id;
   try { S.items = await api("/api/list/" + id); } catch (e) { toast(e.message, "err"); S.items = null; }
   $("#lmain").innerHTML = listMainHtml();
+  afterListMain();
   $("#tree").innerHTML = treeHtml();
   $("#picker").innerHTML = pickerHtml();
 }
