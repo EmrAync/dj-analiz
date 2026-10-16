@@ -322,7 +322,7 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
     def _state(self):
         app = self.app
-        out = {"app": APP_NAME, "version": VERSION, "platform": sys.platform, "prefs": app.settings.prefs(),
+        out = {"app": APP_NAME, "version": VERSION, "platform": sys.platform, "prefs": _public_prefs(app.settings.prefs()),
                "libraries": app.settings.libraries(), "tasks": app.tasks.active(), "events": app.bg["events"][-5:]}
         try:
             lib = app.lib(required=False)
@@ -394,7 +394,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True})
         if r0 == "prefs" and method == "POST":
             app.settings.set_prefs(**body)
-            return self._json(app.settings.prefs())
+            return self._json(_public_prefs(app.settings.prefs()))
         if r0 == "open" and method == "POST":
             return self._json({"ok": _open(app, body)})
         er = ext.get(r0)
@@ -621,6 +621,15 @@ class Handler(BaseHTTPRequestHandler):
             if res is not None or getattr(self, "_sent", False):
                 return res
         return self._err("Bilinmeyen istek: %s" % route, 404)
+
+
+def _public_prefs(p):
+    """Arayüze giden ayarlar: API anahtarı gönderilmez, yalnızca girildiği (maskeli) gösterilir."""
+    p = dict(p)
+    key = p.pop("ai_api_key", "") or ""
+    p["ai_key_set"] = bool(key)
+    p["ai_key_mask"] = (key[:7] + "…" + key[-4:]) if len(key) > 14 else ("…" if key else "")
+    return p
 
 
 def _after(lib, res, inbox_dirs=False):

@@ -28,6 +28,12 @@ DEFAULT_PREFS = {
     "auto_inbox": True,                  # gelen kutusunu kendiliğinden işle
     "watch_downloads": True,             # İndirilenler'deki unutulan şarkıları göster
     "genre_lists": True,                 # Engine'de 'Türler' listelerini tut
+    # 2.2: Mix Asistanı / yapay zekâ (isteğe bağlı; anahtar yalnızca bu bilgisayarda durur)
+    "ai_api_key": "",
+    "ai_model": "claude-opus-5-5",
+    "ai_effort": "medium",
+    "mix_bpm_range": 6,                  # geçişte izin verilen tempo farkı (%)
+    "app_window": True,                  # arayüzü ayrı uygulama penceresinde aç (Edge/Chrome)
 }
 
 BUILTIN_EXCLUDES = {
@@ -85,6 +91,11 @@ class Settings:
     def save(self):
         with self.lock:
             util.write_json(self.path, self.data)
+            if not util.IS_WIN:
+                try:
+                    os.chmod(self.path, 0o600)   # ayarlarda API anahtarı olabilir: yalnızca kullanıcı okusun
+                except OSError:
+                    pass
 
     # --- kütüphaneler ---------------------------------------------------
     def libraries(self):
