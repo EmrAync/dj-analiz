@@ -215,8 +215,9 @@ def _process_text(max_age: float) -> str:
 
 def process_running(names, fresh: bool = False) -> list:
     """Verilen adlardan çalışan süreçleri döndürür (Engine DJ / Serato açık mı?).
-    fresh=True: önbelleği kullanma (yazmadan hemen önceki güvenlik denetimleri için)."""
-    text = _process_text(0.0 if fresh else 2.5)
+    fresh=True: yazmadan hemen önceki güvenlik denetimi — en fazla yarım saniyelik sonuç kullanılır
+    (aynı işlem içinde art arda yapılan denetimler Windows'ta 'tasklist'i defalarca başlatmasın)."""
+    text = _process_text(0.5 if fresh else 3.0)
     return [n for n in names if n.lower() in text]
 
 

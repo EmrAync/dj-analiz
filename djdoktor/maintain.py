@@ -116,6 +116,10 @@ def run(lib, op=None, progress=None):
     with lib.lock:
         gens = [g for g in lib.genre_rows()]
         prefs = lib.prefs()
+        sig = _sig(lib, dbs, gens, prefs)
+        if sig == getattr(lib, "_maint_sig", None):
+            out["unchanged"] = True       # son bakımdan beri ne Engine ne katalog değişti: yapılacak iş yok
+            return out
         for d in dbs:
             try:
                 engine.preflight(d["path"])
@@ -184,7 +188,14 @@ def run(lib, op=None, progress=None):
             out["missing"] += pl["missing"]
         if out["repaired"] or out["relinked"] or out["added"] or out["lists"]:
             lib.catalog.set_meta("last_maint", util.now())
+        lib._maint_sig = None if out.get("errors") else _sig(lib, dbs, gens, prefs)
         return out
+
+
+def _sig(lib, dbs, gens, prefs):
+    """Bakımın girdilerinin imzası: Engine veritabanları, katalog, türler ve ilgili ayarlar."""
+    return (tuple((d["path"], engine.db_stamp(d["path"])) for d in dbs), lib.data_key(),
+            tuple((g["id"], g["rel"], g.get("engine", 1)) for g in gens), bool(prefs.get("genre_lists", True)))
 
 
 def _managed_lists(lib, w, gens, prefs):

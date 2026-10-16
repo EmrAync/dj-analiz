@@ -90,7 +90,7 @@ class Edit:
             self.op.add_engine(self.w, "drive")
             from . import mirror
             try:
-                self.result_mirror = mirror.after_engine_change(self.lib, changed, self.op)
+                self.result_mirror = mirror.after_engine_change(self.lib, changed, self.op, self.uuid)
             except Exception as ex:  # Serato aynası listeyi bozmasın
                 self.result_mirror = {"error": str(ex)}
             self.jid = self.op.commit()

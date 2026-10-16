@@ -197,8 +197,10 @@ def _descendants(st, pid):
     return out
 
 
-def after_engine_change(lib, changed_pids, op):
+def after_engine_change(lib, changed_pids, op, uuid=None):
     """Engine'de liste değişti: bağlı crate'leri güncelle (Serato kapalıysa hemen, açıksa sonra)."""
+    if uuid is not None and not lib.catalog.serato_links(uuid):
+        return None          # Serato'ya bağlı liste yok: Engine'i yeniden okumaya gerek yok
     sdir = lib.serato_dir()
     st = lib.engine_state(force=True)
     if not st["db"]:

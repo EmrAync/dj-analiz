@@ -1,4 +1,8 @@
-"""Arka plan görevleri (tarama, taşıma, birleştirme…) — sırayla tek tek çalışır."""
+"""Arka plan görevleri (tarama, taşıma, birleştirme…).
+
+İki şerit vardır: taramalar kendi şeridinde çalışır (yalnızca okur, kütüphane kilidini kısa süre alır);
+taşıma, birleştirme, geri alma gibi yazan işler diğer şeritte SIRAYLA çalışır. Böylece uzun bir tarama
+kullanıcının işlemini "Sırada bekliyor…" durumunda bekletmez."""
 from __future__ import annotations
 
 import itertools
@@ -8,6 +12,7 @@ import time
 import traceback
 
 CANCELLABLE = {"scan"}   # yarıda durdurulması güvenli görevler (yalnızca okuyan işler)
+READ_LANE = {"scan"}     # ayrı şeritte çalışan (okuyan) görevler
 
 
 class Task:
@@ -40,12 +45,21 @@ class Task:
 class TaskManager:
     def __init__(self, log=None):
         self.tasks = {}
-        self.q = queue.Queue()
         self.lock = threading.Lock()
         self.log = log
-        self.busy = False
-        self.worker = threading.Thread(target=self._run, name="djd-worker", daemon=True)
-        self.worker.start()
+        self.lanes = {}
+        for lane in ("main", "read"):
+            q = queue.Queue()
+            th = threading.Thread(target=self._run, args=(lane, q), name="djd-worker-" + lane, daemon=True)
+            self.lanes[lane] = {"q": q, "busy": False, "thread": th}
+            th.start()
+
+    @property
+    def busy(self):
+        return any(l["busy"] for l in self.lanes.values())
+
+    def _lane(self, kind):
+        return "read" if kind in READ_LANE else "main"
 
     def submit(self, kind, title, fn):
         t = Task(kind, title, fn)
@@ -54,7 +68,7 @@ class TaskManager:
             done = [k for k, v in self.tasks.items() if v.finished and time.time() - v.finished > 3600]
             for k in done:
                 del self.tasks[k]
-        self.q.put(t)
+        self.lanes[self._lane(kind)]["q"].put(t)
         return t.id
 
     def get(self, tid):
@@ -64,8 +78,9 @@ class TaskManager:
     def active(self):
         return [t.to_dict() for t in self.tasks.values() if t.status in ("sirada", "calisiyor")]
 
-    def idle(self):
-        return not self.busy and self.q.empty()
+    def idle(self, lane=None):
+        lanes = [self.lanes[lane]] if lane else self.lanes.values()
+        return all(not l["busy"] and l["q"].empty() for l in lanes)
 
     def cancel(self, tid):
         t = self.tasks.get(int(tid))
@@ -86,14 +101,15 @@ class TaskManager:
             time.sleep(0.05)
         return len(hit)
 
-    def _run(self):
+    def _run(self, lane, q):
         from .journal import UndoNeedsForce
         from .library import UserError
+        st = self.lanes[lane]
         while True:
-            t = self.q.get()
+            t = q.get()
             # sırada beklerken durdurulan tarama da bir kez çağrılır: hemen 'durdu' der ve
             # ilk taramaysa seçimi geri alır (yanlış sürücüde iz kalmaz)
-            self.busy = True
+            st["busy"] = True
             t.status = "calisiyor"
             t.started = time.time()
             t.message = "Durduruluyor…" if t._cancel else "Başladı…"
@@ -128,4 +144,4 @@ class TaskManager:
                     self.log(traceback.format_exc())
             finally:
                 t.finished = time.time()
-                self.busy = False
+                st["busy"] = False

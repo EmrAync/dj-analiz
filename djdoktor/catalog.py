@@ -145,6 +145,8 @@ class Catalog:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         self.lock = threading.RLock()
         self._depth = 0
+        # files tablosundaki her değişiklikte artar (bellek içi önbellekler ve kilitsiz tarama için)
+        self.gen = 0
         self.con = sqlite3.connect(path, check_same_thread=False, timeout=30, isolation_level=None)
         self.con.row_factory = sqlite3.Row
         self.con.execute("PRAGMA journal_mode=DELETE")
@@ -208,15 +210,20 @@ class Catalog:
     # ------------------------------------------------------------------
     # Dosyalar
     # ------------------------------------------------------------------
+    def touch_gen(self):
+        self.gen += 1
+
     def file_index(self):
+        """{rel: (id, size, mtime, present, os_rel)}"""
         with self.lock:
-            return {r["rel"]: (r["id"], r["size"], r["mtime"], r["present"])
-                    for r in self.con.execute("SELECT id, rel, size, mtime, present FROM files")}
+            return {r["rel"]: (r["id"], r["size"], r["mtime"], r["present"], r["os_rel"])
+                    for r in self.con.execute("SELECT id, rel, size, mtime, present, os_rel FROM files")}
 
     def upsert_files(self, recs):
         """recs: dict listesi (FILE_COLS alt kümesi, 'rel' zorunlu)."""
         if not recs:
             return
+        self.gen += 1
         with self.tx() as c:
             for r in recs:
                 cols = [k for k in FILE_COLS if k in r]
@@ -229,6 +236,9 @@ class Catalog:
                 )
 
     def touch_files(self, ids, ts, os_rels=None):
+        if not ids:
+            return
+        self.gen += 1
         with self.tx() as c:
             for i, fid in enumerate(ids):
                 if os_rels:
@@ -241,6 +251,8 @@ class Catalog:
         with self.lock:
             all_ids = [r[0] for r in self.con.execute("SELECT id FROM files WHERE present=1")]
         gone = [i for i in all_ids if i not in seen]
+        if gone:
+            self.gen += 1
         with self.tx() as c:
             for i in gone:
                 c.execute("UPDATE files SET present=0 WHERE id=?", (i,))
@@ -256,6 +268,7 @@ class Catalog:
         return self.q1("SELECT * FROM files WHERE rel=?", (rel,))
 
     def set_flags(self, flags_by_id):
+        self.gen += 1
         with self.tx() as c:
             c.execute("UPDATE files SET flags=NULL WHERE flags IS NOT NULL")
             for fid, fl in flags_by_id.items():
@@ -265,6 +278,7 @@ class Catalog:
         cols = [k for k in kw if k in FILE_COLS]
         if not cols:
             return
+        self.gen += 1
         self.x("UPDATE files SET %s WHERE id=?" % ",".join("%s=?" % k for k in cols), [kw[k] for k in cols] + [fid])
 
     # ------------------------------------------------------------------
@@ -517,6 +531,7 @@ class Catalog:
 
     def update_rel(self, fid, rel, os_rel, mkey, lkey):
         folder, name = (rel.rsplit("/", 1) if "/" in rel else ("", rel))
+        self.gen += 1
         with self.tx() as c:
             # aynı yolda artık olmayan eski bir kayıt varsa onu kenara al (UNIQUE çakışmasın)
             c.execute("UPDATE files SET rel=rel || '#' || id WHERE rel=? AND id<>? AND present=0", (rel, fid))

@@ -125,33 +125,36 @@ class App:
         eo, so = lib.engine_open(), lib.serato_open()
         was_eo, was_so = self.bg["engine_open"], self.bg["serato_open"]
         self.bg["engine_open"], self.bg["serato_open"] = eo, so
-        if not lib.lock.acquire(blocking=False):
-            return
-        try:
-            if was_eo and not eo:
-                r = maintain.background(lib)
-                if r and (r.get("added") or r.get("repaired") or r.get("relinked")):
-                    self.note("Engine kapandı: kütüphane kontrol edildi")
-            if was_so and not so:
-                r = mirror.background(lib)
-                if r and (r.get("pulled") or r.get("pushed")):
-                    self.note("Serato kapandı: listeler eşitlendi")
-            if now - self.bg["last_inbox"] > 4:
-                self.bg["last_inbox"] = now
-                r = inbox.auto_tick(lib)
-                self.bg["inbox_wait"] = inbox.LAST.get("wait", 0)
-                if r and r.get("added"):
-                    self.note("%d yeni şarkı eklendi" % r["added"])
-            if now - self.bg["last_mirror"] > 30 and not so:
-                self.bg["last_mirror"] = now
-                mirror.background(lib)
-            if now - self.bg["last_scan"] > 240:
-                self.bg["last_scan"] = now
-                res = lib.full_scan()
-                if res.get("read") or res.get("gone"):
-                    maintain.background(lib)
-        finally:
-            lib.lock.release()
+        # kısa işler (kilitle): kullanıcı bir işlem yapıyorsa bu tur atlanır, program bekletilmez
+        if lib.lock.acquire(blocking=False):
+            try:
+                if was_eo and not eo:
+                    r = maintain.background(lib)
+                    if r and (r.get("added") or r.get("repaired") or r.get("relinked")):
+                        self.note("Engine kapandı: kütüphane kontrol edildi")
+                if was_so and not so:
+                    r = mirror.background(lib)
+                    if r and (r.get("pulled") or r.get("pushed")):
+                        self.note("Serato kapandı: listeler eşitlendi")
+                if now - self.bg["last_inbox"] > 4:
+                    self.bg["last_inbox"] = now
+                    r = inbox.auto_tick(lib)
+                    self.bg["inbox_wait"] = inbox.LAST.get("wait", 0)
+                    if r and r.get("added"):
+                        self.note("%d yeni şarkı eklendi" % r["added"])
+                if now - self.bg["last_mirror"] > 30 and not so:
+                    self.bg["last_mirror"] = now
+                    mirror.background(lib)
+            finally:
+                lib.lock.release()
+        # ara tarama: KİLİTSİZ (yalnızca kataloğa yazarken kısa süre kilitlenir); bir görev başlarsa durur
+        if now - self.bg["last_scan"] > 240 and self.tasks.idle():
+            self.bg["last_scan"] = now
+            res = lib.full_scan(cancel=lambda: self._stop or not self.tasks.idle())
+            if not res.get("cancelled") and (res.get("read") or res.get("gone")):
+                maintain.background(lib)
+            elif res.get("cancelled"):
+                self.bg["last_scan"] = now - 200      # kullanıcının işi bitince kısa süre sonra yeniden dene
 
 
 def _clean(obj):

@@ -271,6 +271,44 @@ def test_rename_genre_and_move():
     assert st["status"].get(target["id"]) is None, st["status"].get(target["id"])
 
 
+def test_scan_while_moving():
+    """Tarama kilitsiz yürür: tarama sürerken taşınan dosya ne kaybolur ne de iki kez görünür."""
+    import threading as _th
+    lib, fx = fresh("scanmove")
+    setup_default(lib)
+    files = {f["rel"]: f for f in lib.audio_files()}
+    target = files["Müzik/Horon/Karadeniz Horon 2.mp3"]
+    # birkaç dosyanın zamanını değiştir: tarama onları yeniden okusun (okuma döngüsüne girsin)
+    for rel in ("Müzik/Halay/Sivas Halayı.mp3", "Müzik/Türkçe Pop/Sezen Aksu - Firuze.mp3"):
+        os.utime(os.path.join(lib.root, *rel.split("/")), (1, 1700000123))
+    fired = {"n": 0, "blocked": None}
+
+    def progress(r, msg=None):
+        if fired["n"] == 0 and msg and "okundu" in msg:
+            fired["n"] = 1
+            # taşıma, taramanın kilidi tutmadığını gösterir: başka bir iş parçacığı kilidi hemen alabilmeli
+            got = []
+            th = _th.Thread(target=lambda: got.append(lib.lock.acquire(timeout=2)) or lib.lock.release())
+            th.start()
+            th.join()
+            fired["blocked"] = not (got and got[0])
+            relocate.move_files(lib, {target["id"]: "Müzik/Halay/Karadeniz Horon 2.mp3"}, "test taşıma")
+    res = lib.full_scan(progress)
+    assert fired["n"] == 1 and fired["blocked"] is False, fired
+    assert res.get("rewalked"), res
+    rows = lib.catalog.q("SELECT id, rel, present FROM files WHERE name LIKE 'Karadeniz Horon 2%'")
+    present = [r for r in rows if r["present"]]
+    assert len(present) == 1 and present[0]["id"] == target["id"], rows
+    assert present[0]["rel"] == "Müzik/Halay/Karadeniz Horon 2.mp3", rows
+    assert disk(lib, "Müzik/Halay/Karadeniz Horon 2.mp3")
+    # yeniden okunan dosyalar güncel, yinelenen satır yok
+    rels = [f["rel"] for f in lib.audio_files()]
+    assert len(rels) == len(set(rels))
+    # ikinci tarama değişiklik bulmaz
+    res2 = lib.full_scan()
+    assert not res2.get("read") and not res2.get("gone") and not res2.get("rewalked"), res2
+
+
 def test_inbox():
     lib, fx = fresh("inbox")
     setup_default(lib)

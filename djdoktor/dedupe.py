@@ -163,7 +163,7 @@ def _make(gid, kind, members, ctx):
 def groups(lib):
     """Tüm çift grupları (önbellekli)."""
     st = lib.engine_state()
-    key = (lib.ver(), id(st))
+    key = lib.data_key() + (st.get("seq"),)
     if lib._dupes is not None and lib._dupes_ver == key:
         return lib._dupes
     from .library import STATE_DIR
@@ -231,9 +231,14 @@ def groups(lib):
 
 
 def dup_index(lib):
-    """{file_id: {'n', 'keeper', 'keeper_gid', 'group', 'kind'}} — kopyası olan dosyalar."""
+    """{file_id: {'n', 'keeper', 'keeper_gid', 'group', 'kind'}} — kopyası olan dosyalar (önbellekli)."""
+    gs = groups(lib)
+    return lib.cached("dup_index", lib._dupes_ver, lambda: _dup_index(gs))
+
+
+def _dup_index(gs):
     idx = {}
-    for g in groups(lib):
+    for g in gs:
         keeper = next(m for m in g["members"] if m["keeper"])
         for m in g["members"]:
             if m["id"] in idx and idx[m["id"]]["kind"] in ("exact", "audio"):

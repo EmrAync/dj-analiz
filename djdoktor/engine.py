@@ -464,7 +464,12 @@ class Writer:
         self.changed_lists = set()
         self.stats = {"paths": 0, "added": 0, "lists": 0, "entries": 0, "deleted_tracks": 0}
         self.fk_before = len(self.con.execute("PRAGMA foreign_key_check").fetchall())
+        self._tc0 = self.con.total_changes
         self._open = True
+
+    def changed(self) -> bool:
+        """Bu işlemde veritabanına gerçekten bir şey yazıldı mı?"""
+        return self.con.total_changes != self._tc0
 
     # -- yardımcılar -----------------------------------------------------------
     def q1(self, sql, args=()):
@@ -726,6 +731,12 @@ class Writer:
 
     # -- bitiş -----------------------------------------------------------------------------
     def commit(self):
+        if self._open and not self.changed():
+            # hiçbir şey değişmedi: dosyaya dokunulmaz, önbellekler geçersiz kalmaz (gereksiz yenileme olmaz)
+            self.con.execute("COMMIT")
+            self.con.close()
+            self._open = False
+            return self.stats
         fk_after = len(self.con.execute("PRAGMA foreign_key_check").fetchall())
         if fk_after > self.fk_before:
             self.rollback()
