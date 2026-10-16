@@ -29,7 +29,8 @@ DJD_TEST_BASE=/mnt/exfat python3 -B tests/test_v2.py   # aynı testler gerçek b
 python3 -B tests/ui_smoke.py /tmp/ekranlar  # arayüz testi (Playwright + Chromium)
 ```
 
-Sürümler: `v1.0` etiketi ilk sürüm (raporlar, ad düzeltme, dışa aktarımlar), `v2.x` sade yeniden tasarım.
+Sürümler: ilk sürüm v1.0 = commit `d908bb4` (raporlar, ad düzeltme, dışa aktarımlar); sonrası v2.x sade yeniden tasarım
+(v2.0.0 `1f20c1c`, v2.0.1 `0774cd9`, v2.0.2 `7296205`).
 
 ## Lisans notu
 

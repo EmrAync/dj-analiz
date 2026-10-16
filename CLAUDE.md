@@ -140,7 +140,8 @@ Open (in priority order):
 
 ## 8. Backlog — v1 capabilities to bring back (calm UI, actionable, no "reports")
 
-v1 is tagged **`v1.0`** (`git show v1.0:djdoktor/ops.py` etc.). v2 removed `service`, `sync`, `ops`, `report`,
+v1 is commit **`d908bb4`** "v1.0 (kullanıcıya teslim edilen sürüm)" (tag `v1.0` if present):
+`git show d908bb4:djdoktor/ops.py` etc. v2 removed `service`, `sync`, `ops`, `report`,
 `events`, `exporters`. Bring the useful parts back as one-click actions inside the three tabs:
 
 - **Health / Sağlık**: the flags are already computed (`library.compute_flags`) but only bad / unplayable / broken-path
