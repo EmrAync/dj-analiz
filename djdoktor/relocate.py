@@ -274,8 +274,9 @@ def _move_companions(lib, src_dirs_done, op):
 # ---------------------------------------------------------------------------
 # Taşıma
 # ---------------------------------------------------------------------------
-def move_files(lib, moves, title, kind="tasima", progress=None, op=None, maint=True, protect=()):
-    """moves: {file_id: yeni_rel (kanonik)}. Tek işlem, tek 'Geri al'."""
+def move_files(lib, moves, title, kind="tasima", progress=None, op=None, maint=True, protect=(), exact=False):
+    """moves: {file_id: yeni_rel (kanonik)}. Tek işlem, tek 'Geri al'.
+    exact=True: yalnızca harf biçimi (NFD -> NFC) değişen adlar da taşınır (ad düzeltme için)."""
     own_op = op is None
     op = op or journal.Op(lib, kind, title)
     cat = lib.catalog
@@ -286,7 +287,7 @@ def move_files(lib, moves, title, kind="tasima", progress=None, op=None, maint=T
             if f and f["present"]:
                 files[fid] = f
         moves = {fid: rel for fid, rel in moves.items() if fid in files and
-                 names.match_key(rel) != names.match_key(files[fid]["rel"])}
+                 (rel != files[fid]["rel"] if exact else names.match_key(rel) != names.match_key(files[fid]["rel"]))}
         if not moves:
             if own_op and not op.steps:
                 return {"moved": 0}

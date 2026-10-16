@@ -15,8 +15,8 @@ import traceback
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import (APP_ID, APP_NAME, VERSION, dedupe, engine, inbox, journal, lists, maintain, mirror, names, relocate,
-               util)
+from . import (APP_ID, APP_NAME, VERSION, dedupe, engine, events, exporters, health, inbox, journal, lists, maintain,
+               mirror, names, relocate, util)
 from .config import Settings, app_dir
 from .library import STATE_DIR, Library, UserError
 from .tasks import TaskManager
@@ -547,6 +547,41 @@ class Handler(BaseHTTPRequestHandler):
                 res = mirror.sync(lib, op=op, prefer=prefer)
                 op.commit()
                 return self._json(res)
+        # ---------------- araçlar (v1'in profesyonel özellikleri) ----------------
+        if r0 == "health":
+            act = parts[1] if len(parts) > 1 else ""
+            if method == "GET" and not act:
+                return self._json(health.summary(lib))
+            if act == "rename" and method == "GET":
+                pl = health.plan_rename(lib, emoji=qs.get("emoji") == "1")
+                return self._json({"preview": pl["preview"][:400], "count": len(pl["preview"])})
+            if method == "POST":
+                if act == "junk":
+                    return self._task("junk", "Çöp dosyalar karantinaya taşınıyor", lambda p, c: health.fix_junk(lib, p))
+                if act == "rename":
+                    em = bool(body.get("emoji"))
+                    return self._task("rename", "Adlar düzeltiliyor", lambda p, c: health.fix_names(lib, em, p))
+                if act == "repair":
+                    return self._task("repair", "Engine onarılıyor", lambda p, c: health.repair_engine(lib, p))
+                if act == "missing":
+                    tids = body.get("tids") or None
+                    return self._task("missing", "Engine'den kaldırılıyor",
+                                      lambda p, c: health.remove_missing(lib, tids, p))
+        if r0 == "libtable":
+            return self._json(lib.library_table())
+        if r0 == "suggest":
+            return self._json(events.suggest(lib, int(qs.get("list") or 0)))
+        if r0 == "gigcheck":
+            return self._json(events.gig_check(lib, int(parts[1])))
+        if r0 == "export" and method == "POST":
+            fmt, src = body.get("format"), body.get("source") or "lists"
+            fn = {"xml": lambda: exporters.rekordbox_xml(lib, src, cues=body.get("cues", True)),
+                  "m3u": lambda: exporters.m3u(lib, src), "csv": lambda: exporters.library_csv(lib)}.get(fmt)
+            if not fn:
+                raise UserError("Bilinmeyen biçim.")
+            return self._task("export", "Dışa aktarılıyor", lambda p, c: fn())
+        if r0 == "backups":
+            return self._json(_backups(lib))
         # ---------------- gelen kutusu ----------------
         if r0 == "inbox":
             act = parts[1] if len(parts) > 1 else ""
@@ -644,6 +679,39 @@ def _scan_and_maintain(lib, progress, cancel):
         progress(0.9, "Engine kontrol ediliyor…")
         res["maint"] = maintain.after_change(lib)
     return res
+
+
+def _backups(lib):
+    """Yedekler ve karantina: tarih, boyut (Araçlar > Geçmiş)."""
+    out = {"dirs": {}, "items": []}
+    base = os.path.join(lib.root, STATE_DIR)
+    for kind, sub in (("engine", os.path.join("Yedekler", "engine")), ("serato", os.path.join("Yedekler", "serato"))):
+        d = os.path.join(base, sub)
+        out["dirs"][kind] = d
+        try:
+            for e in os.scandir(d):
+                if e.is_file():
+                    st = e.stat()
+                    out["items"].append({"kind": kind, "name": e.name, "size": st.st_size, "ts": int(st.st_mtime)})
+        except OSError:
+            pass
+    q = os.path.join(base, "Karantina")
+    out["dirs"]["karantina"] = q
+    n = size = 0
+    try:
+        for dp, _dn, fn in os.walk(q):
+            for f in fn:
+                n += 1
+                try:
+                    size += os.path.getsize(os.path.join(dp, f))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    out["quarantine"] = {"files": n, "size": size}
+    out["export_dir"] = exporters.export_dir(lib)
+    out["items"].sort(key=lambda x: -x["ts"])
+    return out
 
 
 def _quarantine(lib, fids):

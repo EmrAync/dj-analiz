@@ -309,6 +309,91 @@ def test_scan_while_moving():
     assert not res2.get("read") and not res2.get("gone") and not res2.get("rewalked"), res2
 
 
+def test_health_fixes_and_undo():
+    """Araçlar > Sağlık: çöp dosyalar, sorunlu adlar, Engine'de dosyası olmayan kayıtlar — hepsi geri alınabilir."""
+    from djdoktor import health
+    lib, fx = fresh("health")
+    setup_default(lib)
+    # sorunlu adlar: Mac'in özel karakteri (':' -> U+F022) olan klasör, '?' olan dosya, ayrık (NFD) Türkçe harf
+    bad_dir = os.path.join(lib.root, "Müzik", "Halay", "ROMAN  MEZDEKE")
+    make_fixture.write_mp3(os.path.join(bad_dir, "Roman 1.mp3"), 501, 150, "Roman 1", "R")
+    make_fixture.write_mp3(os.path.join(lib.root, "Müzik", "Halay", "Soru.mp3"), 502, 150, "Soru", "S")
+    nfd = unicodedata.normalize("NFD", "Güzel Halay.mp3")
+    make_fixture.write_mp3(os.path.join(lib.root, "Müzik", "Halay", nfd), 503, 150, "Güzel Halay", "G")
+    lib.full_scan()
+    maintain.after_change(lib)
+    s = {c["key"]: c for c in health.summary(lib)["categories"]}
+    assert s["names"]["count"] >= 3, s["names"]
+    assert s["junk"]["count"] >= 1, s["junk"]
+    assert s["missing"]["count"] >= 1, s["missing"]
+    n_tracks = eng(lib, "SELECT COUNT(*) FROM Track")[0][0]
+    # 1) ad düzeltme: dosyalar ve klasör, Engine yolları birlikte
+    r = health.fix_names(lib)
+    assert r["renamed"] >= 3, r
+    assert disk(lib, "Müzik/Halay/ROMAN - MEZDEKE/Roman 1.mp3"), os.listdir(os.path.join(lib.root, "Müzik", "Halay"))
+    assert disk(lib, "Müzik/Halay/Soru.mp3")
+    assert "Güzel Halay.mp3" in os.listdir(os.path.join(lib.root, "Müzik", "Halay"))
+    paths = {r_[0] for r_ in eng(lib, "SELECT path FROM Track")}
+    assert "../Müzik/Halay/ROMAN - MEZDEKE/Roman 1.mp3" in paths, [p for p in paths if "Roman" in p]
+    assert next(c for c in health.summary(lib)["categories"] if c["key"] == "names")["count"] == 0
+    journal.undo_last(lib)
+    assert os.path.isdir(bad_dir) and disk(lib, "Müzik/Halay/Soru.mp3")
+    assert nfd in os.listdir(os.path.join(lib.root, "Müzik", "Halay"))
+    # 2) çöp dosyalar karantinaya (silinmez), geri alınca yerine
+    r = health.fix_junk(lib)
+    assert r["moved"] >= 1 and not disk(lib, "Müzik/Halay/._Sivas Halayı.mp3"), r
+    journal.undo_last(lib)
+    assert disk(lib, "Müzik/Halay/._Sivas Halayı.mp3")
+    # 3) dosyası olmayan Engine kaydı: koleksiyondan ve listelerden kalkar, geri alınca döner
+    before = eng(lib, "SELECT COUNT(*) FROM Track")[0][0]
+    r = health.remove_missing(lib)
+    assert r["removed"] >= 1, r
+    assert eng(lib, "SELECT COUNT(*) FROM Track WHERE path LIKE '%Silinen%'") == [(0,)]
+    journal.undo_last(lib)
+    assert eng(lib, "SELECT COUNT(*) FROM Track")[0][0] == before
+    del n_tracks
+
+
+def test_events_and_exports():
+    """Bölüm önerileri, etkinlik öncesi kontrol, rekordbox XML / M3U8 / CSV."""
+    from xml.etree import ElementTree as ET
+    from djdoktor import events, exporters
+    lib, fx = fresh("events")
+    setup_default(lib)
+    ev = lists.new_event(lib, "Düğün", template="dugun")
+    t = lists.tree(lib)
+    sec = next(x for x in t["lists"] if x["parent"] == ev["id"] and x["title"] == "Halay")
+    sug = events.suggest(lib, sec["id"])
+    assert sug["genre"] == "Halay" and sug["items"], sug
+    assert all(i["genre"] in ("Halay", "Kürtçe Halay", None) or "halay" in names.fold(i["why"]) for i in sug["items"]), sug
+    first = sug["items"][0]["id"]
+    lists.add(lib, sec["id"], fids=[first])
+    sug2 = events.suggest(lib, sec["id"])
+    assert first not in [i["id"] for i in sug2["items"]]          # listedeki tekrar önerilmez
+    gc = events.gig_check(lib, ev["id"])
+    assert gc["tracks"] == 1 and gc["status"] in ("uyari", "tamam", "kritik"), gc
+    assert any(c["title"].endswith("analiz edilmemiş") for c in gc["checks"]) or gc["status"] == "tamam", gc
+    files = {f["rel"]: f["id"] for f in lib.audio_files()}
+    comp = events.compatible(lib, files["Müzik/Halay/Ali Kemal - Halay Başı.mp3"])
+    assert isinstance(comp, list)
+    det = lib.track_detail(first)
+    assert det["file"]["id"] == first and "compatible" in det and "issues" in det
+    # dışa aktarma
+    x = exporters.rekordbox_xml(lib, "genres")
+    root = ET.parse(x["path"]).getroot()
+    assert root.find("COLLECTION") is not None and int(root.find("COLLECTION").get("Entries")) >= 8, x
+    x2 = exporters.rekordbox_xml(lib, "list:%d" % ev["id"])
+    assert x2["tracks"] == 1
+    m = exporters.m3u(lib, "lists")
+    assert m["files"] >= 1 and os.listdir(m["dir"])
+    c = exporters.library_csv(lib)
+    with open(c["path"], encoding="utf-8-sig") as fh:
+        head = fh.readline()
+    assert head.startswith("Başlık;Sanatçı") and c["rows"] >= 8, (head, c)
+    tab = lib.library_table()
+    assert tab["rows"] and len(tab["rows"][0]) == len(tab["cols"])
+
+
 def test_inbox():
     lib, fx = fresh("inbox")
     setup_default(lib)

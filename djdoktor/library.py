@@ -339,7 +339,8 @@ class Library:
         for f in self.catalog.files():
             codes = [c for c in analysis.file_issues(f, prefs)
                      if c in ("audio_error", "audio_empty", "fmt_engine", "junk_appledouble", "junk_other",
-                              "name_badchar", "name_trailing", "name_reserved", "name_long", "audio_lowbr")]
+                              "name_badchar", "name_trailing", "name_reserved", "name_long", "audio_lowbr",
+                              "name_nfd", "name_emoji", "tag_none", "engine_copy")]
             if codes:
                 flags[f["id"]] = codes
         self.catalog.set_flags(flags)
@@ -506,6 +507,9 @@ class Library:
         return rows
 
     def track_detail(self, fid):
+        """Parça ayrıntısı: tüm etiketler, cue'lar, Engine kaydı, hangi liste / crate'lerde olduğu, kopyaları,
+        sorunları ve tona / tempoya göre uyumlu şarkılar."""
+        from . import dedupe, events, health
         f = self.catalog.file(fid)
         if not f:
             raise UserError("Parça bulunamadı")
@@ -513,7 +517,6 @@ class Library:
         place = self.placer()
         kind, gid = place(f["rel"])
         gens = {g["id"]: g for g in self.genre_rows()}
-        from . import dedupe
         dup = dedupe.dup_index(self).get(fid)
         group = None
         if dup:
@@ -521,16 +524,58 @@ class Library:
                 if any(m["id"] == fid for m in g["members"]):
                     group = g
                     break
-        serato_lists = [r["path"] for r in self.catalog.q(
+        serato_lists = [r["path"].replace("%%", " / ") for r in self.catalog.q(
             "SELECT DISTINCT l.path FROM ext_items e JOIN ext_lists l ON l.src=e.src AND l.list_key=e.list_key "
-            "WHERE e.src='serato' AND e.file_id=?", (fid,))]
+            "WHERE e.src='serato' AND e.file_id=? ORDER BY l.path", (fid,))]
         rows = st["by_file"].get(fid) or []
         etr = st["tracks"].get(rows[0][0]) if rows else None
         markers = json.loads(f["cues_json"]) if f.get("cues_json") else None
+        flags = json.loads(f["flags"]) if f.get("flags") else []
         f.pop("search", None)
+        f.pop("cues_json", None)
+        g = gens.get(gid) if kind == "genre" else None
+        from . import keys as K
         return {"file": f, "disp": names.display(f["rel"]), "abs": self.rootinfo.os_path(f["rel"], f.get("os_rel")),
-                "genre": gens[gid]["name"] if gid in gens else None, "place": kind, "es": st["status"].get(fid, "none"),
+                "genre": g["name"] if g else None, "color": g["color"] if g else None, "gid": g["id"] if g else None,
+                "place": kind, "es": st["status"].get(fid, "none"),
                 "engine": {"id": etr["id"], "analyzed": bool(etr.get("isAnalyzed")), "path": etr.get("path"),
-                           "bpm": etr.get("bpmAnalyzed"), "key": etr.get("key")} if etr else None,
-                "engine_lists": st["lists_of"].get(fid, []), "serato_lists": serato_lists, "dupe_group": group,
-                "markers": markers}
+                           "bpm": etr.get("bpmAnalyzed"), "key": K.engine_key_to_camelot(etr.get("key")),
+                           "grid": bool(etr.get("has_grid")), "copies": len(rows)} if etr else None,
+                "engine_lists": sorted(set(st["lists_of"].get(fid, []))), "serato_lists": serato_lists,
+                "dupe_group": group, "markers": markers, "issues": health.explain(flags),
+                "compatible": events.compatible(self, fid)}
+
+    def library_table(self):
+        """Araçlar > Kütüphane: tüm şarkılar, tüm sütunlar (sıralanabilir, aranabilir tablo için)."""
+        return self.cached("libtable", self.view_key(), self._library_table)
+
+    def _library_table(self):
+        from . import dedupe, keys as K
+        states = self.file_states()
+        gens = {g["id"]: g for g in self.genre_rows()}
+        st = self.engine_state()
+        dup = dedupe.dup_index(self)
+        nser = {r["file_id"]: r["n"] for r in self.catalog.q(
+            "SELECT file_id, COUNT(DISTINCT list_key) AS n FROM ext_items WHERE src='serato' AND file_id IS NOT NULL "
+            "GROUP BY file_id")}
+        cols = ["id", "dot", "title", "artist", "album", "genre", "tag_genre", "bpm", "key", "energy", "dur", "kbps",
+                "ext", "size", "note", "cues", "year", "label", "engine", "dup", "serato", "lists", "rel", "added",
+                "flags", "search"]
+        out = []
+        for s in states.values():
+            f = s["f"]
+            rows = st["by_file"].get(f["id"]) or []
+            t = st["tracks"].get(rows[0][0]) if rows else {}
+            g = gens.get(s["gid"]) if s["place"] == "genre" else None
+            bpm = f.get("bpm") or (t or {}).get("bpmAnalyzed")
+            d = dup.get(f["id"])
+            out.append([f["id"], self.dot(s), f.get("title") or os.path.splitext(names.display(f["name"]))[0],
+                        f.get("artist") or "", f.get("album") or "", g["name"] if g else "", f.get("genre") or "",
+                        round(bpm, 1) if bpm else None, f.get("camelot") or K.engine_key_to_camelot((t or {}).get("key")),
+                        f.get("mik_energy"), round(f["duration"]) if f.get("duration") else None, f.get("bitrate"),
+                        (f.get("ext") or "").lstrip("."), f.get("size"), f.get("note") or "", f.get("cues") or 0,
+                        f.get("year"), f.get("label") or "", s["es"],
+                        d["n"] if d and d["kind"] != "song" else 0, nser.get(f["id"], 0),
+                        len(set(st["lists_of"].get(f["id"], []))), names.display(f["rel"]), f.get("first_seen"),
+                        json.loads(f["flags"]) if f.get("flags") else [], f.get("search") or ""])
+        return {"cols": cols, "rows": out}
