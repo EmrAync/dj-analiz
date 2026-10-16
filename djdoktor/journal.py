@@ -198,8 +198,11 @@ def apply_inverse(lib, steps, force=False, notes=None, managed=None):
             dst = lib.rootinfo.os_path(s["old"])
             if os.path.isdir(src) and (not os.path.exists(dst) or names.loose_key(s["new"]) == names.loose_key(s["old"])):
                 _rename(src, dst)
-            for fid, old, _new in s.get("files") or []:
-                cat.update_rel(fid, old, lib.rootinfo.os_rel_of(old), names.match_key(old), names.loose_key(old))
+            fl = s.get("files") or []
+            for b in range(0, len(fl), 400):          # katalog yazımları paketlerle (binlerce dosyada hızlı)
+                with cat.tx():
+                    for fid, old, _new in fl[b:b + 400]:
+                        cat.update_rel(fid, old, lib.rootinfo.os_rel_of(old), names.match_key(old), names.loose_key(old))
         elif k == "copy":
             p_ = lib.rootinfo.os_path(s["rel"])
             if os.path.exists(p_):
@@ -333,9 +336,9 @@ def undo_last(lib, force=False, progress=None):
         steps = p.get("steps") or []
         need_engine = any(s["k"] in ("eng", "engsnap") for s in steps)
         need_serato = any(s["k"] in ("ser", "sersnap", "crate") for s in steps)
-        if need_engine and lib.engine_open():
+        if need_engine and lib.engine_open(fresh=True):
             raise UserError("Engine DJ açık. Geri almak için Engine DJ'i kapatın.", "engine_open")
-        if need_serato and lib.serato_open():
+        if need_serato and lib.serato_open(fresh=True):
             raise UserError("Serato açık. Geri almak için Serato'yu kapatın.", "serato_open")
         if not force:
             why = precheck(lib, steps)
@@ -353,5 +356,5 @@ def undo_last(lib, force=False, progress=None):
         if progress:
             progress(0.8, "Engine kontrol ediliyor…")
         from . import maintain
-        maintain.after_change(lib)
+        maintain.after_change(lib, relink=False)     # geri alınan bir bağlama hemen yeniden yapılmasın
         return {"title": j["title"], "notes": notes, "kind": j["kind"]}

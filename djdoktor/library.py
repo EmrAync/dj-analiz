@@ -107,11 +107,21 @@ class Library:
     def engine_db(self):
         return engine.drive_db(self.root)
 
-    def engine_open(self):
-        return engine.is_running()
+    def engine_open(self, fresh=False):
+        """fresh=True: yazmadan hemen önce (önbellekteki birkaç saniyelik sonuç kullanılmaz)."""
+        return engine.is_running(fresh=True) if fresh else engine.is_running()
 
-    def serato_open(self):
-        return bool(util.process_running(serato.SERATO_PROCS))
+    def serato_open(self, fresh=False):
+        return bool(util.process_running(serato.SERATO_PROCS, fresh=True) if fresh
+                    else util.process_running(serato.SERATO_PROCS))
+
+    def serato_index(self):
+        """Serato'daki tüm yollar (database V2 + bütün crate'ler), diskteki dosyalar değişene kadar önbellekte.
+        Yazmadan önce bunu DEĞİL serato.index(...)'i kullanın (taze okuma). Dönen sözlüğü değiştirmeyin."""
+        sdir = self.serato_dir()
+        if not sdir:
+            return serato.index(None)
+        return self.cached("serato_index", (sdir, self._serato_sig(deep=True)), lambda: serato.index(sdir))
 
     def serato_dir(self):
         return serato.serato_dir(self.root)
@@ -293,8 +303,8 @@ class Library:
             progress(1.0, "Tamamlandı")
         return res
 
-    def _serato_sig(self):
-        """Serato dosyalarının ucuz imzası (değiştiler mi?)."""
+    def _serato_sig(self, deep=False):
+        """Serato dosyalarının ucuz imzası (değiştiler mi?). deep=True: alt klasörlerdeki crate'ler de."""
         sdir = self.serato_dir()
         if not sdir:
             return ""
@@ -307,10 +317,15 @@ class Library:
                 parts.append("-")
         sc = serato._subcrates_dir(sdir)
         try:
-            for e in sorted(os.scandir(sc), key=lambda e: e.name):
-                if e.name.endswith(".crate"):
-                    st = e.stat()
-                    parts.append("%s:%d:%d" % (e.name, st.st_size, st.st_mtime_ns))
+            if deep:
+                for member, full in serato.iter_crate_files(sdir):
+                    st = os.stat(full)
+                    parts.append("%s:%d:%d" % (member, st.st_size, st.st_mtime_ns))
+            else:
+                for e in sorted(os.scandir(sc), key=lambda e: e.name):
+                    if e.name.endswith(".crate"):
+                        st = e.stat()
+                        parts.append("%s:%d:%d" % (e.name, st.st_size, st.st_mtime_ns))
         except OSError:
             pass
         import hashlib

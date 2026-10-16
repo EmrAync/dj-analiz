@@ -3,7 +3,8 @@
 Rapor yok: her kategori kısa bir cümle, bir sayı ve (varsa) bir düğmedir. Düğmeler:
   * junk     : Mac / Windows çöp dosyaları (._x, .DS_Store) karantinaya taşınır (silinmez).
   * rename   : Windows / Prime 4'te sorun çıkaran adlar güvenli hâle getirilir (Türkçe harfler korunur);
-               Engine ve Serato yolları birlikte güncellenir.
+               Engine ve Serato yolları birlikte güncellenir (tek işlem, tek yedek: relocate.batch_rename).
+               Arayüzde Araçlar > Adlar'a gider (önizleme, çakışmalar, Türkçe harfleri sadeleştirme).
   * repair   : Engine'de bozuk yazılmış yollar (Mac biçimi) diskteki doğru yola çevrilir.
   * missing  : Engine koleksiyonunda dosyası diskte olmayan kayıtlar Engine'den kaldırılır (yedekten geri alınır).
   * quarantine: bozuk / yarım dosyalar karantinaya taşınır.
@@ -21,7 +22,7 @@ CATEGORIES = [
     ("bad", ("audio_error", "audio_empty"), "Bozuk / yarım dosyalar",
      "Çalınamaz; yeniden indirilmesi gerekir.", "quarantine"),
     ("missing", (), "Engine'de dosyası olmayan kayıtlar",
-     "Prime 4'te kırmızı görünür. Dosya bir yerde bulunursa program kendisi bağlar.", "missing"),
+     "Prime 4'te kırmızı görünür. Adı ya da yeri değiştiyse program bulup bağlar.", "missing"),
     ("broken", (), "Engine'de yolu yanlış yazılmış şarkılar",
      "Mac biçiminde yazılmış; Prime 4 bulamaz. Engine kapalıyken kendiliğinden onarılır.", "repair"),
     ("names", ("name_badchar", "name_trailing", "name_reserved", "name_nfd"), "Sorunlu dosya / klasör adları",
@@ -148,90 +149,36 @@ def fix_junk(lib, progress=None):
 # ---------------------------------------------------------------------------
 # Güvenli ad düzeltme
 # ---------------------------------------------------------------------------
-def _bad_component(name, emoji):
-    probs = names.component_problems(name)
-    return any(p in probs for p in ("sfm", "illegal", "control", "trailing", "reserved", "nfd")) or \
-        (emoji and "emoji" in probs)
-
-
-def _fixed(name, is_file, emoji):
-    new = names.clean_component(name, is_file) if emoji and names.has_emoji(name) else \
-        names.minimal_fix_component(name, is_file)
-    if is_file:
-        new = os.path.splitext(new)[0] + os.path.splitext(name)[1]   # uzantı aynen kalsın
-    return new
+def _rules(emoji):
+    from . import renamer
+    return renamer.normalize_rules({"strip_emoji": bool(emoji)}, preset="only_illegal")
 
 
 def plan_rename(lib, emoji=False):
-    """Düzeltilecek adlar: dosyalar (yalnızca ad) ve klasörler (içindekilerle birlikte).
-    -> {'files': {fid: yeni_rel}, 'folders': [(klasör_rel, yeni_ad)], 'preview': [...]}"""
-    from .library import STATE_DIR
-    rows = lib.catalog.q("SELECT id, rel, kind FROM files WHERE present=1 AND rel NOT LIKE '_DJDoktor_/%'")
-    folders, files, preview = {}, {}, []
-    for r in rows:
-        if r["rel"].startswith(STATE_DIR + "/") or r["kind"] in ("appledouble", "junk"):
-            continue
-        parts = names.split_rel(r["rel"])
-        top = names.fold(parts[0]) if parts else ""
-        if top in ("_serato_", "engine library"):
-            continue
-        for i, p in enumerate(parts[:-1]):
-            if _bad_component(p, emoji):
-                key = "/".join(parts[:i + 1])
-                if key not in folders:
-                    folders[key] = _fixed(p, False, emoji)
-        name = parts[-1]
-        if r["kind"] == "audio" and _bad_component(name, emoji):
-            new = _fixed(name, True, emoji)
-            if new != name:
-                files[r["id"]] = "/".join(parts[:-1] + [new])
-    for rel, new in sorted(folders.items()):
-        preview.append({"kind": "klasör", "old": names.display(rel), "new": new})
-    for fid, rel in sorted(files.items(), key=lambda kv: kv[1]):
-        f = lib.catalog.file(fid)
-        preview.append({"kind": "dosya", "old": names.display(f["rel"]), "new": names.split_rel(rel)[-1]})
-    return {"files": files, "folders": sorted(folders.items(), key=lambda kv: -kv[0].count("/")),
-            "preview": preview}
+    """Düzeltilecek adlar (Araçlar > Adlar'daki 'Yalnızca sorunlu karakterler' ile aynı hesap):
+    -> {'files': {fid: yeni_ad}, 'folders': [(klasör_rel, yeni_ad)], 'preview': [...], 'conflicts': [...]}"""
+    from . import renamer
+    pl = renamer.plan(lib, _rules(emoji), {"kind": "all", "include_root": True}, "both", limit=None)
+    files, dirs, _sx = renamer._selection(pl)
+    preview = [{"kind": "klasör" if x["kind"] == "dir" else "dosya", "old": x["rel"], "new": x["new"],
+                "conflict": x["conflict"]} for x in pl["items"]]
+    return {"files": files, "folders": sorted(dirs.items(), key=lambda kv: -kv[0].count("/")), "preview": preview,
+            "conflicts": [x for x in pl["items"] if x["status"] == "conflict"], "token": pl["token"]}
 
 
 def fix_names(lib, emoji=False, progress=None):
-    """Sorunlu adları düzeltir: önce dosya adları (klasörleri yerinde), sonra klasörler en derinden başlayarak.
-    Engine ve Serato yolları birlikte güncellenir; hepsi tek 'Geri al' adımı."""
-    from . import maintain, relocate
+    """Sorunlu adları düzeltir: dosyalar ve klasörler TEK işlemde, veritabanı başına tek yedekle (relocate.batch_rename).
+    Engine ve Serato yolları birlikte güncellenir; aynı adda bir şey varsa o ad atlanır ve raporlanır."""
+    from . import relocate
     with lib.lock:
         pl = plan_rename(lib, emoji)
         if not pl["files"] and not pl["folders"]:
-            return {"renamed": 0}
+            return {"renamed": 0, "conflicts": len(pl["conflicts"])}
         n = len(pl["files"]) + len(pl["folders"])
-        op = journal.Op(lib, "ad_duzeltme", "%d ad düzeltildi" % n)
-        done = 0
-        try:
-            if pl["files"]:
-                if progress:
-                    progress(0.1, "Dosya adları düzeltiliyor…")
-                r = relocate.move_files(lib, pl["files"], op.title, kind="ad_duzeltme", op=op, maint=False,
-                                        exact=True)
-                done += r.get("moved", 0)
-            for i, (rel, new) in enumerate(pl["folders"]):
-                if progress:
-                    progress(0.4 + 0.4 * i / max(1, len(pl["folders"])), "Klasör adları düzeltiliyor…")
-                try:
-                    r = relocate.rename_folder(lib, rel, new, op=op, kind="ad_duzeltme")
-                    done += r.get("renamed", 0)
-                except Exception as e:
-                    code = getattr(e, "code", None)
-                    if code == "exists":
-                        continue        # aynı adda klasör var: bu klasör olduğu gibi kalır
-                    raise
-        except Exception:
-            journal.apply_inverse(lib, op.steps, force=True)
-            lib.bump()
-            raise
-        if progress:
-            progress(0.85, "Engine kontrol ediliyor…")
-        op.title = "%d ad düzeltildi" % done
-        res = {"renamed": done, "maint": maintain.after_change(lib, op)}
-        res["journal"] = op.commit()
+        res = relocate.batch_rename(lib, pl["files"], dict(pl["folders"]), "%d ad düzeltildi" % n, kind="ad_duzeltme",
+                                    progress=progress)
+        res["renamed"] = res["files"] + res["dirs"]
+        res["conflicts"] = len(pl["conflicts"]) + sum(1 for x in res["skipped"] if x["why"] == "exists")
         return res
 
 

@@ -354,3 +354,24 @@ def long_path(p: str) -> str:
 
 def join_os(root: str, rel: str) -> str:
     return os.path.join(root, *split_rel(rel))
+
+
+# ---------------------------------------------------------------------------
+# Yeniden adlandırma ve kayıp yol bağlama yardımcıları (2.2)
+# ---------------------------------------------------------------------------
+TR_LETTERS = frozenset("çğıöşüÇĞİÖŞÜâîûÂÎÛ")
+
+
+def has_turkish(s: str) -> bool:
+    """Adda Türkçe harf (ç ğ ı ö ş ü İ â î û) var mı? Mac'in ayrık (NFD) yazımı da sayılır."""
+    return bool(s) and any(c in TR_LETTERS for c in nfc(s))
+
+
+def fold_path(rel: str) -> str:
+    """Yolun her parçası katlanmış (Türkçe harf, aksan, büyük/küçük harf, NFD ve Mac özel karakteri farkı yok):
+    'Müzik/Türkü Arşivi/Gönül.mp3' ve 'Muzik/TURKU ARSIVI/gonul.mp3' aynı anahtarı verir."""
+    return "/".join(fold(p) for p in split_rel(rel))
+
+
+def parent_rel(rel: str) -> str:
+    return rel.rsplit("/", 1)[0] if "/" in rel else ""

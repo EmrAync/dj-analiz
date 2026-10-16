@@ -60,9 +60,9 @@ def _sort_key(f):
     return (names.fold(f.get("artist") or ""), names.fold(f.get("title") or f.get("name") or ""))
 
 
-def plan(lib, d, data, resolver=None):
-    """Bir veritabanı için yapılacak bakım işleri (salt hesap)."""
-    cat = lib.catalog
+def plan(lib, d, data, resolver=None, relink=True):
+    """Bir veritabanı için yapılacak bakım işleri (salt hesap). relink=False: kayıp kayıtlar bağlanmaz
+    (geri almadan sonra: geri alınan bağlama hemen yeniden yapılmasın)."""
     tracks, by_file, orphans, _ref_of, _tor = lib.engine_map(d, data, resolver)
     files = {f["id"]: f for f in lib.audio_files()}
     repairs, relinks, missing = [], [], 0
@@ -75,34 +75,34 @@ def plan(lib, d, data, resolver=None):
                 old = tracks[tid].get("path") or ""
                 repairs.append((tid, old, engine.repath(old, None, f["rel"], d["lib_dir"], lib.root)))
     taken = set(by_file)
-    for tid, rel, m in orphans:
-        if m not in ("missing", "nodir") or not rel:
-            continue
-        fid = cat.history_fid(rel)
-        guard = 0
-        while fid and guard < 20 and not (files.get(fid) or {}).get("present"):
-            f0 = cat.file(fid)
-            fid = cat.history_fid(f0["rel"]) if f0 else None
-            guard += 1
-        if not fid or fid not in files:
-            old = cat.q1("SELECT qsig, alen FROM files WHERE lkey=? AND present=0 AND qsig IS NOT NULL",
-                         (names.loose_key(rel),))
-            if old:
-                cands = [r["id"] for r in cat.q("SELECT id FROM files WHERE qsig=? AND alen=? AND present=1 "
-                                                "AND kind='audio'", (old["qsig"], old["alen"]))]
-                if len(cands) == 1:
-                    fid = cands[0]
+    # program dışında taşınan / adı değişen dosyalar: kayıp yol bağlama ile aynı eşleştirme, YALNIZCA 'kesin' olanlar
+    # (geçmiş, ses imzası — Engine Library kopyaları ve karantina hariç —, ya da boyut / süresi tutan sade ad)
+    lost = [(tid, rel) for tid, rel, m in orphans if m in ("missing", "nodir") and rel]
+    found = {}
+    held = set()
+    if lost:
+        from . import relink as RL
+        refs = [{"key": tid, "rel": rel, "size": tracks[tid].get("fileBytes"), "dur": tracks[tid].get("length")}
+                for tid, rel in lost]
+        found = RL.match(lib, refs)
+    for tid, rel in lost:
+        x = found.get(tid) or {}
+        fid = x.get("fid") if x.get("confidence") == "kesin" else None
         if fid and fid in files and fid not in taken:
-            oldp = tracks[tid].get("path") or ""
-            relinks.append((tid, oldp, engine.repath(oldp, None, files[fid]["rel"], d["lib_dir"], lib.root), fid))
+            if relink:
+                oldp = tracks[tid].get("path") or ""
+                relinks.append((tid, oldp, engine.repath(oldp, None, files[fid]["rel"], d["lib_dir"], lib.root), fid))
+            else:
+                held.add(fid)        # bağlanmaz ama Engine'e YENİ kayıt olarak da eklenmez (iki kez olmasın)
+                missing += 1
             taken.add(fid)
         else:
             missing += 1
     return {"tracks": tracks, "by_file": by_file, "files": files, "repairs": repairs, "relinks": relinks,
-            "missing": missing}
+            "missing": missing, "held": held}
 
 
-def run(lib, op=None, progress=None):
+def run(lib, op=None, progress=None, relink=True):
     """Bakımı uygular. op verilirse eklenen parçalar ve yol değişiklikleri o işlemle geri alınabilir.
     Engine DJ açıksa hiçbir şey yazmaz ({'skipped': 'engine_open'})."""
     from . import dedupe
@@ -127,14 +127,14 @@ def run(lib, op=None, progress=None):
                 out.setdefault("errors", []).append(str(e))
                 continue
             data = engine.read(d["path"])
-            pl = plan(lib, d, data)
+            pl = plan(lib, d, data, relink=relink)
             drive = d["key"] == "drive"
             adds = []
             if drive and gens:
                 place = lib.placer()
                 gmap = {g["id"]: g for g in gens}
                 dup = dedupe.dup_index(lib)
-                relinked = {r[3] for r in pl["relinks"]}
+                relinked = {r[3] for r in pl["relinks"]} | pl["held"]
                 for fid, f in pl["files"].items():
                     if fid in pl["by_file"] or fid in relinked:
                         continue
@@ -188,7 +188,7 @@ def run(lib, op=None, progress=None):
             out["missing"] += pl["missing"]
         if out["repaired"] or out["relinked"] or out["added"] or out["lists"]:
             lib.catalog.set_meta("last_maint", util.now())
-        lib._maint_sig = None if out.get("errors") else _sig(lib, dbs, gens, prefs)
+        lib._maint_sig = None if (out.get("errors") or not relink) else _sig(lib, dbs, gens, prefs)
         return out
 
 
@@ -281,10 +281,10 @@ def _managed_lists(lib, w, gens, prefs):
     return len(pending)
 
 
-def after_change(lib, op=None):
+def after_change(lib, op=None, relink=True):
     """Bir değişiklikten sonra sessiz bakım. Hata olursa işlemi bozmaz, günlüğe yazar."""
     try:
-        return run(lib, op=op)
+        return run(lib, op=op, relink=relink)
     except Exception as e:  # bakım asla kullanıcının işlemini düşürmesin
         try:
             lib.catalog.set_meta("last_maint_error", "%s: %s" % (util.stamp(), e))
@@ -294,11 +294,25 @@ def after_change(lib, op=None):
 
 
 def background(lib):
-    """Arka planda (ör. tarama sonrası, Engine DJ kapanınca) tek seferlik bakım."""
+    """Arka planda (ör. tarama sonrası, Engine DJ kapanınca) tek seferlik bakım. Program dışında adı / yeri değişen
+    dosyaların Engine ve Serato kayıtları önce bağlanır (yalnızca kesin eşleşmeler; tek 'Geri al' adımı)."""
     if not _bg_lock.acquire(blocking=False):
         return None
     try:
-        return after_change(lib)
+        linked = None
+        try:
+            from . import relink as RL
+            linked = RL.auto(lib)
+        except Exception as e:  # bağlama hiçbir zaman bakımı düşürmesin
+            try:
+                lib.catalog.set_meta("last_relink_error", "%s: %s" % (util.stamp(), e))
+            except Exception:
+                pass
+        r = after_change(lib)
+        if linked and isinstance(r, dict):
+            r["relinked"] = r.get("relinked", 0) + linked.get("engine", 0) + linked.get("serato", 0)
+            r["auto_linked"] = {k: linked.get(k) for k in ("engine", "serato", "folders", "journal")}
+        return r
     finally:
         _bg_lock.release()
 

@@ -134,7 +134,7 @@ def link(lib, pid, on=True):
     links = cat.serato_links(uuid)
     op = journal.Op(lib, "serato", ("Serato'da da göster: %s" if on else "Serato'dan kaldır: %s") % p["title"])
     with lib.lock:
-        serato_open = lib.serato_open()
+        serato_open = lib.serato_open(fresh=True)
         for i in ids:
             old = links.get(i)
             op.add({"k": "serlink", "db": uuid, "pid": i, "old": _link_dict(old)})
@@ -265,7 +265,7 @@ def sync(lib, op=None, only=None, st=None, prefer=None):
     sdir = lib.serato_dir()
     if not sdir:
         return {"skipped": "no_serato"}
-    if lib.serato_open():
+    if lib.serato_open(fresh=True):          # yazmadan hemen önce taze denetim
         return {"skipped": "serato_open"}
     with _lock:
         st = st or lib.engine_state(force=True)

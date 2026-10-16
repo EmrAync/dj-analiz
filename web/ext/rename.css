@@ -1,1 +1,48 @@
-/* DJ Doktor eklentisi: rename */
+/* DJ Doktor eklentisi: Adlar (Araçlar > Adlar). Düzen sözleşmesi: style.css başı (rem/em, min-width:0, sabit satır). */
+.rn-seg { display: inline-flex; flex: 0 1 auto; min-width: 0; border: 1px solid var(--line); border-radius: 99px; background: var(--panel); padding: 2px; gap: 2px; max-width: 100%; }
+.rn-seg button { border: 0; background: transparent; border-radius: 99px; padding: .32em .9em; cursor: pointer; color: var(--ink-2); font: inherit; font-size: .92em; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.rn-seg button > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rn-seg button.on { background: var(--accent); color: #fff; font-weight: 600; }
+.rn-seg button .badge { font-size: .78em; }
+
+.rn-top { display: flex; flex-direction: column; gap: 10px; }
+.rn-presets { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
+.rn-presets .btn { min-width: 0; max-width: 100%; }
+.rn-presets .btn > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rn-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.rn-row .chips.rn-inl { margin-top: 0; flex-wrap: wrap; }
+.rn-grp { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.rn-scope { max-width: min(26rem, 100%); }
+
+.rn-adv { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding-top: 8px; border-top: 1px solid var(--line-2); min-width: 0; }
+.rn-ck { display: inline-flex; align-items: center; gap: 5px; font-size: .92em; cursor: pointer; min-width: 0; }
+.rn-ck > input { flex: none; }
+.rn-ck select { font: inherit; font-size: .95em; padding: 1px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
+.rn-rep { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1 1 100%; min-width: 0; }
+.rn-rep input:not([type=checkbox]) { flex: 1 1 9rem; min-width: 0; max-width: 18rem; padding: .3em .55em; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--ink); font: inherit; font-size: .92em; }
+.rn-adv > .muted { flex: 1 1 100%; }
+
+.rn-sum { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; }
+.rn-sumt { flex: 1 1 16rem; min-width: 0; }
+.rn-sum .btn { flex: none; }
+.rn-bad { color: var(--bad-ink); }
+.rn-folders { display: flex; flex-direction: column; gap: 3px; padding: 10px 14px; }
+
+.rn-bar { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin: 4px 0 6px; min-width: 0; }
+.rn-bar .chips.rn-flt { margin-top: 0; flex: 1 1 auto; }
+.rn-bar .rn-q { flex: 0 1 14rem; min-width: 7rem; }
+
+table.t.rn-t td .ttl { font-weight: 500; }
+table.t.rn-t td .art { color: var(--muted); font-size: .86em; }
+table.t.rn-t tr.rn-off td { opacity: .55; }
+table.t.rn-t tr.rn-off td.c-chk { opacity: 1; }
+table.t.rn-t td .tag { max-width: 100%; }
+mark.rn-del { background: var(--bad-soft); color: var(--bad-ink); border-radius: 3px; padding: 0 1px; text-decoration: line-through; text-decoration-thickness: 1px; }
+mark.rn-ins { background: var(--ok-soft); color: var(--ok-ink); border-radius: 3px; padding: 0 1px; font-weight: 600; }
+
+.rn-one { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rn-one input { flex: 1; min-width: 0; }
+
+.main:is([data-w=xs], [data-w=s]) .rn-presets .btn { flex: 1 1 100%; }
+.main:is([data-w=xs], [data-w=s]) .rn-row > .muted { flex: 0 0 auto; }
+.main:is([data-w=xs], [data-w=s]) .rn-sum .btn.big { flex: 1 1 100%; }
