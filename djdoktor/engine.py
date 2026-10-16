@@ -70,8 +70,8 @@ def drive_db(root: str):
     return None
 
 
-def is_running() -> bool:
-    return bool(util.process_running(ENGINE_PROCS))
+def is_running(fresh: bool = False) -> bool:
+    return bool(util.process_running(ENGINE_PROCS, fresh=fresh))
 
 
 def hot_journal(db_path: str) -> bool:
@@ -88,7 +88,7 @@ def hot_journal(db_path: str) -> bool:
 def recover(db_path: str) -> bool:
     """Yarım kalmış işlem (sıcak günlük) varsa ve Engine DJ KAPALIYSA SQLite'ın kendi kurtarmasını çalıştırır:
     yarım işlem geri sarılır, veritabanı işlemden önceki sağlam hâline döner."""
-    if not hot_journal(db_path) or is_running():
+    if not hot_journal(db_path) or is_running(fresh=True):
         return False
     try:
         con = sqlite3.connect(db_path, timeout=5)
@@ -284,7 +284,7 @@ def preflight(db_path: str):
     problems = []
     if not os.path.isfile(db_path):
         raise EngineError("Engine veritabanı bulunamadı: %s" % db_path)
-    if is_running():
+    if is_running(fresh=True):
         problems.append("Engine DJ şu anda açık. Değişiklikler için Engine DJ'i kapatın.")
     recover(db_path)
     if hot_journal(db_path):
@@ -408,7 +408,7 @@ def semantic_fingerprint(db_path: str) -> str:
 
 
 def restore(db_path: str, backup_path: str):
-    if is_running():
+    if is_running(fresh=True):
         raise EngineError("Engine DJ açıkken geri yükleme yapılamaz. Lütfen kapatın.")
     src = sqlite3.connect(_uri(backup_path, "ro"), uri=True)
     dst = sqlite3.connect(db_path, timeout=3)
@@ -439,7 +439,7 @@ class Writer:
     """
 
     def __init__(self, db_path: str, lib_dir: str, root: str, check_running: bool = True):
-        if check_running and is_running():
+        if check_running and is_running(fresh=True):
             raise EngineError("Engine DJ açık. Değişiklik yapmak için Engine DJ'i kapatın.")
         recover(db_path)
         if hot_journal(db_path):

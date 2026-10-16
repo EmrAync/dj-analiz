@@ -187,23 +187,55 @@ def open_in_file_manager(path: str, select: bool = False) -> bool:
         return False
 
 
-def process_running(names) -> list:
-    """Verilen adlardan çalışan süreçleri döndürür (Engine DJ / Serato açık mı?)."""
-    found = []
+_PROC = {"t": 0.0, "text": None}
+_PROC_LOCK = __import__("threading").Lock()
+
+
+def _process_text(max_age: float) -> str:
+    """Çalışan süreç adlarının küçük harfli listesi. Windows'ta her sorgu 'tasklist' başlatır (yavaş);
+    arayüz birkaç saniyede bir sorduğu için sonuç kısa süre önbellekte tutulur."""
+    with _PROC_LOCK:
+        now = time.time()
+        if _PROC["text"] is not None and now - _PROC["t"] < max_age:
+            return _PROC["text"]
+        text = ""
+        try:
+            if IS_WIN:
+                out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, timeout=8,
+                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                text = out.stdout.decode("mbcs", "replace").lower()
+            else:
+                out = subprocess.run(["ps", "-axo", "comm"], capture_output=True, timeout=8)
+                text = out.stdout.decode("utf-8", "replace").lower()
+        except Exception:
+            text = _PROC["text"] or ""
+        _PROC["t"], _PROC["text"] = now, text
+        return text
+
+
+def process_running(names, fresh: bool = False) -> list:
+    """Verilen adlardan çalışan süreçleri döndürür (Engine DJ / Serato açık mı?).
+    fresh=True: önbelleği kullanma (yazmadan hemen önceki güvenlik denetimleri için)."""
+    text = _process_text(0.0 if fresh else 2.5)
+    return [n for n in names if n.lower() in text]
+
+
+def disable_console_quickedit():
+    """Windows konsolunda 'Hızlı Düzenleme' açıkken pencereye tıklamak programı durdurur (yazı yazılırken
+    süreç bekler; arayüz 'takılır'). Bu pencere için kapatılır."""
+    if not IS_WIN:
+        return False
     try:
-        if IS_WIN:
-            out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, timeout=8,
-                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            text = out.stdout.decode("mbcs" if IS_WIN else "utf-8", "replace").lower()
-        else:
-            out = subprocess.run(["ps", "-axo", "comm"], capture_output=True, timeout=8)
-            text = out.stdout.decode("utf-8", "replace").lower()
-        for n in names:
-            if n.lower() in text:
-                found.append(n)
+        import ctypes
+        k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        h = k32.GetStdHandle(-10)                       # STD_INPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if not k32.GetConsoleMode(h, ctypes.byref(mode)):
+            return False
+        new = (mode.value & ~0x0040) | 0x0080           # QUICK_EDIT kapalı, EXTENDED_FLAGS açık
+        return bool(k32.SetConsoleMode(h, new))
     except Exception:
-        pass
-    return found
+        return False
 
 
 def is_system_root(path: str) -> bool:

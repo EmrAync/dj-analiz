@@ -325,7 +325,7 @@ def test_engine_open_guard():
     setup_default(lib)
     import djdoktor.engine as E
     orig = E.is_running
-    E.is_running = lambda: True
+    E.is_running = lambda *a, **k: True
     try:
         try:
             lists.create(lib, 0, "x")

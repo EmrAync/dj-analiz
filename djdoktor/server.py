@@ -770,13 +770,29 @@ def _print_list(lib, pid):
     return "".join(out)
 
 
+class _Server(ThreadingHTTPServer):
+    """Tarayıcı bir isteği yarıda bırakınca (sekme kapandı, sayfa yenilendi) Windows'ta çıkan bağlantı
+    hatalarını konsola yazmaz: konsola yazı, pencere 'seçim' modundayken programı bekletebilir."""
+    app = None
+
+    def handle_error(self, request, client_address):
+        import sys as _s
+        e = _s.exc_info()[1]
+        if isinstance(e, (ConnectionError, TimeoutError)):
+            return
+        if self.app is not None:
+            self.app.log(traceback.format_exc())
+
+
 def run(port=8770, open_browser=True):
+    util.disable_console_quickedit()
     app = App()
     Handler.app = app
     srv = None
     for p in [port] + list(range(port + 1, port + 30)):
         try:
-            srv = ThreadingHTTPServer(("127.0.0.1", p), Handler)
+            srv = _Server(("127.0.0.1", p), Handler)
+            srv.app = app
             break
         except OSError:
             continue
