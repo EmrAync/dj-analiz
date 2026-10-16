@@ -28,7 +28,7 @@ make_fixture.write_mp3(os.path.join(TMP, "home", "Downloads", "Unutulan Halay.mp
 
 from djdoktor import server  # noqa: E402
 
-PORT = 8899
+PORT = int(os.environ.get("DJD_UI_PORT") or 8899)  # paralel çalıştırmalar için değiştirilebilir
 threading.Thread(target=server.run, kwargs={"port": PORT, "open_browser": False}, daemon=True).start()
 time.sleep(1.0)
 URL = "http://127.0.0.1:%d/" % PORT
