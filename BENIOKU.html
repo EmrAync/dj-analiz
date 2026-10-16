@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DJ Doktor 2 — Kısa kılavuz</title>
+<title>DJ Doktor 2.1 — Kısa kılavuz</title>
 <style>
 :root {
   --bg: #f4f5f7; --paper: #fff; --ink: #1d2128; --muted: #5d6573; --line: #e1e5eb;
@@ -48,7 +48,7 @@ details p { margin: 8px 0 4px; }
 <body>
 <main>
 
-<h1>DJ Doktor 2</h1>
+<h1>DJ Doktor 2.1</h1>
 <p class="lead">Her şarkının SSD'de <b>tek bir evi</b> olur: <code>Müzik/&lt;Tür&gt;</code>. Engine DJ listelerini doğrudan
 düzenlersin; Serato'da da görünmesini istediğin listeler kendiliğinden eşitlenir. Hiçbir dosya silinmez, her işlem tek tıkla geri alınır.</p>
 
@@ -106,6 +106,26 @@ Gelen klasörüne türsüz bırakılan şarkı, program <b>Gelen</b> sekmesinde 
     <li><b>Geri al:</b> sağ üstteki düğme ya da <kbd>Ctrl+Z</kbd> — en son işlemden başlayarak.</li>
   </ul>
 </div>
+<h2>5 · Etkinlikten önce</h2>
+<div class="card info">
+  <ul>
+    <li><b>Öneri:</b> Listeler'de bir bölümü seç (ör. <b>Halay</b>, <b>İlk Dans</b>) → sağda <b>✨ Öneri</b>. Bölüme uyan şarkılar gelir; <b>+</b> ile ekle.</li>
+    <li><b>Kontrol et:</b> etkinliği seç → <b>✓ Kontrol et</b>. Her şarkı yerinde mi, analiz edildi mi, Prime 4 çalar mı, aynı şarkı iki kez var mı — tek bakışta.</li>
+    <li><b>Yazdır:</b> listenin üstündeki <b>🖨 Yazdır</b> (bölüm bölüm, süreleriyle).</li>
+    <li><b>Şarkı ayrıntısı:</b> herhangi bir şarkının adına tıkla: etiketler, cue noktaları, hangi listelerde olduğu ve tonuna/temposuna <b>uyumlu şarkılar</b>.</li>
+  </ul>
+</div>
+
+<h2>6 · Araçlar (ileri kullanım)</h2>
+<div class="card">
+  <ul>
+    <li><b>Sağlık:</b> bozuk dosyalar, Engine'de kayıp kayıtlar, sorunlu adlar, çöp dosyalar (._ , .DS_Store), düşük kalite… Her birinin yanında tek düğme.</li>
+    <li><b>Kütüphane tablosu:</b> tüm şarkılar tek tabloda; sütun adına tıkla → sırala, <b>Sütunlar</b> → istediğini göster, hızlı süzgeçler (analiz bekleyen, notlu, tonu yok…).</li>
+    <li><b>Dışa aktar:</b> rekordbox XML (cue'larla), M3U8, Excel (CSV). Dosyalar <code>Belgeler/DJ Doktor/Dışa Aktarım</code> klasörüne yazılır.</li>
+    <li><b>Geçmiş ve yedekler:</b> yapılan her işlem, Engine/Serato yedekleri ve karantina.</li>
+  </ul>
+</div>
+
 <ul class="dots">
   <li><span class="dot" style="background:var(--green)"></span>Engine'de, analiz edildi</li>
   <li><span class="dot" style="background:var(--amber)"></span>Analiz bekliyor</li>
@@ -113,7 +133,7 @@ Gelen klasörüne türsüz bırakılan şarkı, program <b>Gelen</b> sekmesinde 
   <li><span class="dot" style="background:var(--red)"></span>Sorun (bozuk, çalmaz, yol hatalı)</li>
 </ul>
 
-<h2>5 · Altın kurallar</h2>
+<h2>7 · Altın kurallar</h2>
 <div class="card warn">
   <ul>
     <li>Engine DJ'de bu SSD'nin <b>kendi kütüphanesiyle</b> çalış (sol altta SSD adı). Şarkıları Engine'e <b>elle sürükleme</b>, bilgisayardan SSD'ye
@@ -123,7 +143,7 @@ Gelen klasörüne türsüz bırakılan şarkı, program <b>Gelen</b> sekmesinde 
   </ul>
 </div>
 
-<h2>6 · Güvenlik</h2>
+<h2>8 · Güvenlik</h2>
 <div class="card ok">
   <ul>
     <li><b>Hiçbir dosya silinmez.</b> Fazla kopyalar SSD'de <code>_DJDoktor_/Karantina</code> klasörüne taşınır.</li>
@@ -144,6 +164,9 @@ ya da müziklerin bilgisayarda bir klasördeyse <b>Klasör seç</b>. Bilgisayar�
 <p>Sorun değil. Program SSD'yi bulamazsa sorar; listeden SSD'ni seç (<b>Bu SSD</b>). Engine'deki yollar SSD'ye göre göreli olduğu için bozulmaz.</p></details>
 <details><summary>Eski sürüm (v1) ne olacak?</summary>
 <p>v1'in klasörlerine ve ayarlarına dokunulmaz; v2 ayarlarını <code>Belgeler/DJ Doktor</code> klasöründe tutar. v2'den memnunsan v1 klasörünü silebilirsin.</p></details>
+<details><summary>Program yavaşlıyor / takılıyor.</summary>
+<p>2.1'de arka plandaki tarama programı artık bekletmez ve uzun listeler akıcı çizilir. Yine de olursa ne yaptığını not et ve
+<code>Belgeler/DJ Doktor/gunluk/djdoktor.log</code> dosyasını gönder.</p></details>
 <details><summary>Bir şey ters gitti.</summary>
 <p>Önce <b>Geri al</b>. Olmadıysa programı kapatıp açın; SSD'deki <code>_DJDoktor_/Yedekler</code> klasöründe her değişiklik öncesi Engine ve Serato yedekleri durur.</p></details>
 
