@@ -15,8 +15,8 @@ import traceback
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import (APP_ID, APP_NAME, VERSION, dedupe, engine, events, exporters, health, inbox, journal, lists, maintain,
-               mirror, names, relocate, util)
+from . import (APP_ID, APP_NAME, VERSION, dedupe, engine, events, exporters, ext, health, inbox, journal, lists,
+               maintain, mirror, names, relocate, util)
 from .config import Settings, app_dir
 from .library import STATE_DIR, Library, UserError
 from .tasks import TaskManager
@@ -177,6 +177,7 @@ class Handler(BaseHTTPRequestHandler):
         return host in ("127.0.0.1", "localhost", "[::1]")
 
     def _send(self, code, body: bytes, ctype="application/json; charset=utf-8", extra=None):
+        self._sent = True
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -217,6 +218,7 @@ class Handler(BaseHTTPRequestHandler):
         self._dispatch("POST")
 
     def _dispatch(self, method):
+        self._sent = False
         if not self._host_ok():
             return self._err("Erişim reddedildi", 403)
         u = urllib.parse.urlsplit(self.path)
@@ -395,6 +397,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(app.settings.prefs())
         if r0 == "open" and method == "POST":
             return self._json({"ok": _open(app, body)})
+        er = ext.get(r0)
+        if er and not er[1]:
+            res = er[0](self, None, method, parts, qs, body)
+            if res is not None or getattr(self, "_sent", False):
+                return res
 
         lib = app.lib()
         # ---------------- genel ----------------
@@ -608,6 +615,11 @@ class Handler(BaseHTTPRequestHandler):
             if act == "open" and method == "POST":
                 ib, ar = inbox.ensure_dirs(lib)
                 return self._json({"ok": util.open_in_file_manager(ar if body.get("archive") else ib)})
+        # ---------------- eklenti modülleri (ext.route) ----------------
+        if er and er[1]:
+            res = er[0](self, lib, method, parts, qs, body)
+            if res is not None or getattr(self, "_sent", False):
+                return res
         return self._err("Bilinmeyen istek: %s" % route, 404)
 
 

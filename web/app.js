@@ -28,6 +28,26 @@ const S = {
 };
 
 // ---------------------------------------------------------------------------
+// Eklenti noktaları: ek özellik dosyaları (web/*.js) çekirdeğe dokunmadan buradan bağlanır.
+//   DJD.tab({key, label, order, load: async () => {}})         -> üst sekme
+//   DJD.toolView({key, icon, title, order, load, html, after}) -> Araçlar'da alt bölüm
+//   DJD.settings({html: (st) => "", wire: (el, st) => {}})     -> Ayarlar penceresine bölüm
+//   DJD.healthAction(act, label, async (cat) => {})            -> Sağlık kartında düğme
+//   DJD.trackAction({label, fn: (fid, detail) => {}})          -> şarkı ayrıntısında düğme
+//   DJD.listMenu((it, list, e) => [menu öğeleri])              -> liste ⋯ menüsüne öğeler
+// ---------------------------------------------------------------------------
+const DJD = {
+  tabs: [], toolViews: [], settingsParts: [], healthActs: {}, trackActs: [], listMenus: [],
+  tab(t) { this.tabs.push(t); this.tabs.sort((a, b) => (a.order || 0) - (b.order || 0)); },
+  toolView(v) { this.toolViews.push(v); this.toolViews.sort((a, b) => (a.order || 0) - (b.order || 0)); },
+  settings(p) { this.settingsParts.push(p); },
+  healthAction(act, label, fn) { this.healthActs[act] = { label, fn }; },
+  trackAction(a) { this.trackActs.push(a); },
+  listMenu(fn) { this.listMenus.push(fn); },
+};
+window.DJD = DJD;
+
+// ---------------------------------------------------------------------------
 // Sunucu
 // ---------------------------------------------------------------------------
 async function api(path, body) {
@@ -262,12 +282,14 @@ function renderTop() {
   const ov = S.ov || {};
   const attn = (ov.unsorted || 0) + (ov.dupes || 0);
   const inb = st.inbox_wait || 0;
-  $("#tabs").innerHTML = ready ? [
-    ["music", "Müzikler", attn ? `<span class="badge">${attn}</span>` : ""],
-    ["lists", "Listeler", ""],
-    ["inbox", "Gelen", inb ? `<span class="badge">${inb}</span>` : ""],
-    ["tools", "Araçlar", ""],
-  ].map(([k, l, b]) => `<button class="tab ${S.tab === k ? "on" : ""}" data-tab="${k}">${l}${b}</button>`).join("") : "";
+  const tabs = [
+    [10, "music", "Müzikler", attn ? `<span class="badge">${attn}</span>` : ""],
+    [20, "lists", "Listeler", ""],
+    [30, "inbox", "Gelen", inb ? `<span class="badge">${inb}</span>` : ""],
+    [90, "tools", "Araçlar", ""],
+    ...DJD.tabs.map((t) => [t.order || 50, t.key, t.label, t.badge ? t.badge() : ""]),
+  ].sort((a, b) => a[0] - b[0]);
+  $("#tabs").innerHTML = ready ? tabs.map(([_o, k, l, b]) => `<button class="tab ${S.tab === k ? "on" : ""}" data-tab="${k}">${l}${b}</button>`).join("") : "";
   let html = "";
   if (st.active) {
     if (!st.has_engine) html += `<span class="pill" title="Bu SSD'de Engine kütüphanesi yok">Engine kütüphanesi yok</span>`;
@@ -334,6 +356,7 @@ async function refresh(force) {
     if (S.tab === "lists") await loadLists();
     else if (S.tab === "inbox") await loadInbox();
     else if (S.tab === "tools") await loadTools();
+    else if (DJD.tabs.some((t) => t.key === S.tab)) await DJD.tabs.find((t) => t.key === S.tab).load();
     else await loadMusic();
   } catch (e) { toast(e.message, "err"); }
   renderTop();
@@ -1352,6 +1375,8 @@ function listMenu(e) {
       if (ok) { await listOp("/api/list/delete", { id: it.id }, "Liste silindi (Geri al ile geri gelir)."); }
     } });
   }
+  const extra = DJD.listMenus.flatMap((fn) => { try { return fn(it, l, e) || []; } catch (er) { return []; } });
+  if (extra.length) items.push("-", ...extra);
   menu(e, items);
 }
 
@@ -1501,10 +1526,19 @@ const fmtSize = (n) => { n = +n || 0; if (n < 1048576) return Math.round(n / 102
 const fmtDate = (ts) => ts ? new Date(ts * 1000).toLocaleDateString("tr-TR") : "";
 const ENG_TXT = { ready: "hazır", pending: "analiz bekliyor", broken: "yolu bozuk", edup: "iki kez", none: "—" };
 
+function toolViewsAll() {
+  return [...TVIEWS.map(([k, ic, t], i) => ({ key: k, icon: ic, title: t, order: (i + 1) * 10 })), ...DJD.toolViews]
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+}
+const extView = () => DJD.toolViews.find((x) => x.key === S.tview);
+
 async function loadTools() {
   S.tview = S.tview || localStorage.getItem("djd.tview") || "health";
+  if (!toolViewsAll().some((x) => x.key === S.tview)) S.tview = "health";
   if (!S.ov) { try { S.ov = await api("/api/overview"); } catch (e) { /* */ } }
-  if (S.tview === "health") S.tdata = await api("/api/health");
+  const xv = extView();
+  if (xv) S.tdata = xv.load ? await xv.load() : null;
+  else if (S.tview === "health") S.tdata = await api("/api/health");
   else if (S.tview === "table") S.tdata = await api("/api/libtable");
   else if (S.tview === "export") S.tdata = await api("/api/lists").catch(() => ({ lists: [] }));
   else S.tdata = { journal: await api("/api/journal"), backups: await api("/api/backups") };
@@ -1516,10 +1550,12 @@ function renderTools() {
   const prev = $("#tmain .body");
   const keep = prev && S._lastT === S.tview ? prev.scrollTop : 0;
   const side = `<aside class="side"><div class="scroll">
-    ${TVIEWS.map(([k, ic, t]) => `<div class="nav-item ${S.tview === k ? "on" : ""}" data-tv="${k}"><span class="tic">${ic}</span><span class="name">${t}</span>${k === "health" && S.tview === "health" && S.tdata && S.tdata.problems ? `<span class="cnt">${fmtN(S.tdata.problems)}</span>` : ""}</div>`).join("")}
+    ${toolViewsAll().map(({ key: k, icon: ic, title: t }) => `<div class="nav-item ${S.tview === k ? "on" : ""}" data-tv="${k}"><span class="tic">${ic}</span><span class="name">${t}</span>${k === "health" && S.tview === "health" && S.tdata && S.tdata.problems ? `<span class="cnt">${fmtN(S.tdata.problems)}</span>` : ""}</div>`).join("")}
     </div><div class="muted small" style="border-top:1px solid var(--line);padding:10px 16px">Günlük işler için <b>Müzikler</b>, <b>Listeler</b> ve <b>Gelen</b> yeter; buradakiler ileri araçlar.</div></aside>`;
   let main = "";
-  if (S.tview === "health") main = healthHtml(S.tdata);
+  const xv = extView();
+  if (xv) main = xv.html(S.tdata);
+  else if (S.tview === "health") main = healthHtml(S.tdata);
   else if (S.tview === "table") main = libTableHtml();
   else if (S.tview === "export") main = exportHtml();
   else main = historyHtml();
@@ -1528,6 +1564,7 @@ function renderTools() {
   if (keep && $("#tmain .body")) $("#tmain .body").scrollTop = keep;
   if (S.tview === "table") drawLibTable();
   wireTools();
+  if (xv && xv.after) xv.after(S.tdata);
 }
 
 // --- Sağlık --------------------------------------------------------------
@@ -1543,7 +1580,7 @@ function healthHtml(h) {
     const open = S.hopen.has(c.key);
     const items = open ? `<div class="hlist">${c.items.map((i) => `<div class="hrow">${i.id && c.key !== "junk" ? `<div class="meta" data-info="${i.id}">` : `<div class="meta">`}<div class="ttl">${esc(i.title)}${i.artist ? ` <span class="muted">— ${esc(i.artist)}</span>` : ""}</div><div class="art">${esc(i.rel)}${i.bitrate ? ` · ${i.bitrate} kbps` : ""}</div></div>${i.id && c.key !== "junk" ? `<button class="play" data-play="${i.id}">▶</button>` : ""}</div>`).join("")}${c.count > c.items.length ? `<div class="muted small" style="padding:8px 14px">… ve ${fmtN(c.count - c.items.length)} tane daha</div>` : ""}</div>` : "";
     return `<div class="card hc ${c.action ? "act" : ""}"><div class="hc-h"><span class="hc-n">${fmtN(c.count)}</span><div style="flex:1;min-width:200px"><b>${esc(c.title)}</b>${c.size ? ` <span class="muted small">(${fmtSize(c.size)})</span>` : ""}<div class="muted small">${esc(c.hint)}</div></div>
-      ${c.action ? `<button class="btn sm ${c.action === "dupes" ? "" : "primary"}" data-hact="${c.action}" data-cat="${c.key}">${HACT[c.action]}</button>` : ""}
+      ${c.action ? `<button class="btn sm ${c.action === "dupes" ? "" : "primary"}" data-hact="${c.action}" data-cat="${c.key}">${esc((DJD.healthActs[c.action] || {}).label || HACT[c.action] || c.action)}</button>` : ""}
       <button class="btn sm ghost" data-hshow="${c.key}">${open ? "Gizle ▴" : "Göster ▾"}</button></div>${items}</div>`;
   };
   return `<div class="head"><div style="flex:1"><h2>Sağlık</h2><div class="sub">${fmtN(st.songs)} şarkı · ${fmtLong(st.duration)} · ${fmtSize(st.size)} · Engine'de ${fmtN(st.engine)} (${fmtN(st.analyzed)} analiz edildi)</div>
@@ -1559,6 +1596,7 @@ async function toolTask(path, body, msg) {
 
 async function healthAction(act, key) {
   const c = ((S.tdata && S.tdata.categories) || []).find((x) => x.key === key) || { items: [], count: 0 };
+  if (DJD.healthActs[act]) { await DJD.healthActs[act].fn(c); return; }
   if (act === "quarantine") { await quarantine(c.items.map((i) => i.id)); return; }
   if (act === "dupes") { S.tab = "music"; S.view = "dupes"; localStorage.setItem("djd.tab", "music"); await refresh(true); return; }
   if (act === "repair") { await toolTask("/api/health/repair", {}, (r) => `Engine onarıldı (${(r.repaired || 0) + (r.relinked || 0)} yol).`); return; }
@@ -1774,7 +1812,8 @@ async function openTrack(fid) {
       <button class="icon-btn" data-dx="1" title="Kapat (Esc)">✕</button></div>
     <div class="dw-b">
       <div class="exrow" style="margin-bottom:12px;flex-wrap:wrap"><button class="btn sm" data-dplay="${f.id}">▶ Dinle</button><button class="btn sm" data-dopen="${f.id}">📂 Göster</button>
-        <button class="btn sm" data-dmove="${f.id}">Türe taşı ▾</button><button class="btn sm" data-dlist="${f.id}">Listeye ekle ▾</button></div>
+        <button class="btn sm" data-dmove="${f.id}">Türe taşı ▾</button><button class="btn sm" data-dlist="${f.id}">Listeye ekle ▾</button>
+        ${DJD.trackActs.map((a, i) => `<button class="btn sm" data-dext="${i}">${esc(a.label)}</button>`).join("")}</div>
       ${d.issues && d.issues.length ? `<div class="dw-s"><h4>Sorunlar</h4>${d.issues.map((i) => `<div class="small"><span class="tag ${i.severity === "kritik" ? "bad" : i.severity === "uyari" ? "warn" : ""}">${esc(i.title)}</span> <span class="muted">${esc(i.desc)}</span></div>`).join("")}</div>` : ""}
       <div class="dw-s"><h4>Bilgiler</h4><div class="kv">
         ${kv("BPM", f.bpm ? Math.round(f.bpm * 10) / 10 : (d.engine && d.engine.bpm ? Math.round(d.engine.bpm * 10) / 10 + " (Engine)" : ""))}
@@ -1803,6 +1842,8 @@ async function openTrack(fid) {
     if (mv) { if (!S.ov) S.ov = await api("/api/overview"); pickGenreMenu(e, [+mv.dataset.dmove]); return; }
     const li = e.target.closest("[data-dlist]");
     if (li) { addToListMenu(e, [+li.dataset.dlist]); return; }
+    const dx = e.target.closest("[data-dext]");
+    if (dx) { const a = DJD.trackActs[+dx.dataset.dext]; if (a) a.fn(f.id, d, e); return; }
     if (e.target.closest("[data-dgo]")) { closeDrawer(); S.tab = "music"; S.view = "dupes"; localStorage.setItem("djd.tab", "music"); await refresh(true); return; }
     const inf = e.target.closest("[data-info]");
     if (inf) { openTrack(+inf.dataset.info); }
@@ -1850,6 +1891,7 @@ async function settingsDialog() {
     <label class="switch ${p.watch_downloads !== false ? "on" : ""}" data-pref="watch_downloads" style="margin:6px 0"><i></i>İndirilenler klasöründeki unutulan şarkıları göster</label><br>
     <label class="switch ${p.genre_lists !== false ? "on" : ""}" data-pref="genre_lists" style="margin:6px 0"><i></i>Engine'de “Türler” listelerini tut</label>
     <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="pscan">Şimdi yeniden tara</button><button class="btn" id="pssd">Başka SSD seç</button><button class="btn" id="pq">Karantinayı aç</button></div>
+    ${DJD.settingsParts.map((p) => { try { return p.html(st) || ""; } catch (er) { return ""; } }).join("")}
     <h4 style="margin:18px 0 6px">Son işlemler</h4><div class="small" style="max-height:200px;overflow:auto">${journal.map((j) => `<div style="padding:3px 0;${j.status !== "tamam" ? "color:var(--muted);text-decoration:line-through" : ""}">${new Date(j.ts * 1000).toLocaleString("tr-TR")} — ${esc(j.title)}</div>`).join("") || '<span class="muted">Henüz işlem yok.</span>'}</div>
     <div class="muted small" style="margin-top:12px">SSD: ${esc(st.active.root)} · Sürüm ${esc(window.DJD_VERSION)}</div>` : ""}
     </div><div class="df"><button class="btn primary" data-x="ok">Tamam</button></div>`);
@@ -1869,7 +1911,9 @@ async function settingsDialog() {
     if (e.target.id === "pq") { api("/api/open", { path: st.active.root + "/_DJDoktor_/Karantina" }).catch((er) => toast(er.message, "err")); return; }
     if (e.target.closest("[data-x]")) m.close();
   });
+  DJD.settingsParts.forEach((p) => { try { if (p.wire) p.wire(m.el, st, m); } catch (er) { /* */ } });
 }
 
 // ---------------------------------------------------------------------------
-refresh(true).then(poll);
+function boot() { refresh(true).then(poll); }
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
