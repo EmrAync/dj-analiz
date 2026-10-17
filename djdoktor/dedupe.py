@@ -163,7 +163,7 @@ def _make(gid, kind, members, ctx):
 def groups(lib):
     """Tüm çift grupları (önbellekli)."""
     st = lib.engine_state()
-    key = (lib.ver(), id(st))
+    key = lib.data_key() + (st.get("seq"),)
     if lib._dupes is not None and lib._dupes_ver == key:
         return lib._dupes
     from .library import STATE_DIR
@@ -231,9 +231,14 @@ def groups(lib):
 
 
 def dup_index(lib):
-    """{file_id: {'n', 'keeper', 'keeper_gid', 'group', 'kind'}} — kopyası olan dosyalar."""
+    """{file_id: {'n', 'keeper', 'keeper_gid', 'group', 'kind'}} — kopyası olan dosyalar (önbellekli)."""
+    gs = groups(lib)
+    return lib.cached("dup_index", lib._dupes_ver, lambda: _dup_index(gs))
+
+
+def _dup_index(gs):
     idx = {}
-    for g in groups(lib):
+    for g in gs:
         keeper = next(m for m in g["members"] if m["keeper"])
         for m in g["members"]:
             if m["id"] in idx and idx[m["id"]]["kind"] in ("exact", "audio"):
@@ -341,60 +346,62 @@ def _engine_merge(lib, d, pairs, eng_only, files, op, progress=None):
     return stats
 
 
-def _serato_merge(lib, pairs, files, op):
+def _serato_refs(sx, rel):
+    """Bu dosyaya işaret eden Serato ham yolları (diskten TAZE dizinden: Mac / Windows yazımı, harf farkı dahil)."""
+    if not sx or not sx["raws"] or not rel:
+        return set()
+    return set(sx["by_mkey"].get(names.match_key(rel), ())) | set(sx["by_lkey"].get(names.loose_key(rel), ()))
+
+
+def _serato_merge(lib, pairs, files, op, sx=None):
+    """Kaldırılan kopyaların Serato yolları (database V2 + bütün crate'ler) tutulan kopyaya çevrilir.
+    Yollar diskten taze okunur (Serato'da sonradan eklenenler de), yazım biçimi (Mac NFD / Windows) korunur,
+    aynalı crate bağları yenilenir (ayna bunu 'Serato'da değişti' sanmaz)."""
+    from . import relocate
     sdir = lib.serato_dir()
     if not sdir:
         return None
-    cat = lib.catalog
-    ids = sorted({a for a, _b, _c in pairs} | {b for _a, b, _c in pairs})
-    if not ids:
+    sx = sx or serato.index(sdir)
+    if not sx["raws"]:
         return None
-    marks = ",".join("?" for _ in ids)
-    refs = cat.q("SELECT DISTINCT raw_path, file_id FROM ext_items WHERE src='serato' AND file_id IN (%s) "
-                 "UNION SELECT DISTINCT raw_path, file_id FROM ext_tracks WHERE src='serato' AND file_id IN (%s)"
-                 % (marks, marks), ids + ids)
-    raw_by_file = defaultdict(set)
-    for r in refs:
-        if r["raw_path"]:
-            raw_by_file[r["file_id"]].add(r["raw_path"])
-    if not any(raw_by_file.get(rm) for rm, _k, _s in pairs):
-        return None
-    db = serato.read_database(sdir) or {"tracks": []}
-    db_paths = {}
-    for t in db["tracks"]:
-        if t.get("pfil"):
-            db_paths.setdefault(names.match_key(t["pfil"]), t["pfil"])
+    dialect = relocate._dialect(lib, sx)
     mapping, drop = {}, set()
     for rm, kp, same in pairs:
-        krel = files[kp]["rel"]
-        for raw in raw_by_file.get(rm, ()):
-            target = db_paths.get(names.match_key(krel)) or serato_raw_for(raw, files[rm]["rel"], krel)
-            mapping[raw] = target
+        orel, krel = files[rm]["rel"], files[kp]["rel"]
+        if names.match_key(orel) == names.match_key(krel):
+            continue                    # NFC / NFD ikizleri: Serato'daki yol zaten ikisini de gösterir
+        for raw in _serato_refs(sx, orel):
+            target = sx["db_by_mkey"].get(names.match_key(krel)) or serato.raw_for(raw, orel, krel, dialect)
+            if target != raw:
+                mapping[raw] = target
             if not same:
                 drop.add(raw)
+    if not mapping and not drop:
+        return None
     bk = serato.backup(sdir, lib.backup_dir("serato"), "ciftler")
     members = serato.backup_members(bk)
     before = serato.state_fp(sdir, members)
-    stats = serato.rewrite_paths(sdir, mapping, drop_db_paths=frozenset(drop))
+    try:
+        stats = serato.rewrite_paths(sdir, mapping, drop_db_paths=frozenset(drop))
+    except Exception:
+        now = serato.state_fp(sdir, members)            # yarıda kaldı: değişen dosyalar yedekten geri
+        serato.restore_backup(sdir, bk, only={m for m, h in now.items() if before.get(m) != h})
+        raise
     after = serato.state_fp(sdir, members)
     changed = {m: h for m, h in after.items() if before.get(m) != h}
     if changed:
         op.add({"k": "sersnap", "backup": bk, "hashes": changed})
+    stats["mirror_links"] = relocate._refresh_mirror_links(lib, sdir, before, after, op)
     return stats
 
 
-def serato_raw_for(raw_old, old_rel, new_rel):
-    """Serato'daki eski yazımın lehçesini (Mac: ayrık harf + ':') koruyarak yeni yolu yazar."""
-    if raw_old == old_rel:
-        return new_rel
-    if names.nfc(raw_old) != raw_old or (names.has_sfm(old_rel) and not names.has_sfm(raw_old)):
-        return names.to_mac_form(new_rel)
-    return new_rel
+def serato_raw_for(raw_old, old_rel, new_rel, dialect=None):
+    """Serato'daki eski yazımın lehçesini (Mac: ayrık harf + ':') koruyarak yeni yolu yazar (serato.raw_for)."""
+    return serato.raw_for(raw_old, old_rel, new_rel, dialect)
 
 
 def quarantine_files(lib, fids, label, op, files=None):
     """Dosyaları SSD'deki karantinaya taşır (silmez). Mac yardımcı dosyaları (._) birlikte taşınır."""
-    from .library import STATE_DIR
     cat = lib.catalog
     qrel = lib.quarantine_rel(label)
     moved = 0
@@ -435,7 +442,7 @@ def _move_into(lib, f, rel, op):
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     util.safe_rename(src, dst)
     op.add({"k": "mv", "fid": f["id"], "old": f["rel"], "new": rel})
-    lib.catalog.update_rel(f["id"], rel, lib.rootinfo.os_rel_of(rel), names.match_key(rel), names.loose_key(rel))
+    journal.set_rel(lib, f["id"], rel)
 
 
 def merge(lib, picks, progress=None):
@@ -468,36 +475,44 @@ def merge(lib, picks, progress=None):
         files = {f["id"]: f for f in cat.q("SELECT * FROM files WHERE id IN (%s)" % ",".join(map(str, ids)))}
         st = lib.engine_state()
         need_engine = any(st["by_file"].get(i) for i in ids)
-        need_serato = bool(cat.q1("SELECT 1 AS x FROM ext_items WHERE src='serato' AND file_id IN (%s) LIMIT 1"
-                                  % ",".join(map(str, ids))))
-        if need_engine and lib.engine_open():
-            raise UserError("Engine DJ açık. Çiftleri birleştirmek için Engine DJ'i kapatın.", code="engine_open")
-        if need_serato and lib.serato_open():
-            raise UserError("Serato açık. Çiftleri birleştirmek için Serato'yu kapatın.", code="serato_open")
+        sdir = lib.serato_dir()
+        sx = serato.index(sdir) if sdir else None          # diskten taze (Serato'da sonradan eklenenler de)
+        need_serato = any(_serato_refs(sx, files[a]["rel"]) for a, _b, _c in pairs if a in files)
+        # yazmadan hemen önce taze denetim (önbellekteki birkaç saniyelik 'kapalı' sonucu kullanılmaz)
+        if need_engine and lib.engine_open(fresh=True):
+            raise UserError("Engine DJ açık. Çiftleri birleştirmek için Engine DJ'i kapat.", code="engine_open")
+        if need_serato and lib.serato_open(fresh=True):
+            raise UserError("Serato açık. Çiftleri birleştirmek için Serato'yu kapat.", code="serato_open")
         n_files = len({a for a, _b, _c in pairs})
         title = ("%d fazla kopya kaldırıldı" % n_files) if n_files else "Engine'de iki kez görünen parçalar düzeltildi"
         op = journal.Op(lib, "ciftler", title)
         res = {"files": n_files, "engine": {}, "serato": None}
         if progress:
             progress(0.1, "Engine kütüphanesi düzenleniyor…")
-        for d in lib.engine_dbs():
-            r = _engine_merge(lib, d, pairs, eng_only, files, op)
-            if r:
-                res["engine"][d["key"]] = r
-        if progress:
-            progress(0.45, "Serato listeleri düzenleniyor…")
-        res["serato"] = _serato_merge(lib, pairs, files, op)
-        if progress:
-            progress(0.6, "Fazla kopyalar karantinaya taşınıyor…")
-        rm_ids = sorted({a for a, _b, _c in pairs} - set(swaps.values()))
-        quarantine_files(lib, rm_ids, "ciftler", op, files)
-        for rm, kp, _same in pairs:
-            cat.add_history(files[rm]["rel"], kp)
-        # içerik değişimi: zengin etiketli kopya, tür klasöründeki kopyanın YERİNE geçer
-        for kp, ct in swaps.items():
-            quarantine_files(lib, [kp], "ciftler", op, files)
-            _move_into(lib, files[ct], files[kp]["rel"], op)
-            cat.add_history(files[ct]["rel"], ct)
+        try:
+            for d in lib.engine_dbs():
+                r = _engine_merge(lib, d, pairs, eng_only, files, op)
+                if r:
+                    res["engine"][d["key"]] = r
+            if progress:
+                progress(0.45, "Serato listeleri düzenleniyor…")
+            res["serato"] = _serato_merge(lib, pairs, files, op, sx) if need_serato else None
+            if progress:
+                progress(0.6, "Fazla kopyalar karantinaya taşınıyor…")
+            rm_ids = sorted({a for a, _b, _c in pairs} - set(swaps.values()))
+            quarantine_files(lib, rm_ids, "ciftler", op, files)
+            for rm, kp, _same in pairs:
+                cat.add_history(files[rm]["rel"], kp)
+            # içerik değişimi: zengin etiketli kopya, tür klasöründeki kopyanın YERİNE geçer
+            for kp, ct in swaps.items():
+                quarantine_files(lib, [kp], "ciftler", op, files)
+                _move_into(lib, files[ct], files[kp]["rel"], op)
+                cat.add_history(files[ct]["rel"], ct)
+        except Exception:
+            # yarım kalmasın: bu işlemde yapılan her şey (Engine, Serato, karantina) geri alınır
+            journal.apply_inverse(lib, op.steps, force=True)
+            lib.bump()
+            raise
         res["content_swaps"] = len(swaps)
         op.info = {"pairs": pairs, "eng_only": eng_only, "swaps": swaps}
         lib.bump()

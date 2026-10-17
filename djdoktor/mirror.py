@@ -134,7 +134,7 @@ def link(lib, pid, on=True):
     links = cat.serato_links(uuid)
     op = journal.Op(lib, "serato", ("Serato'da da göster: %s" if on else "Serato'dan kaldır: %s") % p["title"])
     with lib.lock:
-        serato_open = lib.serato_open()
+        serato_open = lib.serato_open(fresh=True)
         for i in ids:
             old = links.get(i)
             op.add({"k": "serlink", "db": uuid, "pid": i, "old": _link_dict(old)})
@@ -197,8 +197,10 @@ def _descendants(st, pid):
     return out
 
 
-def after_engine_change(lib, changed_pids, op):
+def after_engine_change(lib, changed_pids, op, uuid=None):
     """Engine'de liste değişti: bağlı crate'leri güncelle (Serato kapalıysa hemen, açıksa sonra)."""
+    if uuid is not None and not lib.catalog.serato_links(uuid):
+        return None          # Serato'ya bağlı liste yok: Engine'i yeniden okumaya gerek yok
     sdir = lib.serato_dir()
     st = lib.engine_state(force=True)
     if not st["db"]:
@@ -263,7 +265,7 @@ def sync(lib, op=None, only=None, st=None, prefer=None):
     sdir = lib.serato_dir()
     if not sdir:
         return {"skipped": "no_serato"}
-    if lib.serato_open():
+    if lib.serato_open(fresh=True):          # yazmadan hemen önce taze denetim
         return {"skipped": "serato_open"}
     with _lock:
         st = st or lib.engine_state(force=True)
@@ -320,7 +322,7 @@ def _pull(lib, pids, op):
     """Serato'da değişen crate'leri Engine listelerine alır."""
     from . import lists
     sdir = lib.serato_dir()
-    if lib.engine_open():
+    if lib.engine_open(fresh=True):            # Engine listelerine yazmadan hemen önce taze denetim
         return 0
     st = lib.engine_state(force=True)
     uuid = st["uuid"]

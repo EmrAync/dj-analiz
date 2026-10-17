@@ -148,6 +148,24 @@ _TR_MAP = str.maketrans({
 })
 
 
+# Büyük/küçük harfi KORUYAN Türkçe -> ASCII (dosya / klasör adı sadeleştirme için; arama katlaması değil)
+_TR_ASCII = str.maketrans({
+    "ı": "i", "İ": "I", "ş": "s", "Ş": "S", "ğ": "g", "Ğ": "G", "ü": "u", "Ü": "U", "ö": "o", "Ö": "O",
+    "ç": "c", "Ç": "C", "â": "a", "Â": "A", "î": "i", "Î": "I", "û": "u", "Û": "U",
+    "ß": "ss", "æ": "ae", "Æ": "AE", "ø": "o", "Ø": "O", "đ": "d", "Đ": "D", "ł": "l", "Ł": "L",
+})
+
+
+def ascii_tr(s: str) -> str:
+    """'Türkü Şöleni' -> 'Turku Soleni', 'İSTANBUL' -> 'ISTANBUL'. Mac'in ayrık (NFD) harflerini de çözer;
+    diğer aksanlar (é, ñ…) temel harfe iner. Büyük/küçük harf korunur."""
+    if not s:
+        return s
+    s = nfc(s).translate(_TR_ASCII)
+    s = unicodedata.normalize("NFKD", s)
+    return "".join(c for c in s if not unicodedata.combining(c))
+
+
 def fold(s: str) -> str:
     """'HALAYI', 'Halayı', 'halayi' -> 'halayi'. Aksanları ve Türkçe harfleri sadeleştirir."""
     if not s:
@@ -336,3 +354,24 @@ def long_path(p: str) -> str:
 
 def join_os(root: str, rel: str) -> str:
     return os.path.join(root, *split_rel(rel))
+
+
+# ---------------------------------------------------------------------------
+# Yeniden adlandırma ve kayıp yol bağlama yardımcıları (2.2)
+# ---------------------------------------------------------------------------
+TR_LETTERS = frozenset("çğıöşüÇĞİÖŞÜâîûÂÎÛ")
+
+
+def has_turkish(s: str) -> bool:
+    """Adda Türkçe harf (ç ğ ı ö ş ü İ â î û) var mı? Mac'in ayrık (NFD) yazımı da sayılır."""
+    return bool(s) and any(c in TR_LETTERS for c in nfc(s))
+
+
+def fold_path(rel: str) -> str:
+    """Yolun her parçası katlanmış (Türkçe harf, aksan, büyük/küçük harf, NFD ve Mac özel karakteri farkı yok):
+    'Müzik/Türkü Arşivi/Gönül.mp3' ve 'Muzik/TURKU ARSIVI/gonul.mp3' aynı anahtarı verir."""
+    return "/".join(fold(p) for p in split_rel(rel))
+
+
+def parent_rel(rel: str) -> str:
+    return rel.rsplit("/", 1)[0] if "/" in rel else ""

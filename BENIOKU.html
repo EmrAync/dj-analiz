@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DJ Doktor 2 — Kısa kılavuz</title>
+<title>DJ Doktor 2.2 — Kısa kılavuz</title>
 <style>
 :root {
   --bg: #f4f5f7; --paper: #fff; --ink: #1d2128; --muted: #5d6573; --line: #e1e5eb;
@@ -48,7 +48,7 @@ details p { margin: 8px 0 4px; }
 <body>
 <main>
 
-<h1>DJ Doktor 2</h1>
+<h1>DJ Doktor 2.2</h1>
 <p class="lead">Her şarkının SSD'de <b>tek bir evi</b> olur: <code>Müzik/&lt;Tür&gt;</code>. Engine DJ listelerini doğrudan
 düzenlersin; Serato'da da görünmesini istediğin listeler kendiliğinden eşitlenir. Hiçbir dosya silinmez, her işlem tek tıkla geri alınır.</p>
 
@@ -58,20 +58,26 @@ düzenlersin; Serato'da da görünmesini istediğin listeler kendiliğinden eşi
     <h3>Windows</h3>
     <ol>
       <li>Zip'i açmadan önce: sağ tık → <b>Özellikler</b> → <b>Engellemeyi kaldır</b> → Tamam.</li>
-      <li><code>Baslat_Windows.bat</code>'a çift tıkla. Program tarayıcıda açılır.</li>
+      <li>Zip'i <b>Masaüstü</b>'ne aç: masaüstünde <b>DJ Doktor</b> klasörü olur.</li>
+      <li>Klasördeki <code>Baslat_Windows.bat</code>'a çift tıkla. Program kendi penceresinde açılır.</li>
+      <li>İlk açılışta <b>Masaüstüne kısayol</b> önerilir: kabul et, sonra hep masaüstündeki <b>DJ Doktor</b> simgesiyle aç.</li>
       <li>Python yoksa program söyler ve kurmayı önerir.</li>
     </ol>
   </div>
   <div class="card">
     <h3>Mac</h3>
     <ol>
-      <li><code>Baslat_Mac.command</code>'a çift tıkla.</li>
+      <li>Zip'i <b>Masaüstü</b>'ne aç: masaüstünde <b>DJ Doktor</b> klasörü olur.</li>
+      <li>Klasördeki <code>Baslat_Mac.command</code>'a çift tıkla. Program kendi penceresinde açılır; Terminal kapatılabilir.</li>
       <li>"Doğrulanamadı" derse: <b>Sistem Ayarları → Gizlilik ve Güvenlik → Yine de Aç</b>.</li>
+      <li>İlk açılışta <b>Masaüstüne kısayol</b> önerilir: sonra masaüstündeki <b>DJ Doktor</b> uygulamasıyla aç.</li>
       <li>Python yoksa macOS kurmayı önerir: <b>Yükle</b>, sonra dosyayı tekrar aç.</li>
     </ol>
   </div>
 </div>
-<p class="muted">Kapatmak için açılan siyah/Terminal penceresini kapat. İnternet gerekmez; hiçbir şey bilgisayarın dışına çıkmaz.</p>
+<p class="muted">Program penceresini kapatınca program da kapanır (bir işlem sürüyorsa bitmesini bekler). Pencere yerine tarayıcı
+sekmesi istersen: Ayarlar → <b>Uygulama</b> → <b>Ayrı pencerede aç</b>'ı kapat. İnternet gerekmez (yalnızca isteğe bağlı yapay zekâ için).
+Program klasörünü sonradan taşırsan kısayolu yeniden oluştur.</p>
 
 <h2>2 · Bir şarkının yolu</h2>
 <div class="flow">
@@ -103,9 +109,64 @@ Gelen klasörüne türsüz bırakılan şarkı, program <b>Gelen</b> sekmesinde 
     <li><b>Serato'da da:</b> listenin sağ üstündeki düğme. Açıksa o liste Serato'da crate olarak görünür; hangisinde değiştirirsen öbürüne geçer.</li>
     <li><b>Tür / klasör adı:</b> Müzikler → türün yanındaki <b>✎</b>. Engine ve Serato yolları kendiliğinden düzelir.</li>
     <li><b>Yanlış türdeki şarkı:</b> satırı soldaki türün üstüne sürükle ya da işaretleyip <b>Türe taşı</b>.</li>
+    <li><b>Dinle:</b> ▶ ile çal; altta çalar çubuğu açılır, başka sayfaya geçince de çalmaya devam eder (ileri / geri sar,
+        istediğin yere atla, <b>Türe taşı</b>). Çalan şarkıyı taşıyabilirsin; program bir anlığına bırakıp aynı yerden sürdürür.</li>
+    <li><b>Gelen klasörü:</b> Gelen sekmesinde <b>Bu bilgisayarda</b>, <b>SSD'de</b> (<code>DJ Gelen</code>) ya da <b>Başka klasör seç…</b>.</li>
+    <li><b>Listeler kenarı:</b> üstte kendi Engine listelerin; altta programın listeleri, Serato crate'leri ve SSD'deki <b>klasör ağacı</b>.
+        Bir crate'e ya da klasöre tıklayınca içindeki şarkıları görürsün.</li>
+    <li><b>Nokta renkleri:</b> noktanın üstüne gel ya da şarkıya tıkla: neden kırmızı/turuncu olduğu ve dosyanın tam yolu yazar.
+        BPM ve ton dosyanın etiketinden gelir; Engine'in kendi analizi ayrıdır.</li>
     <li><b>Geri al:</b> sağ üstteki düğme ya da <kbd>Ctrl+Z</kbd> — en son işlemden başlayarak.</li>
   </ul>
 </div>
+<h2>5 · Etkinlikten önce</h2>
+<div class="card info">
+  <ul>
+    <li><b>Öneri:</b> Listeler'de bir bölümü seç (ör. <b>Halay</b>, <b>İlk Dans</b>) → sağda <b>✨ Öneri</b>. Bölüme uyan şarkılar gelir; <b>+</b> ile ekle.</li>
+    <li><b>Kontrol et:</b> etkinliği seç → <b>✓ Kontrol et</b>. Her şarkı yerinde mi, analiz edildi mi, Prime 4 çalar mı, aynı şarkı iki kez var mı — tek bakışta.</li>
+    <li><b>Yazdır:</b> listenin üstündeki <b>🖨 Yazdır</b> (bölüm bölüm, süreleriyle).</li>
+    <li><b>Şarkı ayrıntısı:</b> herhangi bir şarkının adına tıkla: etiketler, cue noktaları, hangi listelerde olduğu ve tonuna/temposuna <b>uyumlu şarkılar</b>.</li>
+  </ul>
+</div>
+
+<h2>6 · Asistan: hangi şarkıdan sonra hangisi?</h2>
+<div class="card info">
+  <ul>
+    <li><b>Sonra ne çalınır?</b> Bir şarkı seç (ya da şarkı ayrıntısında <b>Sonra ne çalınır?</b>): uyan şarkılar puanıyla gelir —
+        ton (Camelot), tempo, enerji, tür ve daha önce senin listelerinde arka arkaya çalınmış olması. Tıkla → sıradaki olur; zinciri
+        <b>Liste olarak kaydet</b>.</li>
+    <li><b>Camelot çarkı:</b> hangi tonda kaç şarkın var; bir tona tıkla → o tondaki ve uyumlu tonlardaki şarkılar.</li>
+    <li><b>Set kurucu:</b> tür(ler), süre ve enerji eğrisi (sakin başla → coş gibi) seç → program seti kurar; etkinlik ya da liste olarak kaydet.</li>
+    <li><b>Yapay zekâ ile kur</b> (isteğe bağlı): “Kına gecesi, 45 dakika, sakin başlasın, sonunda coşsun” gibi yaz. Ayarlar → <b>Yapay zekâ</b>'ya
+        kendi Anthropic API anahtarını girmen gerekir. Gönderilen yalnızca şarkı bilgileridir (ad, sanatçı, tür, BPM, ton, süre); dosya ya da yol gitmez.
+        Anahtar yoksa program aynı isteği kendisi kurar.</li>
+    <li><b>Listeyi sırala:</b> var olan bir listeyi geçişleri en iyi olacak şekilde sıralar; önce/sonra puanını gösterir. Listeler'de ⋯ → <b>Harmonik sırala</b>.</li>
+  </ul>
+  <p class="muted">Kaydetme ve sıralama Engine listelerine yazılır: her biri tek tıkla geri alınır, Engine DJ açıkken beklenir.</p>
+</div>
+
+<h2>7 · Adlar: Türkçe harfleri toplu düzelt</h2>
+<div class="card">
+  <ul>
+    <li>Araçlar → <b>Adlar</b> → <b>Türkçe harfleri düzelt (Engine için)</b>. Önce önizleme gelir: eski ad → yeni ad (ör. <i>Türkü</i> → <i>Turku</i>).
+        Tüm SSD, bir tür ya da bir klasör seçebilirsin; dosyalar, klasörler ya da ikisi.</li>
+    <li><b>Uygula</b>'ya bas. Engine DJ ve Serato'daki <b>tüm listeler ve crate'ler yeni adları gösterir</b> — şarkılar kaybolmaz. Tek tıkla <b>Geri al</b>.</li>
+    <li>Tek bir şarkı için: şarkı ayrıntısı → <b>✎ Adını değiştir</b>.</li>
+    <li><b>Kayıp yollar — Bul ve bağla:</b> adı programın dışında (Finder / Gezgin) değiştirdiysen Engine ve Serato o şarkıyı bulamaz. Bu düğme
+        şarkıyı yeni adıyla bulur; <b>Kesin olanları bağla</b> ile hepsi düzelir. Emin olunamayanlarda hangi dosya olduğunu sen seçersin.</li>
+  </ul>
+</div>
+
+<h2>8 · Araçlar (ileri kullanım)</h2>
+<div class="card">
+  <ul>
+    <li><b>Sağlık:</b> bozuk dosyalar, Engine'de kayıp kayıtlar, sorunlu adlar, çöp dosyalar (._ , .DS_Store), düşük kalite… Her birinin yanında tek düğme.</li>
+    <li><b>Kütüphane tablosu:</b> tüm şarkılar tek tabloda; sütun adına tıkla → sırala, <b>Sütunlar</b> → istediğini göster, hızlı süzgeçler (analiz bekleyen, notlu, tonu yok…).</li>
+    <li><b>Dışa aktar:</b> rekordbox XML (cue'larla), M3U8, Excel (CSV). Dosyalar <code>Belgeler/DJ Doktor/Dışa Aktarım</code> klasörüne yazılır.</li>
+    <li><b>Geçmiş ve yedekler:</b> yapılan her işlem, Engine/Serato yedekleri ve karantina.</li>
+  </ul>
+</div>
+
 <ul class="dots">
   <li><span class="dot" style="background:var(--green)"></span>Engine'de, analiz edildi</li>
   <li><span class="dot" style="background:var(--amber)"></span>Analiz bekliyor</li>
@@ -113,17 +174,19 @@ Gelen klasörüne türsüz bırakılan şarkı, program <b>Gelen</b> sekmesinde 
   <li><span class="dot" style="background:var(--red)"></span>Sorun (bozuk, çalmaz, yol hatalı)</li>
 </ul>
 
-<h2>5 · Altın kurallar</h2>
+<h2>9 · Altın kurallar</h2>
 <div class="card warn">
   <ul>
     <li>Engine DJ'de bu SSD'nin <b>kendi kütüphanesiyle</b> çalış (sol altta SSD adı). Şarkıları Engine'e <b>elle sürükleme</b>, bilgisayardan SSD'ye
         <b>senkron/dışa aktarma yapma</b>: ikisi de aynı şarkıyı SSD'ye ikinci kez kopyalar. Eklemeyi program yapar, bir kez.</li>
     <li>Program <b>Engine DJ açıkken Engine'e yazmaz</b> (üstte “Engine DJ açık · kilitli”), <b>Serato açıkken Serato'ya yazmaz</b>; kapatınca kendisi tamamlar.</li>
+    <li>Dosya ve klasör adlarını <b>programda</b> değiştir (Araçlar → Adlar): o zaman Engine ve Serato yolları da düzelir. Dışarıda değiştirdiysen
+        <b>Kayıp yollar</b>'ı kullan.</li>
     <li>SSD'yi çıkarmadan önce programı, Engine DJ'i ve Serato'yu kapat; sonra <b>güvenli çıkar</b>.</li>
   </ul>
 </div>
 
-<h2>6 · Güvenlik</h2>
+<h2>10 · Güvenlik</h2>
 <div class="card ok">
   <ul>
     <li><b>Hiçbir dosya silinmez.</b> Fazla kopyalar SSD'de <code>_DJDoktor_/Karantina</code> klasörüne taşınır.</li>
@@ -144,6 +207,15 @@ ya da müziklerin bilgisayarda bir klasördeyse <b>Klasör seç</b>. Bilgisayar�
 <p>Sorun değil. Program SSD'yi bulamazsa sorar; listeden SSD'ni seç (<b>Bu SSD</b>). Engine'deki yollar SSD'ye göre göreli olduğu için bozulmaz.</p></details>
 <details><summary>Eski sürüm (v1) ne olacak?</summary>
 <p>v1'in klasörlerine ve ayarlarına dokunulmaz; v2 ayarlarını <code>Belgeler/DJ Doktor</code> klasöründe tutar. v2'den memnunsan v1 klasörünü silebilirsin.</p></details>
+<details><summary>Ekranı küçültünce / büyütünce bir şey kayboluyor.</summary>
+<p>2.2'de bütün ekranlar pencere boyutuna uyar: dar pencerede az önemli sütunlar gizlenir, kenar menüsü düğmeyle açılır.
+Sol menüyü ve liste arama bölmesini kenarından sürükleyerek genişletebilirsin (çift tık → eski hâli). Yine de bir şey taşarsa ekran görüntüsü gönder.</p></details>
+<details><summary>Yapay zekâ anahtarı nedir, ücretli mi?</summary>
+<p>İsteğe bağlıdır. console.anthropic.com'dan alınan kişisel bir anahtardır; kullanım kadar ücretlendirilir. Anahtar bu bilgisayardaki
+ayar dosyasında (<code>Belgeler/DJ Doktor</code>) durur ve yalnızca yapay zekâya istek yaparken kullanılır; ekranda hiçbir zaman tamamı görünmez. Anahtar olmadan Asistan'ın her şeyi çalışır; yalnızca “Yapay zekâ ile kur” program içi kurucuya döner.</p></details>
+<details><summary>Program yavaşlıyor / takılıyor.</summary>
+<p>2.1'de arka plandaki tarama programı artık bekletmez ve uzun listeler akıcı çizilir. Yine de olursa ne yaptığını not et ve
+<code>Belgeler/DJ Doktor/gunluk/djdoktor.log</code> dosyasını gönder.</p></details>
 <details><summary>Bir şey ters gitti.</summary>
 <p>Önce <b>Geri al</b>. Olmadıysa programı kapatıp açın; SSD'deki <code>_DJDoktor_/Yedekler</code> klasöründe her değişiklik öncesi Engine ve Serato yedekleri durur.</p></details>
 

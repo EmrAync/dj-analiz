@@ -6,20 +6,27 @@
 <title>DJ Doktor</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f6fed'/%3E%3Cg fill='white'%3E%3Crect x='6' y='13' width='3' height='6' rx='1'/%3E%3Crect x='11' y='9' width='3' height='14' rx='1'/%3E%3Crect x='16' y='11' width='3' height='10' rx='1'/%3E%3Crect x='21' y='7' width='3' height='18' rx='1'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/ext/assistant.css">
+<link rel="stylesheet" href="/ext/rename.css">
+<link rel="stylesheet" href="/ext/desktop.css">
 </head>
 <body>
 <header id="top">
-  <div class="brand"><span class="logo"></span>DJ Doktor</div>
+  <div class="brand"><span class="logo"></span><span class="bt">DJ Doktor</span></div>
   <nav id="tabs"></nav>
   <div id="status"></div>
 </header>
 <main id="view"><div class="boot">Yükleniyor…</div></main>
-<div id="taskbar"></div>
-<div id="toasts" aria-live="polite"></div>
+<div id="player" hidden aria-label="Çalan şarkı"></div>
+<div id="dock"><div id="toasts" aria-live="polite"></div><div id="taskbar"></div></div>
+<div id="drawer"></div>
 <div id="modal"></div>
 <div id="menu"></div>
 <audio id="audio" preload="none"></audio>
 <script>window.DJD_TOKEN = "{{TOKEN}}"; window.DJD_VERSION = "{{VERSION}}";</script>
 <script src="/app.js"></script>
+<script src="/ext/rename.js"></script>
+<script src="/ext/assistant.js"></script>
+<script src="/ext/desktop.js"></script>
 </body>
 </html>

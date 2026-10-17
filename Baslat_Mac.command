@@ -1,6 +1,8 @@
 #!/bin/bash
-# DJ Doktor 2 — Mac başlatıcı. Çift tıklayın; program tarayıcıda açılır.
-# Kapatmak için bu Terminal penceresini kapatın.
+# DJ Doktor 2 — Mac başlatıcı. Çift tıklayın; program kendi penceresinde açılır ve bu Terminal penceresi
+# kapatılabilir. Program penceresi kapanınca program da kapanır.
+# İlk açılışta program "Masaüstüne kısayol" önerir: sonra masaüstündeki "DJ Doktor" simgesiyle açılır.
+# Terminal'de çalıştırmak için:  ./Baslat_Mac.command konsol
 cd "$(dirname "$0")" || exit 1
 export PYTHONUTF8=1
 PY=""
@@ -22,9 +24,11 @@ if [ -z "$PY" ]; then
   exit 1
 fi
 echo "Python: $PY"
-"$PY" baslat.py "$@"
+# --detach: program Terminal'den bağımsız (arka planda) yeniden başlar; bu pencere hemen kapanabilir
+"$PY" baslat.py --detach "$@"
 status=$?
-if [ $status -ne 0 ]; then
+# 1 = Python hatası (ekranda kalsın); 2 = hata zaten gösterildi
+if [ $status -eq 1 ]; then
   read -r -p "Kapatmak için Enter'a basın… " _
 fi
 exit $status

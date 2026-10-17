@@ -15,11 +15,17 @@ import traceback
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import (APP_ID, APP_NAME, VERSION, dedupe, engine, inbox, journal, lists, maintain, mirror, names, relocate,
-               util)
+from . import (APP_ID, APP_NAME, VERSION, dedupe, desktop, engine, events, exporters, ext, health, inbox, journal,
+               lists, maintain, mirror, names, relocate, util)
 from .config import Settings, app_dir
 from .library import STATE_DIR, Library, UserError
 from .tasks import TaskManager
+
+
+# Windows kayıt defteri .js / .css için yanlış tür verebiliyor (ör. text/plain): kendimiz belirleyelim
+for _ext, _typ in ((".js", "text/javascript"), (".css", "text/css"), (".html", "text/html"), (".svg", "image/svg+xml"),
+                   (".png", "image/png"), (".webmanifest", "application/manifest+json")):
+    mimetypes.add_type(_typ, _ext)
 
 WEB_DIR = os.path.join(app_dir(), "web")
 
@@ -37,6 +43,13 @@ class App:
                    "events": []}
         self.sel_tokens = {}      # kütüphane -> son seçimin jetonu (eski iptal edilmiş tarama yeni seçimi silmesin)
         self._stop = False
+        self._wake = threading.Event()     # kapanışta arka plan döngüsünü hemen uyandırır
+        # masaüstü (desktop.py): 'app' = ayrı uygulama penceresi, 'browser' = tarayıcı sekmesi, 'none' = pencere yok
+        self.mode = "none"
+        self.requested_mode = "none"   # başlatırken istenen (uygulama penceresi açılamadıysa mode 'browser' olur)
+        self.browser = None
+        self.watchdog = None
+        self.srv = None
 
     def log(self, text):
         try:
@@ -68,7 +81,7 @@ class App:
                     self._lib = None
                 if not os.path.isdir(rec["root"]):
                     if required:
-                        raise UserError("SSD takılı değil (%s bulunamadı). SSD'yi takın ya da yeniden seçin."
+                        raise UserError("SSD takılı değil (%s bulunamadı). SSD'yi tak ya da yeniden seç."
                                         % rec["root"], "no_root")
                     return None
                 self._lib = Library(self.settings, rec)
@@ -79,6 +92,29 @@ class App:
             if self._lib is not None:
                 self._lib.catalog.close()
             self._lib = None
+
+    def close(self, wait=60.0):
+        """Kapanış: kütüphaneye yazan iş (kilit) bitene kadar bekler, sonra kataloğu kapatır."""
+        with self._lib_lock:
+            lib, self._lib = self._lib, None
+        if lib is None:
+            return
+        got = lib.lock.acquire(timeout=wait)
+        try:
+            lib.catalog.close()
+        except Exception:
+            self.log(traceback.format_exc())
+        finally:
+            if got:
+                lib.lock.release()
+
+    def shutdown(self, reason=""):
+        """Sunucuyu başka bir iş parçacığından durdurur; temizlik run() içinde yapılır."""
+        wd = getattr(self, "watchdog", None)
+        self.log("kapanıyor: %s %s" % (reason, wd.status() if wd is not None else ""))
+        srv = self.srv
+        if srv is not None:
+            threading.Thread(target=srv.shutdown, name="djd-shutdown", daemon=True).start()
 
     def forget_library(self, lib_id, remove_state=False):
         """Seçimden vazgeç: kütüphane kaydını kaldırır. remove_state=True ise sürücüde programın açtığı
@@ -109,7 +145,9 @@ class App:
     # ------------------------------------------------------------------
     def background_loop(self):
         while not self._stop:
-            time.sleep(3)
+            self._wake.wait(3)
+            if self._stop:
+                break
             try:
                 self._tick()
             except Exception:
@@ -125,33 +163,36 @@ class App:
         eo, so = lib.engine_open(), lib.serato_open()
         was_eo, was_so = self.bg["engine_open"], self.bg["serato_open"]
         self.bg["engine_open"], self.bg["serato_open"] = eo, so
-        if not lib.lock.acquire(blocking=False):
-            return
-        try:
-            if was_eo and not eo:
-                r = maintain.background(lib)
-                if r and (r.get("added") or r.get("repaired") or r.get("relinked")):
-                    self.note("Engine kapandı: kütüphane kontrol edildi")
-            if was_so and not so:
-                r = mirror.background(lib)
-                if r and (r.get("pulled") or r.get("pushed")):
-                    self.note("Serato kapandı: listeler eşitlendi")
-            if now - self.bg["last_inbox"] > 4:
-                self.bg["last_inbox"] = now
-                r = inbox.auto_tick(lib)
-                self.bg["inbox_wait"] = inbox.LAST.get("wait", 0)
-                if r and r.get("added"):
-                    self.note("%d yeni şarkı eklendi" % r["added"])
-            if now - self.bg["last_mirror"] > 30 and not so:
-                self.bg["last_mirror"] = now
-                mirror.background(lib)
-            if now - self.bg["last_scan"] > 240:
-                self.bg["last_scan"] = now
-                res = lib.full_scan()
-                if res.get("read") or res.get("gone"):
-                    maintain.background(lib)
-        finally:
-            lib.lock.release()
+        # kısa işler (kilitle): kullanıcı bir işlem yapıyorsa bu tur atlanır, program bekletilmez
+        if lib.lock.acquire(blocking=False):
+            try:
+                if was_eo and not eo:
+                    r = maintain.background(lib)
+                    if r and (r.get("added") or r.get("repaired") or r.get("relinked")):
+                        self.note("Engine kapandı: kütüphane kontrol edildi")
+                if was_so and not so:
+                    r = mirror.background(lib)
+                    if r and (r.get("pulled") or r.get("pushed")):
+                        self.note("Serato kapandı: listeler eşitlendi")
+                if now - self.bg["last_inbox"] > 4:
+                    self.bg["last_inbox"] = now
+                    r = inbox.auto_tick(lib)
+                    self.bg["inbox_wait"] = inbox.LAST.get("wait", 0)
+                    if r and r.get("added"):
+                        self.note("%d yeni şarkı eklendi" % r["added"])
+                if now - self.bg["last_mirror"] > 30 and not so:
+                    self.bg["last_mirror"] = now
+                    mirror.background(lib)
+            finally:
+                lib.lock.release()
+        # ara tarama: KİLİTSİZ (yalnızca kataloğa yazarken kısa süre kilitlenir); bir görev başlarsa durur
+        if now - self.bg["last_scan"] > 240 and self.tasks.idle():
+            self.bg["last_scan"] = now
+            res = lib.full_scan(cancel=lambda: self._stop or not self.tasks.idle())
+            if not res.get("cancelled") and (res.get("read") or res.get("gone")):
+                maintain.background(lib)
+            elif res.get("cancelled"):
+                self.bg["last_scan"] = now - 200      # kullanıcının işi bitince kısa süre sonra yeniden dene
 
 
 def _clean(obj):
@@ -174,12 +215,14 @@ class Handler(BaseHTTPRequestHandler):
         return host in ("127.0.0.1", "localhost", "[::1]")
 
     def _send(self, code, body: bytes, ctype="application/json; charset=utf-8", extra=None):
+        self._sent = True
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        extra = dict(extra or {})
+        self.send_header("Cache-Control", extra.pop("Cache-Control", "no-store"))
         self.send_header("X-Content-Type-Options", "nosniff")
-        for k, v in (extra or {}).items():
+        for k, v in extra.items():
             self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
@@ -214,6 +257,7 @@ class Handler(BaseHTTPRequestHandler):
         self._dispatch("POST")
 
     def _dispatch(self, method):
+        self._sent = False
         if not self._host_ok():
             return self._err("Erişim reddedildi", 403)
         u = urllib.parse.urlsplit(self.path)
@@ -221,16 +265,28 @@ class Handler(BaseHTTPRequestHandler):
         qs = dict(urllib.parse.parse_qsl(u.query))
         try:
             if path == "/api/ping":
-                return self._json({"app": APP_ID, "version": VERSION})
+                if qs.get("hold") and self.app.watchdog is not None:
+                    self.app.watchdog.hold()     # ikinci açılış yeni pencere açıyor: bu arada kapanma
+                return self._json({"app": APP_ID, "version": VERSION, "mode": self.app.mode})
             if path.startswith("/api/"):
-                if path.startswith("/api/audio/") or path.startswith("/api/print/"):
+                # sendBeacon başlık gönderemez: jeton sorguda (yalnızca bu rotalar)
+                if path.startswith("/api/audio/") or path.startswith("/api/print/") or path == "/api/app/bye":
                     if qs.get("t") != self.app.token:
                         return self._err("Yetkisiz", 401)
                 elif self.headers.get("X-DJD-Token") != self.app.token:
                     return self._err("Yetkisiz", 401)
+                else:
+                    # arayüzün her isteği (4 sn'de bir durum sorgusu) "pencere açık" demektir: kalp atışı bir
+                    # sebeple ulaşmasa da program, kullanıcı çalışırken kendini kapatmaz
+                    wd = self.app.watchdog
+                    if wd is not None and path != "/api/app/bye":
+                        wd.hb("ui")
                 return self._api(method, path[5:], qs)
             if path in ("/", "/index.html"):
                 return self._index()
+            asset = desktop.static_asset(path)
+            if asset is not None:
+                return self._send(200, asset[0], asset[1], {"Cache-Control": "max-age=86400"})
             return self._static(path)
         except UserError as e:
             return self._err(str(e), 400, e.code)
@@ -238,6 +294,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._err(str(e), 409, "needs_force")
         except Exception as e:
             self.app.log(traceback.format_exc())
+            fr = util.friendly_os_error(e)
+            if fr:
+                return self._err(fr, 409, "in_use")
             return self._err("Beklenmeyen hata: %s" % e, 500)
 
     def _index(self):
@@ -287,6 +346,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Range", "bytes */%d" % size)
             self.end_headers()
             return
+        # Açık uçlu istek (bytes=0-) dosyayı yanıt boyunca açık tutardı; tarayıcı duraklatınca bağlantı bekler ve
+        # Windows dosyayı kilitli sayar (taşıma / ad değiştirme "WinError 32" verir). Parça parça gönder: her
+        # yanıt en çok CHUNK bayt, dosya okunup hemen kapanır; tarayıcı kalanını yeni istekle ister.
+        CHUNK = 2 * 1024 * 1024
+        if rng and end - start + 1 > CHUNK:
+            end = start + CHUNK - 1
         length = end - start + 1
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -298,15 +363,21 @@ class Handler(BaseHTTPRequestHandler):
         if self.command == "HEAD":
             return
         try:
-            with open(p, "rb") as fh:
-                fh.seek(start)
-                remaining = length
-                while remaining > 0:
-                    chunk = fh.read(min(262144, remaining))
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    remaining -= len(chunk)
+            if rng:
+                with open(p, "rb") as fh:          # oku, kapat, sonra gönder (gönderim uzun sürebilir)
+                    fh.seek(start)
+                    data = fh.read(length)
+                self.wfile.write(data)
+            else:
+                with open(p, "rb") as fh:
+                    fh.seek(start)
+                    remaining = length
+                    while remaining > 0:
+                        chunk = fh.read(min(262144, remaining))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        remaining -= len(chunk)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
 
@@ -317,7 +388,7 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
     def _state(self):
         app = self.app
-        out = {"app": APP_NAME, "version": VERSION, "platform": sys.platform, "prefs": app.settings.prefs(),
+        out = {"app": APP_NAME, "version": VERSION, "platform": sys.platform, "prefs": _public_prefs(app.settings.prefs()),
                "libraries": app.settings.libraries(), "tasks": app.tasks.active(), "events": app.bg["events"][-5:]}
         try:
             lib = app.lib(required=False)
@@ -388,10 +459,25 @@ class Handler(BaseHTTPRequestHandler):
                 app.settings.remove_library(body.get("id"))
                 return self._json({"ok": True})
         if r0 == "prefs" and method == "POST":
+            if body.get("inbox_loc") == "custom":
+                try:
+                    lib0 = app.lib()
+                except Exception:
+                    lib0 = None
+                body["inbox_dir"] = inbox.check_custom_dir(lib0, body.get("inbox_dir"))
+                body["archive_dir"] = ""
+            elif body.get("inbox_loc") in ("pc", "ssd"):
+                body["inbox_dir"] = ""
+                body["archive_dir"] = ""
             app.settings.set_prefs(**body)
-            return self._json(app.settings.prefs())
+            return self._json(_public_prefs(app.settings.prefs()))
         if r0 == "open" and method == "POST":
             return self._json({"ok": _open(app, body)})
+        er = ext.get(r0)
+        if er and not er[1]:
+            res = self._ext_call(er, None, method, parts, qs, body)
+            if res is not None or getattr(self, "_sent", False):
+                return res
 
         lib = app.lib()
         # ---------------- genel ----------------
@@ -539,11 +625,46 @@ class Handler(BaseHTTPRequestHandler):
             if act == "sync" and method == "POST":
                 prefer = {int(k): v for k, v in (body.get("prefer") or {}).items()}
                 if lib.serato_open():
-                    raise UserError("Serato açık. Eşitlemek için Serato'yu kapatın.", "serato_open")
+                    raise UserError("Serato açık. Eşitlemek için Serato'yu kapat.", "serato_open")
                 op = journal.Op(lib, "serato", "Serato ile eşitlendi")
                 res = mirror.sync(lib, op=op, prefer=prefer)
                 op.commit()
                 return self._json(res)
+        # ---------------- araçlar (v1'in profesyonel özellikleri) ----------------
+        if r0 == "health":
+            act = parts[1] if len(parts) > 1 else ""
+            if method == "GET" and not act:
+                return self._json(health.summary(lib))
+            if act == "rename" and method == "GET":
+                pl = health.plan_rename(lib, emoji=qs.get("emoji") == "1")
+                return self._json({"preview": pl["preview"][:400], "count": len(pl["preview"])})
+            if method == "POST":
+                if act == "junk":
+                    return self._task("junk", "Çöp dosyalar karantinaya taşınıyor", lambda p, c: health.fix_junk(lib, p))
+                if act == "rename":
+                    em = bool(body.get("emoji"))
+                    return self._task("rename", "Adlar düzeltiliyor", lambda p, c: health.fix_names(lib, em, p))
+                if act == "repair":
+                    return self._task("repair", "Engine onarılıyor", lambda p, c: health.repair_engine(lib, p))
+                if act == "missing":
+                    tids = body.get("tids") or None
+                    return self._task("missing", "Engine'den kaldırılıyor",
+                                      lambda p, c: health.remove_missing(lib, tids, p))
+        if r0 == "libtable":
+            return self._json(lib.library_table())
+        if r0 == "suggest":
+            return self._json(events.suggest(lib, int(qs.get("list") or 0)))
+        if r0 == "gigcheck":
+            return self._json(events.gig_check(lib, int(parts[1])))
+        if r0 == "export" and method == "POST":
+            fmt, src = body.get("format"), body.get("source") or "lists"
+            fn = {"xml": lambda: exporters.rekordbox_xml(lib, src, cues=body.get("cues", True)),
+                  "m3u": lambda: exporters.m3u(lib, src), "csv": lambda: exporters.library_csv(lib)}.get(fmt)
+            if not fn:
+                raise UserError("Bilinmeyen biçim.")
+            return self._task("export", "Dışa aktarılıyor", lambda p, c: fn())
+        if r0 == "backups":
+            return self._json(_backups(lib))
         # ---------------- gelen kutusu ----------------
         if r0 == "inbox":
             act = parts[1] if len(parts) > 1 else ""
@@ -554,6 +675,7 @@ class Handler(BaseHTTPRequestHandler):
                 s = inbox.scan(lib)
                 return self._json({"inbox": ib, "archive": ar, "items": s["items"], "downloads": inbox.downloads(lib),
                                    "log": lib.catalog.inbox_log(40), "auto": lib.prefs().get("auto_inbox", True),
+                                   "loc": lib.prefs().get("inbox_loc") or "pc",
                                    "genres": [{"id": g["id"], "name": g["name"], "color": g["color"]}
                                               for g in lib.genre_rows()]})
             if act == "ingest" and method == "POST":
@@ -570,7 +692,31 @@ class Handler(BaseHTTPRequestHandler):
             if act == "open" and method == "POST":
                 ib, ar = inbox.ensure_dirs(lib)
                 return self._json({"ok": util.open_in_file_manager(ar if body.get("archive") else ib)})
+        # ---------------- eklenti modülleri (ext.route) ----------------
+        if er and er[1]:
+            res = self._ext_call(er, lib, method, parts, qs, body)
+            if res is not None or getattr(self, "_sent", False):
+                return res
         return self._err("Bilinmeyen istek: %s" % route, 404)
+
+    def _ext_call(self, er, lib, method, parts, qs, body):
+        """Eklenti rotası. Eksik / bozuk istek alanı (int(None) vb.) 'Beklenmeyen hata' (500) değil 400 olsun."""
+        try:
+            return er[0](self, lib, method, parts, qs, body)
+        except (ValueError, TypeError, KeyError) as e:
+            if getattr(self, "_sent", False):
+                raise
+            self.app.log(traceback.format_exc())
+            return self._err("Geçersiz istek (%s). Sayfayı yenileyip tekrar dene." % type(e).__name__, 400, "bad_request")
+
+
+def _public_prefs(p):
+    """Arayüze giden ayarlar: API anahtarı gönderilmez, yalnızca girildiği (maskeli) gösterilir."""
+    p = dict(p)
+    key = p.pop("ai_api_key", "") or ""
+    p["ai_key_set"] = bool(key)
+    p["ai_key_mask"] = (key[:7] + "…" + key[-4:]) if len(key) > 14 else ("…" if key else "")
+    return p
 
 
 def _after(lib, res, inbox_dirs=False):
@@ -643,6 +789,39 @@ def _scan_and_maintain(lib, progress, cancel):
     return res
 
 
+def _backups(lib):
+    """Yedekler ve karantina: tarih, boyut (Araçlar > Geçmiş)."""
+    out = {"dirs": {}, "items": []}
+    base = os.path.join(lib.root, STATE_DIR)
+    for kind, sub in (("engine", os.path.join("Yedekler", "engine")), ("serato", os.path.join("Yedekler", "serato"))):
+        d = os.path.join(base, sub)
+        out["dirs"][kind] = d
+        try:
+            for e in os.scandir(d):
+                if e.is_file():
+                    st = e.stat()
+                    out["items"].append({"kind": kind, "name": e.name, "size": st.st_size, "ts": int(st.st_mtime)})
+        except OSError:
+            pass
+    q = os.path.join(base, "Karantina")
+    out["dirs"]["karantina"] = q
+    n = size = 0
+    try:
+        for dp, _dn, fn in os.walk(q):
+            for f in fn:
+                n += 1
+                try:
+                    size += os.path.getsize(os.path.join(dp, f))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    out["quarantine"] = {"files": n, "size": size}
+    out["export_dir"] = exporters.export_dir(lib)
+    out["items"].sort(key=lambda x: -x["ts"])
+    return out
+
+
 def _quarantine(lib, fids):
     """Bozuk / istenmeyen dosyaları SSD'deki karantinaya alır (silmez). Engine'de kayıtları varsa kaldırılmaz;
     Engine'de kırmızı görünmesinler diye yalnızca koleksiyonda olmayan dosyalar alınır."""
@@ -653,7 +832,7 @@ def _quarantine(lib, fids):
     op = journal.Op(lib, "karantina", "%d dosya karantinaya alındı" % len(ok))
     with lib.lock:
         if lib.serato_open():
-            raise UserError("Serato açık; lütfen kapatın.", "serato_open")
+            raise UserError("Serato açık; lütfen kapat.", "serato_open")
         n = dedupe.quarantine_files(lib, ok, "ayiklanan", op)
         lib.bump()
         op.commit()
@@ -743,6 +922,8 @@ def _print_list(lib, pid):
     blocks = [(data["title"], data["items"])]
     for ch in by_parent.get(pid, []):
         blocks.append((ch["title"], lists.items(lib, ch["id"])["items"]))
+    n_all = sum(len(b[1]) for b in blocks)
+    d_all = sum(it["dur"] or 0 for b in blocks for it in b[1])
     e = html.escape
     out = ["<!doctype html><html lang='tr'><head><meta charset='utf-8'><title>%s</title>" % e(data["title"]),
            "<style>body{font:14px/1.45 system-ui,sans-serif;margin:28px;color:#111}h1{font-size:22px;margin:0 0 4px}"
@@ -751,12 +932,15 @@ def _print_list(lib, pid):
            "td.n{color:#888;width:28px}td.k,td.b,td.d{width:56px;color:#444}.note{color:#a15c00}"
            "@media print{body{margin:10mm}}</style></head><body>"]
     out.append("<h1>%s</h1><div class='meta'>%s</div>" % (e(data["title"]), e(" · ".join(
-        x for x in (ev.get("date"), ev.get("venue"), ev.get("notes")) if x))))
+        x for x in (ev.get("date"), ev.get("venue"), ev.get("notes"), "%d şarkı" % n_all,
+                    util.fmt_dur(d_all) if d_all else "") if x))))
     for title, items in blocks:
         if not items:
             continue
         if title != data["title"]:
-            out.append("<h2>%s</h2>" % e(title))
+            dur = sum(it["dur"] or 0 for it in items)
+            out.append("<h2>%s <small style='font-weight:400;color:#666'>%d şarkı%s</small></h2>"
+                       % (e(title), len(items), (" · " + util.fmt_dur(dur)) if dur else ""))
         out.append("<table>")
         for i, it in enumerate(items, 1):
             note = it.get("note") or ""
@@ -784,7 +968,15 @@ class _Server(ThreadingHTTPServer):
             self.app.log(traceback.format_exc())
 
 
-def run(port=8770, open_browser=True):
+def run(port=8770, open_browser=True, mode=None, windowless=False):
+    """Sunucuyu çalıştırır; kapanınca döner.
+
+    mode: 'app'     — ayrı uygulama penceresi (Edge/Chrome --app); pencere kapanınca program da kapanır
+          'browser' — varsayılan tarayıcıda sekme; yalnızca 'Programı kapat' ile (ya da konsoldan) kapanır
+          'none'    — pencere açılmaz (testler, --no-browser)
+    mode verilmezse eski davranış: open_browser -> 'browser', değilse 'none'."""
+    if mode is None:
+        mode = "browser" if open_browser else "none"
     util.disable_console_quickedit()
     app = App()
     Handler.app = app
@@ -798,26 +990,72 @@ def run(port=8770, open_browser=True):
             continue
     if srv is None:
         print("Boş port bulunamadı.")
+        app.log("Boş port bulunamadı (%d-%d)" % (port, port + 29))
+        if windowless:
+            desktop.message_box("DJ Doktor açılamadı: boş port bulunamadı.")
         return
     srv.daemon_threads = True
+    app.srv = srv
+    app.requested_mode = mode
     app.port = srv.server_address[1]
     url = "http://127.0.0.1:%d/" % app.port
-    threading.Thread(target=app.background_loop, name="djd-bg", daemon=True).start()
+    bg = threading.Thread(target=app.background_loop, name="djd-bg", daemon=True)
+    bg.start()
+    desktop.write_run_file(app.settings.ws, app.port, mode)
     print("=" * 60)
     print(" %s %s" % (APP_NAME, VERSION))
     print(" Arayüz: %s" % url)
-    print(" Kapatmak için bu pencereyi kapatın veya Ctrl+C'ye basın.")
+    if mode == "app":
+        print(" Program, açılan pencere kapanınca kendiliğinden kapanır.")
+    elif windowless:
+        print(" Kapatmak için: Ayarlar > Programı kapat.")
+    else:
+        print(" Kapatmak için bu pencereyi kapatın veya Ctrl+C'ye basın.")
     print("=" * 60)
-    if open_browser:
-        import webbrowser
-        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    app.log("başladı %s port %d mod %s" % (VERSION, app.port, mode))
+    app.watchdog = desktop.Watchdog("off", busy=lambda: not app.tasks.idle())   # pencere açılmadan hazır olsun
+    policy = "off"
+    if mode in ("app", "browser"):
+        desktop.warm_icons()
+        res = desktop.open_app_window(url, app.settings.ws, use_app=(mode == "app"))
+        app.browser = res.get("browser")
+        if mode == "app" and res["mode"] == "app":
+            policy = "app"
+        elif mode == "app":
+            # uygulama penceresi açılamadı (Chrome/Edge yok): sekme kapanınca kapan, zaman aşımıyla değil
+            # (arka plandaki sekmeyi tarayıcı uyutabilir)
+            policy = "bye"
+        app.mode = res["mode"]
+    app.watchdog.policy = policy
+
+    def watch():
+        while not app._stop:
+            time.sleep(1.0)
+            try:
+                why = app.watchdog.tick()
+            except Exception:
+                app.log(traceback.format_exc())
+                continue
+            if why:
+                app.shutdown(why)
+                return
+    threading.Thread(target=watch, name="djd-watchdog", daemon=True).start()
     try:
-        srv.serve_forever()
+        srv.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
         pass
     finally:
         app._stop = True
+        app._wake.set()
         srv.server_close()
+        bg.join(timeout=30)          # arka plan işi (ara tarama durur) bitsin
+        # süren yazma işi (taşıma, ad değişikliği…) asla yarıda kesilmesin: bitmesini bekle (en çok 30 dk)
+        t_end = time.time() + 1800
+        while not app.tasks.idle() and time.time() < t_end:
+            time.sleep(0.5)
+        app.close()
+        desktop.clear_run_file(app.settings.ws, app.port)
+        app.log("kapandı")
 
 
 __all__ = ["run", "App", "Handler", "STATE_DIR"]
