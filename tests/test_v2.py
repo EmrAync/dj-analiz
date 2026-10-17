@@ -397,6 +397,35 @@ def test_events_and_exports():
     assert "Halay" in page and "1 şarkı" in page, page[:400]
 
 
+def test_inbox_on_ssd():
+    """Gelen klasörü SSD'de (Mac + PC ortak): kütüphane taraması ona girmez; şarkı türüne alınır."""
+    lib, fx = fresh("inbox_ssd")
+    setup_default(lib)
+    lib.settings.set_prefs(inbox_loc="ssd")
+    try:
+        ib, ar = inbox.ensure_dirs(lib)
+        assert ib == os.path.join(lib.root, "DJ Gelen"), ib
+        make_fixture.write_mp3(os.path.join(ib, "Halay", "SSD Halay.mp3"), 103, 150, "SSD Halay", "X")
+        make_fixture.write_mp3(os.path.join(ib, "Halay Potpori 2026.mp3"), 104, 150, "Halay Potpori 2026", "Y")
+        for dp, dn, fn in os.walk(ib):
+            for f in fn:
+                os.utime(os.path.join(dp, f), (1, 1700000000))
+        lib.full_scan()
+        assert not lib.catalog.q("SELECT rel FROM files WHERE rel LIKE 'DJ Gelen/%' OR rel LIKE 'DJ Ar%'")
+        s = inbox.scan(lib)
+        it = {os.path.basename(i["path"]): i for i in s["items"]}
+        assert it["SSD Halay.mp3"]["status"] == "new", it
+        nog = it["Halay Potpori 2026.mp3"]
+        assert nog["status"] == "nogenre" and nog.get("sugg"), nog          # öneri: adında "Halay"
+        r = inbox.auto_tick(lib)
+        assert r and r.get("added") == 1, r
+        assert disk(lib, "Müzik/Halay/SSD Halay.mp3")
+        lib.full_scan()
+        assert not lib.catalog.q("SELECT rel FROM files WHERE present=1 AND (rel LIKE 'DJ Gelen/%' OR rel LIKE 'DJ Ar%')")
+    finally:
+        lib.settings.set_prefs(inbox_loc="pc")
+
+
 def test_inbox():
     lib, fx = fresh("inbox")
     setup_default(lib)
@@ -422,6 +451,10 @@ def test_inbox():
     an = next(p for p in st2["playlists"] if p["title"] == maintain.ANALYSIS_TITLE)
     tid = eng(lib, "SELECT id FROM Track WHERE path=?", ("../Müzik/Halay/Yeni Halay.mp3",))[0][0]
     assert tid in an["entries"]
+    halay = next(p for p in st2["playlists"] if p["title"] == "Halay" and p.get("parent") == an["id"]) \
+        if any("parent" in p for p in st2["playlists"]) else None
+    if halay is not None:                       # Analiz bekleyenler / Halay (türe göre alt liste)
+        assert tid in halay["entries"], halay
     arch = [f for dp, dn, fn in os.walk(ar) for f in fn]
     assert "Yeni Halay (Official Video).mp3" in arch, arch
     # geri al: önce "zaten vardı" arşivlemesi, sonra ekleme

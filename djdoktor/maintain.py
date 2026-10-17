@@ -48,6 +48,8 @@ def managed_ids(lib, uuid=None, data=None):
         ids.add(int(m["analysis"]))
     if m.get("genres_root"):
         ids.add(int(m["genres_root"]))
+    for v in (m.get("analysis_g") or {}).values():
+        ids.add(int(v))
     for v in (m.get("genres") or {}).values():
         ids.add(int(v))
     if data is not None:
@@ -227,7 +229,7 @@ def _managed_lists(lib, w, gens, prefs):
         kind, gid = place(f["rel"])
         ref = (t["originDatabaseUuid"], t["originTrackId"])
         info = {"ref": ref, "artist": t["artist"] or "", "title": t["title"] or "", "name": f["rel"],
-                "g": order.get(gid, 999) if kind == "genre" else 999}
+                "g": order.get(gid, 999) if kind == "genre" else 999, "gid": gid if kind == "genre" else None}
         if not t["isAnalyzed"]:
             pending.append(info)
         if kind == "genre" and gid in by_genre:
@@ -243,6 +245,33 @@ def _managed_lists(lib, w, gens, prefs):
     if aid:
         w.pl_set_refs(int(aid), [x["ref"] for x in pending], record=False)
     meta["analysis"] = int(aid) if aid else None
+    # 1b) türlere göre alt listeler (Analiz bekleyenler / Halay, …): Engine DJ'de klasör klasör analiz etmek için
+    known_a = {int(k): int(v) for k, v in (meta.get("analysis_g") or {}).items()}
+    new_a = {}
+    if aid:
+        by_g = {}
+        for x in pending:
+            if x["gid"] is not None:
+                by_g.setdefault(x["gid"], []).append(x)
+        for g in gens:
+            items = by_g.get(g["id"])
+            pid = known_a.get(g["id"])
+            if pid and (not w.pl(pid) or w.pl(pid)["parentListId"] != int(aid)):
+                pid = None
+            if not items:
+                if pid:
+                    w.pl_delete_tree(pid, record=False)
+                continue
+            if not pid:
+                pid = w.find_child(int(aid), g["name"]) or w.pl_create(int(aid), g["name"], record=False)
+            elif w.pl(pid)["title"] != g["name"]:
+                w.pl_rename(pid, g["name"], record=False)
+            w.pl_set_refs(pid, [x["ref"] for x in items], record=False)
+            new_a[g["id"]] = pid
+    for gid, pid in known_a.items():
+        if gid not in new_a and w.pl(pid) and aid and w.pl(pid)["parentListId"] == int(aid):
+            w.pl_delete_tree(pid, record=False)
+    meta["analysis_g"] = {str(k): v for k, v in new_a.items()}
     # 2) Türler klasörü
     if prefs.get("genre_lists", True):
         rid = meta.get("genres_root")

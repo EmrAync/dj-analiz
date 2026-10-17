@@ -23,6 +23,7 @@ DEFAULT_PREFS = {
     "lowbitrate_kbps": 192,
     "long_path_limit": 240,
     # v2
+    "inbox_loc": "pc",                   # pc: bu bilgisayarın Müzik klasöründe; ssd: SSD kökünde "DJ Gelen" / "DJ Arşiv"
     "inbox_dir": "",                     # boşsa: Müzik/DJ Gelen (bu bilgisayarda)
     "archive_dir": "",                   # boşsa: Müzik/DJ Arşiv (bu bilgisayarda)
     "auto_inbox": True,                  # gelen kutusunu kendiliğinden işle
@@ -42,6 +43,7 @@ BUILTIN_EXCLUDES = {
     "_serato_", "_serato_backup", "$recycle.bin", "system volume information", ".trashes",
     ".spotlight-v100", ".fseventsd", ".temporaryitems", ".documentrevisions-v100",
     "_djdoktor_", "_djdoktor_karantina", ".trash", "recycler",
+    "dj gelen", "dj arşiv",          # Gelen / Arşiv SSD'de olabilir: kütüphane taraması onlara girmez
 }
 # Engine Library içinden yalnızca Music (Engine'in kendi kopyaları) taranır
 ENGINE_LIB_DIR = "engine library"

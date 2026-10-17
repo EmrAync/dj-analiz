@@ -137,8 +137,9 @@ class TaskManager:
                 t.code = e.code
                 t.message = t.error
             except Exception as e:  # kullanıcıya anlaşılır mesaj
+                from .util import friendly_os_error
                 t.status = "hata"
-                t.error = "Beklenmeyen hata: %s" % e
+                t.error = friendly_os_error(e) or ("Beklenmeyen hata: %s" % e)
                 t.message = t.error
                 if self.log:
                     self.log(traceback.format_exc())

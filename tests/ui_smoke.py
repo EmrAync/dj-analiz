@@ -115,6 +115,18 @@ with sync_playwright() as p:
     page.click(".nav-item[data-gid]")
     page.wait_for_timeout(500)
     shot(page, "08_tur")
+    # alttaki çalar: başka sekmede de görünür, geri dönünce çalan satır işaretli
+    page.locator("#view [data-play]").first.click()
+    page.wait_for_selector("#player:not([hidden]) .pl-t", timeout=5000)
+    pid = page.evaluate("() => PL.fid")
+    page.click("[data-tab=inbox]")
+    page.wait_for_selector("#player:not([hidden])")
+    page.click("[data-tab=music]")
+    page.wait_for_timeout(500)
+    assert pid and "data-play=\"%s\"" % pid in page.evaluate("() => document.getElementById('playmark').textContent")
+    shot(page, "08b_calar")
+    page.click("#player [data-pl=close]")
+    page.wait_for_selector("#player", state="hidden")
     # listeler
     page.click("[data-tab=lists]")
     page.wait_for_selector("#newev")

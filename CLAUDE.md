@@ -48,7 +48,7 @@ only 2 agents at a time anyway. Prefer working directly; commit + push after eve
 
 ```bash
 python baslat.py [--app|--browser|--no-browser] [--console] [--port 8770]   # http://127.0.0.1:8770 (v1 used 8765)
-python3 -B tests/test_v2.py [test_name ...]       # 12 end-to-end backend tests on a synthetic SSD (no pytest)
+python3 -B tests/test_v2.py [test_name ...]       # 13 end-to-end backend tests on a synthetic SSD (no pytest)
 python3 -B tests/test_rename.py [test_name ...]   # 35 tests: bulk rename, conflicts, undo, relink after outside renames
 python3 -B tests/test_assistant.py                # 14 tests: Camelot, transitions, sort, set builder, AI (fake opener), save
 python3 -B tests/test_ai.py; python3 -B tests/test_desktop.py   # AI client (no network) / app window, icons, shortcuts, watchdog
@@ -167,6 +167,14 @@ UI tests take `DJD_UI_PORT` (default 8899/8902/…) so several can run at once.
   watchdog status, page JS errors are logged (`/api/app/log` → "arayüz: …"), the process waits for running tasks
   before exiting, and .js/.css MIME types are pinned (Windows registry). Root cause of the missing heartbeat is still
   unknown — check `djdoktor.log` for "arayüz:" lines on his machine.
+- **2.2.2** (17.10.2026, his feedback): bottom player bar `#player` (stays across tabs, play/pause, ±10 s, seek,
+  "Türe taşı", ✕; playing row marked via the `#playmark` style); before every write task the player releases the file
+  (`playerRelease` / `playerResume`) because Windows locks a playing file (WinError 32); audio ranges are served in
+  2 MB chunks (file closed before sending); `util._rename` retries locked renames ~3 s, then `FileInUseError` with a
+  Turkish message (`util.friendly_os_error` in tasks + API). "Sorunlar" view explains Engine records without a file
+  (count includes orphans) with a button to Kayıp yollar. Gelen folder location pref `inbox_loc` = pc | ssd (`<SSD>/DJ
+  Gelen`, `<SSD>/DJ Arşiv`, never scanned: BUILTIN_EXCLUDES); new inbox songs without a genre get a suggestion
+  (`sugg`). Engine: "Analiz bekleyenler" gets one child list per genre (managed meta `analysis_g`).
 - **Not yet verified with the real apps (2.2):** Windows .bat + pythonw start, the PowerShell .lnk, the macOS .app bundle
   (Gatekeeper, python3 from Finder's minimal PATH), Edge/Chrome `--app` windows, real Engine `hm.db` / Serato
   `History/Sessions` parsing (check `assistant.learned(lib)["info"]["history_sessions"] > 0` on his Mac), and renames

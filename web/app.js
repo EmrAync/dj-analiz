@@ -111,9 +111,11 @@ function taskCard(t) {
 
 async function task(path, body, opts = {}) {
   let res;
+  playerRelease();                       // çalınan dosya açıkken Windows onu taşıyamaz
   try {
     res = await api(path, body);
-  } catch (e) { toast(e.message, "err"); throw e; }
+  } catch (e) { playerResume(); toast(e.message, "err"); throw e; }
+  if (!res || !res.task) playerResume();
   if (!res || !res.task) return res;
   S.busy = true;
   const bar = $("#taskbar");
@@ -139,11 +141,13 @@ async function task(path, body, opts = {}) {
       }
       await sleep(t.status === "sirada" ? 300 : 450);
     }
-  } finally { S.busy = false; }
+  } finally { S.busy = false; playerResume(); }
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function act(path, body, okMsg) {
+  const mv = /quarantine|inbox\/(aside|archive|take)/.test(path);   // dosya taşıyan istekler: çaları bırak
+  if (mv) playerRelease();
   try {
     const r = await api(path, body);
     if (okMsg) toast(okMsg, "ok");
@@ -152,7 +156,7 @@ async function act(path, body, okMsg) {
   } catch (e) {
     toast(e.message, "err");
     throw e;
-  }
+  } finally { if (mv) playerResume(); }
 }
 
 // ---------------------------------------------------------------------------
@@ -1258,7 +1262,13 @@ function tracksHtml() {
   if (ov.maint && ov.maint.pending && (isG || S.view === "all")) {
     hint = `<details class="hint" data-hk="analysis" ${hintOpen("analysis") ? "open" : ""}><summary><span class="ic">⏳</span><div><b>${fmtN(ov.maint.pending)} şarkı analiz bekliyor.</b> <span class="more">Nasıl?</span></div></summary>
       <div class="hb">Engine DJ'yi aç, sol tarafta SSD'nin altındaki <b>“Analiz bekleyenler”</b> listesini seç
-      <div class="steps"><span>Ctrl+A (Mac: ⌘A)</span><i>→</i><span>sağ tık</span><i>→</i><span>Analyze / Re-analyze tracks</span></div>Bitince burada yeşil görünür, listeden de kendiliğinden düşer.</div></details>`;
+      <div class="steps"><span>Ctrl+A (Mac: ⌘A)</span><i>→</i><span>sağ tık</span><i>→</i><span>Analyze / Re-analyze tracks</span></div>Bitince burada yeşil görünür, listeden de kendiliğinden düşer.
+      <div class="small muted" style="margin-top:6px">Klasör klasör gitmek istersen: “Analiz bekleyenler”in altında her tür ayrı liste (ör. <b>Halay</b>) olarak durur.</div></div></details>`;
+  }
+  if (S.view === "problems" && ov.orphans) {
+    // Engine'de kaydı olup dosyası diskte olmayan parçalar: dosya değil, bu yüzden tabloda satır olarak görünmezler
+    hint = `<div class="hint"><span class="ic">🔗</span><div><b>${fmtN(ov.orphans)} Engine kaydının dosyası diskte yok</b> (taşınmış, adı değişmiş ya da silinmiş).
+      <button class="btn sm primary" id="gomissing">Göster · bul ve bağla</button></div></div>`;
   }
   if (S.view === "unsorted" && rows.some((r) => r.sugg && !r.copy_of)) {
     const n = rows.filter((r) => r.sugg && !r.copy_of).length;
@@ -1288,7 +1298,7 @@ document.addEventListener("toggle", (e) => {
 }, true);
 
 function emptyTracksHtml() {
-  return `<div class="empty"><div class="big">${S.view === "unsorted" ? "🎉" : "♪"}</div>${S.view === "unsorted" ? "Hepsi yerli yerinde." : S.q ? "Aramaya uyan şarkı yok." : "Bu türde henüz şarkı yok. Yeni şarkıları <b>Gelen</b> sekmesinden ekleyebilirsin."}</div>`;
+  return `<div class="empty"><div class="big">${S.view === "unsorted" ? "🎉" : "♪"}</div>${S.view === "unsorted" ? "Hepsi yerli yerinde." : S.q ? "Aramaya uyan şarkı yok." : S.view === "problems" ? "Dosyalarda sorun yok." : "Bu türde henüz şarkı yok. Yeni şarkıları <b>Gelen</b> sekmesinden ekleyebilirsin."}</div>`;
 }
 
 // Tabloyu (yeniden) bağla: arama ya da seçim değişince yalnızca görünen satırlar çizilir
@@ -1391,6 +1401,7 @@ function wireMusic() {
     const q = e.target.closest("[data-quar]");
     if (q) { await quarantine([+q.dataset.quar]); return; }
     if (e.target.id === "applyall") { await applyAllSuggestions(); return; }
+    if (e.target.id === "gomissing") { if (window.DJDRename) await window.DJDRename.go("links"); return; }
     if (e.target.id === "dropcopies") {
       const groups = Array.from(new Set(S.rows.filter((r) => r.copy_of).map((r) => r.group)));
       await mergeGroups(groups.map((g) => ({ group: g })), groups.length + " kopya kaldırıldı");
@@ -1588,16 +1599,110 @@ function folderMenu(e, rel) {
 // ---------------------------------------------------------------------------
 // Dinleme
 // ---------------------------------------------------------------------------
+// Alttaki çalar çubuğu (#player): hangi sayfaya gidilirse gidilsin çalan şarkı, ileri / geri sarma, konum çubuğu,
+// türe taşıma. Çalan satırın ▶ düğmesi her yeniden çizimde de ❚❚ görünür (CSS ile, bkz. playMark).
 let playing = null;
+const PL = { fid: null, title: "", artist: "", gid: null, resume: null };
+function playMark() {
+  let st = document.getElementById("playmark");
+  if (!st) { st = document.createElement("style"); st.id = "playmark"; document.head.appendChild(st); }
+  const a = $("#audio");
+  const f = PL.fid;
+  st.textContent = f ? `tr[data-id="${f}"] > td { background: var(--accent-soft, rgba(47,111,237,.08)); }
+    .play[data-play="${f}"], .play[data-dplay="${f}"] { color: var(--accent); border-color: var(--accent); }
+    ${a && !a.paused ? `.play[data-play="${f}"], .play[data-dplay="${f}"] { font-size: 0 !important; }
+    .play[data-play="${f}"]::after, .play[data-dplay="${f}"]::after { content: "❚❚"; font-size: 12px; }` : ""}` : "";
+}
+function rowMeta(btn, fid) {
+  const row = btn && btn.closest ? btn.closest("tr, .hrow, .res, label, .pk, div[data-id]") : null;
+  const t = row && row.querySelector(".ttl");
+  const ar = row && row.querySelector(".art");
+  return { title: t ? t.textContent.trim() : "", artist: ar ? ar.textContent.split("·")[0].trim().replace(/^—$/, "") : "" };
+}
 function playFid(fid, btn) {
   const a = $("#audio");
-  if (playing === fid && !a.paused) { a.pause(); btn.classList.remove("on"); btn.textContent = "▶"; playing = null; return; }
-  $$(".play.on").forEach((b) => { b.classList.remove("on"); b.textContent = "▶"; });
+  if (PL.fid === fid) { if (a.paused) a.play().catch(() => { /* */ }); else a.pause(); return; }
+  const m = rowMeta(btn, fid);
+  PL.fid = fid; PL.title = m.title || "Şarkı"; PL.artist = m.artist || "";
+  playing = fid;
   a.src = `/api/audio/${fid}?t=${encodeURIComponent(TOKEN)}`;
   a.play().catch(() => toast("Çalınamadı (tarayıcı bu biçimi desteklemiyor olabilir).", "err"));
-  playing = fid; btn.classList.add("on"); btn.textContent = "❚❚";
-  a.onended = () => { btn.classList.remove("on"); btn.textContent = "▶"; playing = null; };
+  if (!m.title) api("/api/track/" + fid).then((d) => { if (PL.fid === fid && d && d.file) { PL.title = d.file.title || d.file.name || PL.title; PL.artist = d.file.artist || ""; playerDraw(); } }).catch(() => { /* */ });
+  playerDraw();
 }
+function playerStop() {
+  const a = $("#audio");
+  a.pause(); a.removeAttribute("src"); try { a.load(); } catch (e) { /* */ }
+  PL.fid = null; playing = null;
+  playerDraw();
+}
+// Yazan bir iş başlamadan önce: Windows çalınan dosyayı kilitler (taşınamaz, "WinError 32"). Çaları bırak, iş
+// bitince aynı yerden sürdür (dosya taşınsa da şarkının kimliği aynı kalır).
+function playerRelease() {
+  const a = $("#audio");
+  if (!PL.fid || PL.resume) return;
+  PL.resume = { fid: PL.fid, t: a.currentTime || 0, on: !a.paused };
+  a.pause(); a.removeAttribute("src"); try { a.load(); } catch (e) { /* */ }
+}
+function playerResume() {
+  const r = PL.resume;
+  PL.resume = null;
+  if (!r || PL.fid !== r.fid) return;
+  const a = $("#audio");
+  a.src = `/api/audio/${r.fid}?t=${encodeURIComponent(TOKEN)}`;
+  const go = () => { try { a.currentTime = r.t; } catch (e) { /* */ } if (r.on) a.play().catch(() => { /* */ }); };
+  if (a.readyState >= 1) go(); else a.addEventListener("loadedmetadata", go, { once: true });
+}
+function playerDraw() {
+  const el = $("#player");
+  if (!el) return;
+  const a = $("#audio");
+  if (!PL.fid) { el.hidden = true; el.innerHTML = ""; document.documentElement.style.setProperty("--player-h", "0px"); playMark(); return; }
+  if (!el.firstElementChild) {
+    el.innerHTML = `<button class="pl-b pl-pp" data-pl="pp" aria-label="Çal / durdur">▶</button>
+      <button class="pl-b" data-pl="back" title="10 sn geri" aria-label="10 saniye geri">⏪</button>
+      <button class="pl-b" data-pl="fwd" title="10 sn ileri" aria-label="10 saniye ileri">⏩</button>
+      <div class="pl-meta minw0" data-pl="info" title="Ayrıntılar"><div class="pl-t ell"></div><div class="pl-a ell muted small"></div></div>
+      <span class="pl-tm small muted">0:00</span><input type="range" class="pl-seek" min="0" max="1000" value="0" aria-label="Konum"><span class="pl-du small muted">0:00</span>
+      <button class="btn sm" data-pl="genre" title="Bu şarkıyı bir türe taşı">Türe taşı ▾</button>
+      <button class="pl-b" data-pl="close" title="Kapat" aria-label="Çaları kapat">✕</button>`;
+    el.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-pl]");
+      if (!b || !PL.fid) return;
+      const k = b.dataset.pl;
+      if (k === "pp") { if (a.paused) a.play().catch(() => { /* */ }); else a.pause(); }
+      else if (k === "back") a.currentTime = Math.max(0, a.currentTime - 10);
+      else if (k === "fwd") a.currentTime = Math.min((a.duration || 0) - 0.5, a.currentTime + 10);
+      else if (k === "close") playerStop();
+      else if (k === "genre") pickGenreMenu(e, [PL.fid]);
+      else if (k === "info") openTrack(PL.fid);
+    });
+    const sk = el.querySelector(".pl-seek");
+    sk.addEventListener("input", () => { if (a.duration) { el._seeking = true; el.querySelector(".pl-tm").textContent = fmtDur(sk.value / 1000 * a.duration); } });
+    sk.addEventListener("change", () => { if (a.duration) a.currentTime = sk.value / 1000 * a.duration; el._seeking = false; });
+  }
+  el.hidden = false;
+  el.querySelector(".pl-t").textContent = PL.title;
+  el.querySelector(".pl-t").title = PL.title;
+  el.querySelector(".pl-a").textContent = PL.artist || "—";
+  el.querySelector(".pl-pp").textContent = a.paused ? "▶" : "❚❚";
+  playerTime();
+  document.documentElement.style.setProperty("--player-h", el.offsetHeight + "px");
+  playMark();
+}
+function playerTime() {
+  const el = $("#player"), a = $("#audio");
+  if (!el || el.hidden || !el.firstElementChild || el._seeking) return;
+  el.querySelector(".pl-tm").textContent = fmtDur(a.currentTime || 0);
+  el.querySelector(".pl-du").textContent = a.duration ? fmtDur(a.duration) : "–:––";
+  el.querySelector(".pl-seek").value = a.duration ? Math.round(a.currentTime / a.duration * 1000) : 0;
+}
+(function () {
+  const a = document.getElementById("audio");
+  if (!a) return;
+  ["play", "pause", "ended", "loadedmetadata"].forEach((ev) => a.addEventListener(ev, () => { if (!PL.resume) playerDraw(); }));
+  a.addEventListener("timeupdate", playerTime);
+})();
 
 // ---------------------------------------------------------------------------
 // LİSTELER (Engine'in kendi listeleri; değişiklik anında kaydedilir)
@@ -1997,7 +2102,8 @@ async function loadInbox() {
 function renderInbox() {
   const ib = S.inbox;
   const gs = ib.genres;
-  const gbtns = (path) => gs.map((g) => `<button class="gbtn gfill" style="${gStyle(g.color)}" title="${esc(g.name)}" data-ing="${esc(path)}" data-g="${g.id}">${esc(g.name)}</button>`).join("");
+  // önerilen tür (etiket / şarkı adı) en başta ve "öneri" olarak işaretli
+  const gbtns = (path, sg) => [...gs.filter((g) => g.id === sg), ...gs.filter((g) => g.id !== sg)].map((g) => `<button class="gbtn ${g.id === sg ? "gfill sugg" : "gfill"}" style="${gStyle(g.color)}" title="${esc(g.name)}${g.id === sg ? " · öneri" : ""}" data-ing="${esc(path)}" data-g="${g.id}">${g.id === sg ? "→ " : ""}${esc(g.name)}</button>`).join("");
   const wait = ib.items.filter((i) => ["nogenre", "similar", "broken", "unsupported", "held"].includes(i.status) || (!ib.auto && ["new", "exists"].includes(i.status)));
   const going = ib.items.filter((i) => i.status === "downloading" || (ib.auto && i.status === "new"));
   const sepName = ib.inbox.includes("\\") ? "\\" : "/";
@@ -2005,7 +2111,7 @@ function renderInbox() {
     let st = "", acts = "";
     const art = `${i.artist || ""}${i.genre ? ` · klasör: ${i.genre}` : ""} · ${i.name}`;
     const name = `<div class="ttl" title="${esc(i.title || i.name)}">${esc(i.title || i.name)}</div><div class="art" title="${esc(art)}">${esc(art)}</div>`;
-    if (i.status === "nogenre") { st = `<span class="tag warn">türü belli değil</span>`; acts = gbtns(i.path); }
+    if (i.status === "nogenre") { st = `<span class="tag warn">türü belli değil</span>`; acts = gbtns(i.path, i.sugg); }
     else if (i.status === "similar") {
       st = `<span class="tag warn">benzeri var</span>`;
       acts = `<span class="small muted">${esc(i.match.rel)}${i.match.bitrate ? ` (${i.match.bitrate} kbps)` : ""}${i.better ? " — yenisi daha kaliteli" : ""}</span>
@@ -2029,7 +2135,9 @@ function renderInbox() {
   const dl = ib.downloads || [];
   const tail = (p) => { const a = String(p || "").split(/[\\/]+/).filter(Boolean); return a.length > 2 ? "…" + sepName + a.slice(-2).join(sepName) : String(p || ""); };
   $("#view").innerHTML = `<div class="main read"><div class="head"><div class="ht"><h2>Gelen</h2><div class="sub">Yeni şarkılar buradan girer. İndirirken türün klasörünü seç; gerisini program yapar.</div></div>
-    <label class="switch ${ib.auto ? "on" : ""}" id="autotog"><i></i>Otomatik ekle</label></div>
+    <div class="ib-ctl"><label class="small muted">Gelen klasörü <select id="inloc" title="Yeni şarkıları nereye indiriyorsun?">
+      <option value="pc" ${ib.loc !== "ssd" ? "selected" : ""}>Bu bilgisayarda</option><option value="ssd" ${ib.loc === "ssd" ? "selected" : ""}>SSD'de</option></select></label>
+    <label class="switch ${ib.auto ? "on" : ""}" id="autotog"><i></i>Otomatik ekle</label></div></div>
     <div class="body">
     <div class="flow">
       <div class="st" title="${esc(ib.inbox + sepName)}<Tür>"><b>1 · İndir</b><span title="${esc(ib.inbox)}">${esc(tail(ib.inbox))}${sepName}&lt;Tür&gt;</span></div>
@@ -2064,6 +2172,14 @@ function renderInbox() {
     if (e.target.id === "openin") { api("/api/inbox/open", {}).catch((er) => toast(er.message, "err")); return; }
     if (e.target.id === "openar") { api("/api/inbox/open", { archive: true }).catch((er) => toast(er.message, "err")); return; }
     if (e.target.closest("#autotog")) { await api("/api/prefs", { auto_inbox: !ib.auto }); await refresh(true); }
+  };
+  v.onchange = async (e) => {
+    if (e.target.id !== "inloc") return;
+    try {
+      await api("/api/prefs", { inbox_loc: e.target.value });
+      toast(e.target.value === "ssd" ? "Gelen klasörü artık SSD'de: “DJ Gelen”." : "Gelen klasörü artık bu bilgisayarda.", "ok");
+    } catch (er) { toast(er.message, "err"); }
+    await refresh(true);
   };
 }
 

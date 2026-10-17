@@ -462,6 +462,7 @@
   DJD.healthAction("rename", "Adları düzelt", () => go("names", "only_illegal"));
   DJD.healthAction("rename_emoji", "Emojileri temizle", () => go("names", "only_illegal", { strip_emoji: true }));
   DJD.healthAction("missing", "Bul ve bağla", () => go("links"));
+  window.DJDRename = { go };
 
   // --- şarkı ayrıntısı: tek şarkının adını değiştir ---------------------------------------------------------
   async function renameOne(fid, d) {

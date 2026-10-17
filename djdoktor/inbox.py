@@ -50,6 +50,9 @@ def default_dirs():
 
 def dirs(lib):
     p = lib.prefs()
+    if p.get("inbox_loc") == "ssd":
+        # SSD kökünde (Mac'te ve PC'de aynı yer); kütüphane taraması bu iki klasöre girmez (BUILTIN_EXCLUDES)
+        return os.path.join(lib.root, "DJ Gelen"), os.path.join(lib.root, "DJ Arşiv")
     di, da = default_dirs()
     return (p.get("inbox_dir") or di), (p.get("archive_dir") or da)
 
@@ -201,6 +204,15 @@ def scan(lib, settle=2.0):
                         status = status or "similar"
                     else:
                         status = status or ("new" if g else "nogenre")
+                        if status == "nogenre":
+                            # öneri: etiketteki tür, şarkı adı ya da dosya adı bilinen bir türe uyuyor mu?
+                            byname = {x["name"]: x for x in gens.values()}
+                            for text in (rec.get("genre") or "", rec.get("title") or "", item.get("name") or "",
+                                         rec.get("comment") or ""):
+                                gn = G.match_existing(text, byname) if text else None
+                                if gn:
+                                    item["sugg"] = byname[gn]["id"]
+                                    break
             item["status"] = status
             items.append(item)
     items.sort(key=lambda x: (x.get("genre") or "~", names.fold(x["name"])))

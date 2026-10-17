@@ -79,6 +79,43 @@ def unique_path(path: str) -> str:
     return "%s_%d%s" % (base, k, ext)
 
 
+class FileInUseError(PermissionError):
+    """Dosya başka bir program tarafından açık (Windows WinError 32): kullanıcıya anlaşılır mesaj."""
+
+
+def _in_use(e):
+    return getattr(e, "winerror", None) in (32, 33) or (IS_WIN and isinstance(e, PermissionError))
+
+
+def _rename(src, dst):
+    """os.rename; Windows'ta dosya bir an kilitliyse (virüs tarayıcı, dizinleyici, oynatıcı) ~3 sn yeniden dener."""
+    for i in range(12):
+        try:
+            os.rename(src, dst)
+            return
+        except OSError as e:
+            if not _in_use(e):
+                raise
+            if i == 11:
+                raise FileInUseError(
+                    e.errno, "Dosya başka bir program tarafından kullanılıyor (çalıyor olabilir: Engine DJ, Serato ya da "
+                    "bir oynatıcı). Onu kapatıp tekrar dene: %s" % os.path.basename(src)) from None
+            time.sleep(0.25)
+
+
+def friendly_os_error(e):
+    """Kullanıcıya gösterilecek kısa Türkçe mesaj (kilitli dosya, izin, disk dolu) ya da None."""
+    if isinstance(e, FileInUseError):
+        return e.strerror
+    if isinstance(e, OSError) and _in_use(e):
+        name = os.path.basename(getattr(e, "filename", "") or "")
+        return ("Dosya başka bir program tarafından kullanılıyor (çalıyor olabilir: Engine DJ, Serato ya da bir "
+                "oynatıcı). Onu kapatıp tekrar dene%s" % (": " + name if name else "."))
+    if isinstance(e, OSError) and e.errno == 28:
+        return "Diskte yer kalmadı."
+    return None
+
+
 def safe_rename(src: str, dst: str) -> None:
     """Yeniden adlandırır/taşır ama var olan BAŞKA bir dosyanın üstüne asla yazmaz.
 
@@ -103,16 +140,16 @@ def safe_rename(src: str, dst: str) -> None:
         while os.path.lexists(tmp):
             k += 1
             tmp = "%s.djdtmp%d" % (src, k)
-        os.rename(src, tmp)
+        _rename(src, tmp)
         try:
-            os.rename(tmp, dst)
+            _rename(tmp, dst)
         except OSError:
-            os.rename(tmp, src)
+            _rename(tmp, src)
             raise
         return
     if os.path.lexists(dst):
         raise FileExistsError("Hedef zaten var: %s" % dst)
-    os.rename(src, dst)
+    _rename(src, dst)
 
 
 QDIR = "_DJDoktor_Karantina"
@@ -136,7 +173,7 @@ def move_file(src: str, dst: str) -> str:
         dst = "%s (%d)%s" % (base, k, ext)
     os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
     try:
-        os.rename(src, dst)
+        _rename(src, dst)
     except OSError:
         if not os.path.exists(src) or os.path.exists(dst):
             raise

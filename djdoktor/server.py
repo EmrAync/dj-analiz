@@ -294,6 +294,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._err(str(e), 409, "needs_force")
         except Exception as e:
             self.app.log(traceback.format_exc())
+            fr = util.friendly_os_error(e)
+            if fr:
+                return self._err(fr, 409, "in_use")
             return self._err("Beklenmeyen hata: %s" % e, 500)
 
     def _index(self):
@@ -343,6 +346,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Range", "bytes */%d" % size)
             self.end_headers()
             return
+        # Açık uçlu istek (bytes=0-) dosyayı yanıt boyunca açık tutardı; tarayıcı duraklatınca bağlantı bekler ve
+        # Windows dosyayı kilitli sayar (taşıma / ad değiştirme "WinError 32" verir). Parça parça gönder: her
+        # yanıt en çok CHUNK bayt, dosya okunup hemen kapanır; tarayıcı kalanını yeni istekle ister.
+        CHUNK = 2 * 1024 * 1024
+        if rng and end - start + 1 > CHUNK:
+            end = start + CHUNK - 1
         length = end - start + 1
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -354,15 +363,21 @@ class Handler(BaseHTTPRequestHandler):
         if self.command == "HEAD":
             return
         try:
-            with open(p, "rb") as fh:
-                fh.seek(start)
-                remaining = length
-                while remaining > 0:
-                    chunk = fh.read(min(262144, remaining))
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    remaining -= len(chunk)
+            if rng:
+                with open(p, "rb") as fh:          # oku, kapat, sonra gönder (gönderim uzun sürebilir)
+                    fh.seek(start)
+                    data = fh.read(length)
+                self.wfile.write(data)
+            else:
+                with open(p, "rb") as fh:
+                    fh.seek(start)
+                    remaining = length
+                    while remaining > 0:
+                        chunk = fh.read(min(262144, remaining))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        remaining -= len(chunk)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
 
@@ -650,6 +665,7 @@ class Handler(BaseHTTPRequestHandler):
                 s = inbox.scan(lib)
                 return self._json({"inbox": ib, "archive": ar, "items": s["items"], "downloads": inbox.downloads(lib),
                                    "log": lib.catalog.inbox_log(40), "auto": lib.prefs().get("auto_inbox", True),
+                                   "loc": lib.prefs().get("inbox_loc") or "pc",
                                    "genres": [{"id": g["id"], "name": g["name"], "color": g["color"]}
                                               for g in lib.genre_rows()]})
             if act == "ingest" and method == "POST":
