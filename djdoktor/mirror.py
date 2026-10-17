@@ -322,7 +322,7 @@ def _pull(lib, pids, op):
     """Serato'da değişen crate'leri Engine listelerine alır."""
     from . import lists
     sdir = lib.serato_dir()
-    if lib.engine_open():
+    if lib.engine_open(fresh=True):            # Engine listelerine yazmadan hemen önce taze denetim
         return 0
     st = lib.engine_state(force=True)
     uuid = st["uuid"]

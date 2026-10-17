@@ -402,7 +402,6 @@ def serato_raw_for(raw_old, old_rel, new_rel, dialect=None):
 
 def quarantine_files(lib, fids, label, op, files=None):
     """Dosyaları SSD'deki karantinaya taşır (silmez). Mac yardımcı dosyaları (._) birlikte taşınır."""
-    from .library import STATE_DIR
     cat = lib.catalog
     qrel = lib.quarantine_rel(label)
     moved = 0
@@ -443,7 +442,7 @@ def _move_into(lib, f, rel, op):
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     util.safe_rename(src, dst)
     op.add({"k": "mv", "fid": f["id"], "old": f["rel"], "new": rel})
-    lib.catalog.update_rel(f["id"], rel, lib.rootinfo.os_rel_of(rel), names.match_key(rel), names.loose_key(rel))
+    journal.set_rel(lib, f["id"], rel)
 
 
 def merge(lib, picks, progress=None):

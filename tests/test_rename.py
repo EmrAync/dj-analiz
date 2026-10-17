@@ -209,6 +209,10 @@ def test_transform_rules():
     assert renamer.transform("OYUN HAVASI  karisik", False, oi)[0] == "OYUN HAVASI  karisik"
     assert renamer.transform(NFD("Güzel Halay.mp3"), True, oi)[0] == "Güzel Halay.mp3"
     assert renamer.transform("Soru.mp3", True, oi)[0] == "Soru.mp3"
+    # nokta ile başlayan ad gizli dosya / Mac çöpü ('._') sayılır: asla üretilmez
+    assert renamer.transform("._Gizli Şarkı.mp3", True, oi)[0] == "_Gizli Şarkı.mp3"
+    assert renamer.transform("..", False, oi)[1] == ["empty"]
+    assert relocate._valid_component("._x.mp3") is None and relocate._valid_component(".x") is None
 
 
 def test_plan_conflicts():
@@ -267,6 +271,25 @@ def test_plan_conflicts():
     except UserError as e:
         assert e.code == "stale", e.code
     assert tree(lib.root) == before
+
+
+def test_plan_chain_conflict():
+    """A -> B yapılamıyorsa (B'nin yeni adı dolu), B'nin eski adına adlandırılan öğe de önizlemede çakışma görünür
+    (eskiden 'hazır' görünüp uygulamada sessizce atlanıyordu)."""
+    lib = fresh("chain")
+    h = os.path.join(lib.root, "Müzik", "Horon")
+    make_fixture.write_mp3(os.path.join(h, "A Şen.mp3"), 1801, 20, "a", "b")      # -> 'A Sen.mp3'
+    make_fixture.write_mp3(os.path.join(h, "A Sen.mp3"), 1802, 20, "c", "d")      # -> 'B Sen.mp3' (dolu)
+    make_fixture.write_mp3(os.path.join(h, "B Sen.mp3"), 1803, 20, "e", "f")
+    lib.full_scan()
+    rules = {"replace": [{"find": "A Sen", "to": "B Sen"}]}
+    sc = {"kind": "folder", "rel": "Müzik/Horon"}
+    pl = renamer.plan(lib, rules, sc, "files", preset="engine_safe")
+    by = {x["old"]: x for x in pl["items"]}
+    assert by["A Sen.mp3"]["conflict"] == "exists" and by["A Şen.mp3"]["conflict"] == "exists", pl["items"]
+    assert by["A Şen.mp3"]["with"] == "Müzik/Horon/A Sen.mp3"
+    res = renamer.apply(lib, rules, sc, "files", token=pl["token"], preset="engine_safe")
+    assert res["files"] == 0
 
 
 def _rich_setup(name):
@@ -388,8 +411,9 @@ def test_b3_dialect_for_ascii_raw():
     assert serato.raw_for("a/Gül/x.mp3", "a/Gül/x.mp3", "a/Gül2/x.mp3", "mac") == "a/Gül2/x.mp3"   # NFC kanıtı
     lib = fresh("b3")
     lib.settings.set_prefs(serato_dialect="auto")
-    write_crate(lib, "Ascii", ["Müzik/Horon/Karadeniz Horon 2.mp3".replace("Müzik", "Muzik")])
-    # 'Müzik' -> 'Muzik' yapıp sonra 'Horon' -> 'Horonlar Ş' ; ASCII ham yol Mac lehçesiyle yazılır
+    # 'Müzik' -> 'Muzik' yapıp sonra 'Horon' -> 'Horon Şöleni' ; ASCII ham yol Mac lehçesiyle yazılır
+    # (crate, 'Muzik' oluştuktan SONRA yazılır: önceden yazılsa diskte olmayan bir yolu gösteren başka bir kayıt
+    # sayılırdı ve 'Müzik' -> 'Muzik' çakışma olurdu; bkz. test_rename_onto_stale_record_of_other_song)
     relocate.rename_folder(lib, "Müzik", "Muzik")
     write_crate(lib, "Ascii", ["Muzik/Horon/Karadeniz Horon 2.mp3"])
     relocate.rename_folder(lib, "Muzik/Horon", "Horon Şöleni")
@@ -502,6 +526,33 @@ def test_b6_fresh_process_check():
     assert snapshot(lib) == before
 
 
+def test_app_opened_during_rename_rolls_back():
+    """Adlar değişirken (binlerce dosyada saniyeler sürer) Engine DJ ya da Serato açılırsa, veritabanlarına
+    yazmadan hemen önce yine bakılır: hiçbir şey yazılmaz ve diskteki adlar da geri döner."""
+    for procs, code in ((engine.ENGINE_PROCS, "engine_open"), (serato.SERATO_PROCS, "serato_open")):
+        lib, ev, sec = _rich_setup("opened_%s" % code)
+        before = snapshot(lib)
+        top0 = lib.catalog.journal_top()["id"]
+        pl = renamer.plan(lib, preset="engine_safe")
+        armed = []
+        orig = util.process_running
+        util.process_running = lambda names_, fresh=False: [n for n in names_ if armed and n in procs]
+
+        def prog(r, msg=None):
+            if msg and msg.startswith("Klasör adları"):
+                armed.append(1)                       # klasörler adlandırılırken program açıldı
+        try:
+            renamer.apply(lib, preset="engine_safe", token=pl["token"], progress=prog)
+            raise AssertionError("açıkken yazdı")
+        except UserError as e:
+            assert e.code == code, e.code
+        finally:
+            util.process_running = orig
+        assert armed
+        assert snapshot(lib) == before, code
+        assert lib.catalog.journal_top()["id"] == top0
+
+
 def test_twin_names_keep_occupancy():
     """exFAT / Linux: NFC ve NFD yazımlı iki ad yan yana durabilir. Biri yeniden adlandırılınca diğeri o adı hâlâ
     tutar; başka bir dosya o ada adlandırılırsa ikinci bir ikiz oluşmaz ('exists' ile atlanır)."""
@@ -523,6 +574,9 @@ def test_twin_names_keep_occupancy():
 
 
 def test_b7_engine_clash_reported():
+    """B7: hedef adda Engine'de BAŞKA bir kayıt var (dosyası yok): dosya o kayda sessizce bağlanmaz (o kaydın cue'ları
+    bu sesle çalardı). Önizlemede 'ref_taken' çakışması, uygulamada atlanır; ' (2)' istenirse dosya kendi kaydıyla
+    gider. Önizlemeden sonra oluşan bir çakışma (yarış) yine raporlanır (engine_clash), sessizce geçilmez."""
     lib = fresh("clash")
     con = sqlite3.connect(lib.engine_db()["path"])
     con.execute("INSERT INTO Track(path, filename, title, isAnalyzed, fileType, isAvailable, "
@@ -531,10 +585,96 @@ def test_b7_engine_clash_reported():
                 "VALUES('../Müzik/Halay/Sivas Halayi.mp3','Sivas Halayi.mp3','x',0,'mp3',1,0,0,1,0,0,0,0,1,1)")
     con.commit()
     con.close()
-    fid = fid_of(lib, "Müzik/Halay/Sivas Halayı.mp3")
+    rel = "Müzik/Halay/Sivas Halayı.mp3"
+    fid = fid_of(lib, rel)
+    tid = eng(lib, "SELECT id FROM Track WHERE path=?", ("../" + rel,))[0][0]
+    pl = renamer.plan(lib, preset="engine_safe", scope={"kind": "folder", "rel": "Müzik/Halay"})
+    it = next(x for x in pl["items"] if x["fid"] == fid)
+    assert it["conflict"] == "ref_taken" and it["with"] == "Müzik/Halay/Sivas Halayi.mp3", it
     res = relocate.batch_rename(lib, {fid: "Sivas Halayi.mp3"}, {}, "test")
+    assert res["files"] == 0 and res["skipped"] == [{"id": "f:%d" % fid, "why": "ref_taken"}], res
+    assert os.path.isfile(os.path.join(lib.root, *rel.split("/")))
+    res = relocate.batch_rename(lib, {fid: "Sivas Halayi.mp3"}, {}, "test", suffix={fid})
+    assert res["files"] == 1 and os.path.isfile(os.path.join(lib.root, "Müzik", "Halay", "Sivas Halayi (2).mp3")), res
+    paths = dict(eng(lib, "SELECT id, path FROM Track"))
+    assert paths[tid] == "../Müzik/Halay/Sivas Halayi (2).mp3", paths[tid]
+    assert "../Müzik/Halay/Sivas Halayi.mp3" in paths.values()           # başka şarkının kaydına dokunulmadı
+    journal.undo_last(lib)
+    # güvenlik ağı: denetim atlatılsa bile (yarış) Engine çakışması sessizce geçilmez
+    orig = relocate.stale_ref_keys
+    relocate.stale_ref_keys = lambda *a, **k: set()
+    try:
+        res = relocate.batch_rename(lib, {fid: "Sivas Halayi.mp3"}, {}, "test")
+    finally:
+        relocate.stale_ref_keys = orig
     assert res["files"] == 1 and res["engine_clash"], res
     assert res["engine_clash"][0]["path"] == "../Müzik/Halay/Sivas Halayi.mp3"
+
+
+def test_rename_onto_stale_record_of_other_song():
+    """'Turku.mp3' (başka bir şarkı) Finder'da kaldırıldı ama katalog henüz görmedi; Engine ve Serato'da kaydı duruyor.
+    'Türkü.mp3' -> 'Turku.mp3' yapılırsa o kayıtlar bu dosyayı (yanlış şarkıyı) gösterirdi: çakışma, atlanır.
+    Bayat katalog satırı da işlemi düşürmez (eskiden UNIQUE hatası bütün adlandırmayı geri alıyordu)."""
+    lib = fresh("stale_ref")
+    h = os.path.join(lib.root, "Müzik", "Halay")
+    make_fixture.write_mp3(os.path.join(h, "Türkü.mp3"), 1901, 40, "Türkü", "A")
+    make_fixture.write_mp3(os.path.join(h, "Turku.mp3"), 1902, 40, "Turku", "B")
+    lib.full_scan()
+    maintain.after_change(lib)
+    write_crate(lib, "Eski", [NFD("Müzik/Halay/Turku.mp3")])
+    os.rename(os.path.join(h, "Turku.mp3"), os.path.join(lib.root, "Turku dışarıda.mp3"))     # Finder (taranmadı)
+    tids = dict(eng(lib, "SELECT path, id FROM Track WHERE path LIKE '../Müzik/Halay/T%'"))
+    for dry in (True, False):                      # tek ad değiştirme de (önizlemede hemen) söyler
+        try:
+            renamer.rename_one(lib, "file", fid_of(lib, "Müzik/Halay/Türkü.mp3"), "Turku", dry_run=dry)
+            raise AssertionError("başka şarkının kaydına adlandırıldı")
+        except UserError as e:
+            assert e.code == "ref_taken", e.code
+    sc = {"kind": "folder", "rel": "Müzik/Halay"}
+    pl = renamer.plan(lib, preset="engine_safe", scope=sc)
+    it = next(x for x in pl["items"] if x["old"] == "Türkü.mp3")
+    assert it["conflict"] == "ref_taken", it
+    res = renamer.apply(lib, preset="engine_safe", scope=sc, token=pl["token"])
+    assert res["files"] >= 3 and os.path.isfile(os.path.join(h, "Türkü.mp3")), res     # diğerleri yapıldı
+    assert dict(eng(lib, "SELECT path, id FROM Track WHERE path LIKE '../Müzik/Halay/T%'")) == tids
+    assert crates(lib)["Eski"] == [NFD("Müzik/Halay/Turku.mp3")]
+    # kullanıcı işaretlerse ' (2)' ile ve kendi kayıtlarıyla
+    pl = renamer.plan(lib, preset="engine_safe", scope=sc)
+    it = next(x for x in pl["items"] if x["old"] == "Türkü.mp3")
+    res = renamer.apply(lib, preset="engine_safe", scope=sc, token=pl["token"], force=[it["id"]])
+    assert res["files"] == 1 and os.path.isfile(os.path.join(h, "Turku (2).mp3")), (res, os.listdir(h))
+    assert eng(lib, "SELECT path FROM Track WHERE id=?", (tids["../Müzik/Halay/Türkü.mp3"],))[0][0] == \
+        "../Müzik/Halay/Turku (2).mp3"
+    assert eng(lib, "SELECT path FROM Track WHERE id=?", (tids["../Müzik/Halay/Turku.mp3"],))[0][0] == \
+        "../Müzik/Halay/Turku.mp3"
+    assert crates(lib)["Eski"] == [NFD("Müzik/Halay/Turku.mp3")]
+
+
+def test_rename_back_heals_old_records():
+    """Eski bir yola GERİ dönen dosya (Finder'da 'Turku' -> 'Türkü' yapılmış, Engine / Serato eski 'Turku' yolunu
+    gösteriyor): kayıtlar aynı şarkıyı gösteriyorsa (boyut ya da başlık + sanatçı) çakışma sayılmaz, bağlanır."""
+    lib = fresh("heal")
+    h = os.path.join(lib.root, "Müzik", "Halay")
+    make_fixture.write_mp3(os.path.join(h, "Turku.mp3"), 2001, 40, "Türkü Sözü", "Aşık")
+    lib.full_scan()
+    maintain.after_change(lib)
+    append_db(lib, [NFD("Müzik/Halay/Turku.mp3")])
+    con = sqlite3.connect(lib.engine_db()["path"])
+    con.execute("UPDATE Track SET fileBytes=? WHERE path=?", (os.path.getsize(os.path.join(h, "Turku.mp3")),
+                                                             "../Müzik/Halay/Turku.mp3"))
+    con.commit()
+    con.close()
+    os.rename(os.path.join(h, "Turku.mp3"), os.path.join(h, "Türkü.mp3"))             # Finder
+    lib.catalog.x("DELETE FROM files WHERE rel LIKE '%Turku%'")                         # katalog o yolu hiç görmemiş
+    lib.full_scan()
+    pl = renamer.plan(lib, preset="engine_safe", scope={"kind": "folder", "rel": "Müzik/Halay"})
+    it = next(x for x in pl["items"] if x["old"] == "Türkü.mp3")
+    assert it["status"] != "conflict", it
+    res = renamer.apply(lib, preset="engine_safe", scope={"kind": "folder", "rel": "Müzik/Halay"}, token=pl["token"])
+    assert not [x for x in res["skipped"] if x["why"] == "ref_taken"], res["skipped"]
+    assert os.path.isfile(os.path.join(h, "Turku.mp3"))
+    bc, bd, bo = broken(lib)
+    assert not [p for p in bd if "Turku" in p] and not [p for p in bo if "Turku" in p], (bd, bo)
 
 
 def test_case_only_and_collisions():
@@ -582,6 +722,41 @@ def test_music_root_rename():
     journal.undo_last(lib)
     journal.undo_last(lib)
     assert snapshot(lib) == before
+
+
+def test_undo_after_outside_changes():
+    """Geri almadan önce: program dışında (Finder) adı / yeri değişen ya da eski yeri başka bir dosyayla dolan şeyler.
+    * yeniden adlandırılan klasör Finder'da yine değişti -> önce sorulur (needs_force), hiçbir şeye dokunulmaz;
+      eski hâline gelince geri alma birebir çalışır.
+    * eski adla başka bir dosya oluştu -> geri alınmaz (zorla da): Engine / Serato o başka şarkıyı göstermesin."""
+    lib = fresh("undo_out")
+    maintain.after_change(lib)
+    before = snapshot(lib)
+    pl = renamer.plan(lib, preset="engine_safe")
+    renamer.apply(lib, preset="engine_safe", token=pl["token"])
+    mid = snapshot(lib)
+    a, b = os.path.join(lib.root, "Muzik", "Turkce Pop"), os.path.join(lib.root, "Muzik", "Pop Finder")
+    os.rename(a, b)
+    try:
+        journal.undo_last(lib)
+        raise AssertionError("sormadan geri aldı")
+    except journal.UndoNeedsForce as e:
+        assert "Finder" in str(e), e
+    os.rename(b, a)
+    assert snapshot(lib) == mid                                     # deneme hiçbir şeye dokunmadı
+    journal.undo_last(lib)
+    assert snapshot(lib) == before
+    # eski adın yerinde başka bir şarkı
+    fid = fid_of(lib, "Müzik/Türkçe Pop/Tarkan - Yolla.mp3")
+    renamer.rename_one(lib, "file", fid, "Yolla")
+    make_fixture.write_mp3(os.path.join(lib.root, "Müzik", "Türkçe Pop", "Tarkan - Yolla.mp3"), 1601, 30, "Başka", "X")
+    for force in (False, True):
+        try:
+            journal.undo_last(lib, force=force)
+            raise AssertionError("eski yer doluyken geri aldı")
+        except UserError as e:
+            assert e.code == "undo_blocked", e.code
+    assert "../Müzik/Türkçe Pop/Yolla.mp3" in {r[0] for r in eng(lib, "SELECT path FROM Track")}
 
 
 def test_rename_one_with_preview():
@@ -697,6 +872,79 @@ def test_relink_folder_vote_and_genres():
         [(s["f"]["rel"], s["place"]) for s in st.values()]
     bc, bd, bo = broken(lib)
     assert not bc and not bd and not bo, (bc, bd, bo)
+
+
+def test_relink_genre_merged_in_finder():
+    """Finder'da 'Halay' türünün şarkıları 'Horon' klasörüne taşınıp 'Halay' silinmiş: tür kaydı başka bir türün
+    klasörüne eşlenmez (iki tür aynı klasör olmaz; eskiden UNIQUE hatası bütün bağlamayı düşürüyordu), kesin
+    eşleşmeler yine de bağlanır."""
+    lib = fresh("gmerge")
+    maintain.after_change(lib)
+    src, dst = os.path.join(lib.root, "Müzik", "Halay"), os.path.join(lib.root, "Müzik", "Horon")
+    for n in os.listdir(src):
+        os.rename(os.path.join(src, n), os.path.join(dst, n))
+    os.rmdir(src)
+    lib.full_scan()
+    g0 = sorted(g["rel"] for g in lib.catalog.genres())
+    pl = relink.plan(lib)
+    assert not [f for f in pl["folders"] if f["_new"] == "Müzik/Horon"], pl["folders"]
+    lib._maint_sig = None
+    r = maintain.background(lib)
+    assert r and r.get("auto_linked") and r["auto_linked"]["engine"] >= 3, (r, lib.catalog.get_meta("last_relink_error"))
+    assert sorted(g["rel"] for g in lib.catalog.genres()) == g0
+    # aynı durum klasör adı değiştirirken: hedef yol bayat bir tür kaydında kayıtlıysa işlem düşmez
+    lib.catalog.genre_add("Müzik/Pop Yeni")                       # klasörü olmayan (bayat) tür kaydı
+    relocate.rename_folder(lib, "Müzik/Türkçe Pop", "Pop Yeni")
+    rels = [g["rel"] for g in lib.catalog.genres()]
+    assert len(rels) == len(set(rels)) and "Müzik/Pop Yeni" in rels, rels
+
+
+def test_sfm_names_mac_and_windows_crates():
+    """Mac'in exFAT'e yazdığı özel karakterler (':' '?' -> U+F022 / U+F025), Mac (NFD + ':') ve Windows (SFM) yazımlı
+    crate'ler: 'Engine için' adlandırma, Serato yazımı korunur, geri alma birebir."""
+    lib = fresh("sfm")
+    h = os.path.join(lib.root, "Müzik", "Halay")
+    make_fixture.write_mp3(os.path.join(h, "Ağır ROMAN\uf022 MEZDEKE\uf025.mp3"), 1701, 40, "R", "M")
+    make_fixture.write_mp3(os.path.join(h, "Söz\uf022 Müzik", "Şarkı.mp3"), 1702, 40, "S", "M")
+    lib.full_scan()
+    maintain.after_change(lib)
+    mac, mac2 = NFD("Müzik/Halay/Ağır ROMAN: MEZDEKE?.mp3"), NFD("Müzik/Halay/Söz: Müzik/Şarkı.mp3")
+    append_db(lib, [mac, mac2])
+    write_crate(lib, "MacCrate", [mac, mac2])
+    write_crate(lib, "WinCrate", ["Müzik/Halay/Ağır ROMAN\uf022 MEZDEKE\uf025.mp3"])
+    lib.analyze_serato()
+    before = snapshot(lib)
+    sc = {"kind": "folder", "rel": "Müzik/Halay"}
+    pl = renamer.plan(lib, preset="engine_safe", scope=sc)
+    new = {x["_rel"].split("/")[-1]: x["_new"] for x in pl["items"]}
+    assert new["Ağır ROMAN\uf022 MEZDEKE\uf025.mp3"] == "Agir ROMAN - MEZDEKE.mp3", new
+    assert new["Söz\uf022 Müzik"] == "Soz - Muzik", new
+    res = renamer.apply(lib, preset="engine_safe", scope=sc, token=pl["token"])
+    assert res["verify"] == {"engine_missing": 0, "serato_missing": 0} and not res["skipped"], res
+    cr = crates(lib)
+    assert cr["MacCrate"] == [NFD("Müzik/Halay/Agir ROMAN - MEZDEKE.mp3"), NFD("Müzik/Halay/Soz - Muzik/Sarki.mp3")]
+    assert cr["WinCrate"] == ["Müzik/Halay/Agir ROMAN - MEZDEKE.mp3"], cr["WinCrate"]
+    paths = {r[0] for r in eng(lib, "SELECT path FROM Track")}
+    assert {"../Müzik/Halay/Agir ROMAN - MEZDEKE.mp3", "../Müzik/Halay/Soz - Muzik/Sarki.mp3"} <= paths, paths
+    journal.undo_last(lib)
+    assert snapshot(lib) == before
+
+
+def test_relink_never_uses_quarantine():
+    """Kayıp kaydın dosyası yalnızca karantinada (ya da Engine Library kopyasında) varsa bağlanmaz."""
+    lib = fresh("rlq")
+    maintain.after_change(lib)
+    rel = "Müzik/Horon/Karadeniz Horon 1.mp3"
+    q = os.path.join(lib.root, "_DJDoktor_", "Karantina", "elle", "Karadeniz Horon 1.mp3")
+    os.makedirs(os.path.dirname(q), exist_ok=True)
+    os.rename(os.path.join(lib.root, *rel.split("/")), q)          # yalnızca karantinada kaldı
+    lib.full_scan()
+    lib._maint_sig = None
+    maintain.background(lib)
+    pl = relink.plan(lib)
+    it = next(x for x in pl["items"] if x["src"] == "engine" and x["old"] == rel)
+    assert it["status"] == "none", it
+    assert ("../" + rel,) in eng(lib, "SELECT path FROM Track")      # Engine kaydı karantinaya bağlanmadı
 
 
 def test_b8_qsig_ignores_engine_copies():
@@ -937,6 +1185,33 @@ def test_dedupe_serato_fresh_mirror_dialect():
     assert before[1] == after[1], "Serato birebir dönmedi"
     assert before[2] == after[2], ("Engine dönmedi", set(before[2][0]) ^ set(after[2][0]),
                                    set(before[2][1]) ^ set(after[2][1]))
+
+
+def test_dedupe_failure_rolls_back():
+    """Çift birleştirme yarıda kalırsa (Engine ve Serato yazıldıktan sonra karantina hata verdi) her şey geri döner;
+    yarım bir işlem ya da günlüksüz değişiklik kalmaz."""
+    from djdoktor import dedupe
+    lib = fresh("ddfail")
+    maintain.after_change(lib)
+    before = (tree(lib.root), serato_bytes(lib.root), engine_core(lib))
+    top0 = lib.catalog.journal_top()["id"]
+    gs = [g for g in dedupe.groups(lib) if g["kind"] in ("exact", "audio")]
+    orig = dedupe.quarantine_files
+
+    def bad(lib_, fids, label, op, files=None):
+        orig(lib_, fids[:1], label, op, files)
+        raise OSError("disk hatası (deneme)")
+    dedupe.quarantine_files = bad
+    try:
+        dedupe.merge(lib, [{"group": g["id"]} for g in gs])
+        raise AssertionError("hata yutuldu")
+    except OSError:
+        pass
+    finally:
+        dedupe.quarantine_files = orig
+    after = (tree(lib.root), serato_bytes(lib.root), engine_core(lib))
+    assert before[0] == after[0] and before[1] == after[1] and before[2] == after[2]
+    assert lib.catalog.journal_top()["id"] == top0
 
 
 def test_perf_plan_5000_apply_1000():

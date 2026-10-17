@@ -18,9 +18,10 @@
   const CONF = {
     exists: "Aynı adda var", twin: "İki ad aynı oluyor", same_audio: "Aynı şarkı zaten var (kopya)",
     empty: "Ad boş kalıyor", gone: "Diskte yok — önce tara", genre_twin: "Aynı adda tür var",
+    ref_taken: "Bu adla başka şarkı kayıtlı",
   };
   const WARN = { non_ascii: "Başka alfabe / sembol kaldı", too_long: "Yol çok uzun", long: "Ad kısaltıldı" };
-  const FIXABLE = new Set(["exists", "twin", "same_audio"]);
+  const FIXABLE = new Set(["exists", "twin", "same_audio", "ref_taken"]);
   const CONF_TXT = { kesin: "kesin", yuksek: "yüksek", orta: "orta" };
   const METH = { gecmis: "program geçmişi", ses_imzasi: "ses imzası", ad_sade: "aynı ad (harf farkı)",
     klasor_adi: "klasör adı değişmiş", ad_boyut: "aynı ad ve boyut" };
@@ -165,7 +166,7 @@
     const par = x.rel.includes("/") ? x.rel.slice(0, x.rel.lastIndexOf("/")) : "";
     const dis = x.status === "conflict" && !FIXABLE.has(x.conflict);
     let st;
-    if (x.status === "conflict") st = `<span class="tag bad" title="${esc(x.with || "")}">${esc(CONF[x.conflict] || x.conflict)}</span>`;
+    if (x.status === "conflict") st = `<span class="tag bad" title="${esc(x.conflict === "ref_taken" ? "Engine / Serato'da bu adla kaybolmuş başka bir şarkının kaydı var; adlandırılırsa o kayıt bu dosyayı çalar. İşaretlersen ' (2)' eklenir." : (x.with || ""))}">${esc(CONF[x.conflict] || x.conflict)}</span>`;
     else if (x.status === "warn") st = `<span class="tag warn">${esc(x.warn.map((w) => WARN[w] || w).join(", "))}</span>`;
     else st = `<span class="tag ok">hazır</span>`;
     const refs = (x.engine ? `E ${fmtN(x.engine)}` : "") + (x.engine && x.serato ? " · " : "") + (x.serato ? `S ${fmtN(x.serato)}` : "");
@@ -303,7 +304,7 @@
     if (!r || !(r.files || r.dirs)) { toast("Değişen ad olmadı."); await refresh(true); return; }
     const ex = [];
     if (r.engine || r.serato) ex.push(`Engine ${fmtN(r.engine)}, Serato ${fmtN(r.serato)} kayıt güncellendi.`);
-    if (r.skipped && r.skipped.length) ex.push(`${fmtN(r.skipped.length)} ad atlandı (aynı adda dosya var).`);
+    if (r.skipped && r.skipped.length) ex.push(`${fmtN(r.skipped.length)} ad atlandı (o ad dolu).`);
     doneToast(`${fmtN((r.files || 0) + (r.dirs || 0))} ad değişti.`, ex.join(" "));
     if (r.engine_clash && r.engine_clash.length) toast(`${fmtN(r.engine_clash.length)} şarkının Engine'de ikinci bir kaydı var. Müzikler > Kopyalar'dan birleştirebilirsin.`, "err");
     await refresh(true);

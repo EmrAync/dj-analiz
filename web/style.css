@@ -26,6 +26,8 @@
  *   üstüne çıkar (--bulk-h); görev kartı açıkken .main > .body alttan --task-h kadar boşluk bırakır.
  * Renk: --warn / --ok / --bad / --accent dolgu ve nokta içindir; yazı için --*-ink kullan (≥ 4.5:1).
  *   Beyaz yazılı dolgu (birincil düğme, seçili çip, rozet) için --accent-fill / --bad-fill (iki temada da ≥ 4.5:1).
+ *   Tür renkleri: style="${gStyle(renk)}" + .gtx (renkli yazı, ör. tür etiketi) ya da .gfill (beyaz yazılı dolgu);
+ *   renk satır içi color/background olarak yazılmaz (sarı / turuncu türler okunmaz, koyu temada çoğu < 3:1 kalır).
  */
 :root {
   --bg: #f4f5f7;
@@ -162,10 +164,16 @@ a { color: var(--accent-ink); }
 .btn.undo .t { flex: 0 1 auto; min-width: 4em; max-width: 16em; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
 .icon-btn { border: 0; background: transparent; cursor: pointer; padding: 6px 8px; border-radius: 7px; color: var(--muted); font-size: 1.05em; }
 .icon-btn:hover { background: var(--panel-2); color: var(--ink); }
+/* tür düğmesi: uzun tür adı kutudan taşmaz, "…" ile biter (düz metin de, içteki .ell de) */
 .gbtn { border: 0; color: #fff; padding: .32em .8em; border-radius: 99px; cursor: pointer; font-weight: 600; font-size: .9em; white-space: nowrap;
-  display: inline-flex; align-items: center; max-width: 100%; min-width: 0; }
+  display: inline-block; vertical-align: middle; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .gbtn.outline { background: transparent !important; border: 1.5px dashed currentColor; }
 .gbtn:hover { filter: brightness(1.08); }
+/* tür rengi (app.js gStyle): yazı her temada ≥ 4.5:1, çerçeve asıl renkte; dolgu beyaz yazıyla okunur */
+.gtx, .tag.gtx, .gbtn.gtx { color: var(--gc-t, var(--ink-2)); }
+.tag.gtx { border-color: var(--gc, var(--line)); }
+:root[data-theme="dark"] .gtx { color: var(--gc-td, var(--ink-2)); }
+.gfill, .gchip.gfill { background: var(--gc-f, var(--accent-fill)); color: #fff; }
 
 /* ---------- yerleşim ---------- */
 #view { flex: 1; min-height: 0; min-width: 0; display: flex; position: relative; overflow: hidden; overflow: clip; }

@@ -85,11 +85,12 @@ def _under(rel, d):
     return parts[len(dp):]
 
 
-def _engine_rows(lib, fids, dmap=None):
+def _engine_rows(lib, fids, dmap=None, stale=None):
     """{db_key: {'d': d, 'rows': {fid: [(tid, path)]}, 'prefix': [(tid, path, rel)]}}
 
     rows: taşınacak / adı değişecek dosyaların Engine kayıtları. prefix: yeniden adlandırılan bir klasörün içinde
-    olup kataloğa henüz girmemiş (taranmamış) ya da kayıp dosyaların kayıtları — klasörle birlikte giderler."""
+    olup kataloğa henüz girmemiş (taranmamış) ya da kayıp dosyaların kayıtları — klasörle birlikte giderler.
+    stale (sözlük): verilirse Engine'deki BÜTÜN kayıtların yol anahtarı -> kanıt listesi eklenir (stale_ref_keys)."""
     out = {}
     want = set(fids)
     for d in lib.engine_dbs():
@@ -98,6 +99,11 @@ def _engine_rows(lib, fids, dmap=None):
         except Exception:
             continue
         tracks, by_file, orphans, _r, _t = lib.engine_map(d, data)
+        if stale is not None:
+            for t in data["tracks"]:
+                rel = engine.path_to_rel(t.get("path") or "", d["lib_dir"], lib.root)
+                if rel:
+                    stale.setdefault(names.loose_key(rel), []).append(engine_evidence(t))
         rows = {}
         for fid in want:
             if by_file.get(fid):
@@ -407,8 +413,7 @@ def _move_companions(lib, src_dirs_done, op):
                 continue
             row = lib.catalog.file_by_rel(src_rel)
             if row:
-                lib.catalog.update_rel(row["id"], dst_rel, lib.rootinfo.os_rel_of(dst_rel), names.match_key(dst_rel),
-                                       names.loose_key(dst_rel))
+                journal.set_rel(lib, row["id"], dst_rel)
             op.add({"k": "mv", "fid": row["id"] if row else None, "old": src_rel, "new": dst_rel})
             moved += 1
     return moved
@@ -458,7 +463,7 @@ def move_files(lib, moves, title, kind="tasima", progress=None, op=None, maint=T
                     for i, (fid, new) in enumerate(items[b:b + 200], b):
                         f = files[fid]
                         _fs_move(lib, f, new, op)
-                        cat.update_rel(fid, new, lib.rootinfo.os_rel_of(new), names.match_key(new), names.loose_key(new))
+                        journal.set_rel(lib, fid, new)
                         cat.add_history(f["rel"], fid)
                         changes.append((fid, f["rel"], new))
                         src_dirs[f.get("folder") or ""].add(_parent(new))
@@ -466,6 +471,7 @@ def move_files(lib, moves, title, kind="tasima", progress=None, op=None, maint=T
                             progress(0.05 + 0.55 * (i + 1) / max(1, total), "Taşınıyor (%d/%d)…" % (i + 1, total))
             if progress:
                 progress(0.62, "Engine ve Serato güncelleniyor…")
+            _check_apps(lib, bool(eng), s_need)    # dosyalar taşınırken açılmış olabilir: yazmadan hemen önce yine bak
             res = _update_refs(lib, changes, eng, sx if s_need else None, op)
             # klasörün tamamı tek yere gittiyse diğer dosyaları da götür
             whole = {}
@@ -534,8 +540,8 @@ def rename_folder(lib, rel, new_name, progress=None, op=None, kind="ad_degistir"
 # ---------------------------------------------------------------------------
 def _valid_component(new):
     new = (new or "").strip() if new else ""
-    if not new or new in (".", "..") or "/" in new or "\\" in new or any(ord(c) < 32 for c in new):
-        return None
+    if not new or new.startswith(".") or "/" in new or "\\" in new or any(ord(c) < 32 for c in new):
+        return None                 # '.x' / '._x': gizli dosya ya da Mac çöpü sayılır (kütüphaneden kaybolur)
     return new
 
 
@@ -570,14 +576,40 @@ class _Taken:
             self.n.pop(k, None)
 
 
+class _NameCheck:
+    """'ad in taken' denetimi için: fn(gevşek_anahtar, ad) -> dolu mu?"""
+
+    def __init__(self, fn):
+        self.fn = fn
+
+    def check(self, cand):
+        return self.fn(names.loose_key(cand), cand)
+
+
 def _free_name(name, taken, is_file):
     stem, ext = os.path.splitext(name) if is_file else (name, "")
     k = 2
     while True:
         cand = "%s (%d)%s" % (stem, k, ext)
-        if names.loose_key(cand) not in taken:
+        if not (taken.check(cand) if isinstance(taken, _NameCheck) else names.loose_key(cand) in taken):
             return cand
         k += 1
+
+
+def _dir_ref_taken(lib, stale, d, new_name, dirs):
+    """Klasör 'd' 'new_name' olursa içindeki bir dosyanın SON yolunda (üst klasörlerin planlanan adlarıyla) başka bir
+    şarkının eski Engine / Serato kaydı var mı? (alt klasörler önceden adlandırıldıysa katalogdaki yol günceldir)"""
+    parent = _parent(d)
+    fp = _compose(parent, dirs) if parent else ""
+    base = names.split_rel(fp) + [new_name]
+    pre = d + "/"
+    for r in lib.catalog.q("SELECT id, rel, qsig, alen, size, duration, title, artist FROM files WHERE present=1 "
+                           "AND rel LIKE ? ESCAPE '\\'", (_like(pre),)):
+        if r["rel"].startswith(pre):
+            final = "/".join(base + names.split_rel(r["rel"][len(pre):]))
+            if ref_taken(lib, stale, final, r["rel"], r):
+                return True
+    return False
 
 
 def _fs_rename_dir(lib, cur, new_rel, op):
@@ -593,7 +625,7 @@ def _fs_rename_dir(lib, cur, new_rel, op):
         with cat.tx():
             for r in rows[b:b + 400]:
                 nr = new_rel + r["rel"][len(cur):]
-                cat.update_rel(r["id"], nr, lib.rootinfo.os_rel_of(nr), names.match_key(nr), names.loose_key(nr))
+                journal.set_rel(lib, r["id"], nr)
                 cat.add_history(r["rel"], r["id"])
                 ch.append([r["id"], r["rel"], nr])
     op.add({"k": "mvdir", "old": cur, "new": new_rel, "files": ch})
@@ -606,7 +638,7 @@ def _fs_rename_dir(lib, cur, new_rel, op):
             orel, nrel = _rel_of(lib, comp), _rel_of(lib, cdst)
             row = cat.file_by_rel(orel)
             if row:
-                cat.update_rel(row["id"], nrel, lib.rootinfo.os_rel_of(nrel), names.match_key(nrel), names.loose_key(nrel))
+                journal.set_rel(lib, row["id"], nrel)
             op.add({"k": "mv", "fid": row["id"] if row else None, "old": orel, "new": nrel})
         except OSError:
             pass
@@ -618,11 +650,15 @@ def _retarget_meta(lib, old, new, op):
     cat = lib.catalog
     n = 0
     newp = names.split_rel(new)
-    for g in cat.genres():
+    gens = cat.genres()
+    # taşınmayan başka bir tür zaten o yolu gösteriyorsa (ör. Finder'da iki tür klasörü birleştirilmiş) o tür
+    # kaydı olduğu gibi kalır: iki tür aynı klasörü göstermesin
+    others = {names.loose_key(g["rel"]) for g in gens if _under(g["rel"], old) is None}
+    for g in gens:
         rest = _under(g["rel"], old)
         if rest is not None:
             nr = "/".join(newp + rest)
-            if nr != g["rel"]:
+            if nr != g["rel"] and names.loose_key(nr) not in others:
                 kw = {"rel": nr}
                 if not g.get("color"):          # rengi addan geliyordu: yeni adla değişmesin
                     oname = names.display(names.split_rel(g["rel"])[-1])
@@ -715,10 +751,16 @@ def batch_rename(lib, file_names, dir_names, title, kind="toplu_ad", progress=No
                     orig.setdefault(r["id"], r["rel"])
         plan_map = DirMap([(d, _compose(d, dirs)) for d in dirs])
         prog(0.03, "Engine ve Serato kayıtları okunuyor…")
-        eng = _engine_rows(lib, orig.keys(), plan_map)
+        eng_ev = {}
+        eng = _engine_rows(lib, orig.keys(), plan_map, eng_ev)
         sdir = lib.serato_dir()
         sx = serato.index(sdir) if sdir else None            # diskten TAZE: Serato'da sonradan eklenenler de
         s_need = _serato_hits(sx, orig.values(), plan_map)
+        stale = stale_ref_keys(eng_ev, sx, {names.loose_key(r) for r in orig.values()})
+
+        def file_ref_taken(f, parent, name):
+            fp = _compose(parent, dirs) if parent else ""
+            return ref_taken(lib, stale, (fp + "/" + name) if fp else name, f["rel"], f)
         # 3) güvenlik: uygulamalar kapalı, yedekler (veritabanı başına bir kez)
         _check_apps(lib, bool(eng), s_need)
         for key, info in eng.items():
@@ -758,14 +800,16 @@ def batch_rename(lib, file_names, dir_names, title, kind="toplu_ad", progress=No
                             if kn != ko and kn in occupied(parent):
                                 later.append((fid, (f, new)))
                                 continue
+                            if stale and file_ref_taken(f, parent, new):
+                                later.append((fid, (f, new)))   # o adda başka bir şarkının Engine / Serato kaydı var
+                                continue
                             new_rel = (parent + "/" + new) if parent else new
                             try:
                                 _fs_move(lib, f, new_rel, op)
                             except FileExistsError:
                                 later.append((fid, (f, new)))
                                 continue
-                            cat.update_rel(fid, new_rel, lib.rootinfo.os_rel_of(new_rel), names.match_key(new_rel),
-                                           names.loose_key(new_rel))
+                            journal.set_rel(lib, fid, new_rel)
                             cat.add_history(f["rel"], fid)
                             occupied(parent).discard(ko)
                             occupied(parent).add(kn)
@@ -777,21 +821,26 @@ def batch_rename(lib, file_names, dir_names, title, kind="toplu_ad", progress=No
                     for fid, (f, new) in later:
                         parent = _parent(f["rel"])
                         if on_exists == "suffix" or fid in suffix:
-                            alt = _free_name(new, occupied(parent), True)
+                            occ_p = occupied(parent)
+                            alt = _free_name(new, _NameCheck(lambda k, c, f=f, p=parent: k in occ_p or (
+                                stale and file_ref_taken(f, p, c))), True)
                             new_rel = (parent + "/" + alt) if parent else alt
                             try:
                                 _fs_move(lib, f, new_rel, op)
                             except FileExistsError:
                                 res["skipped"].append({"id": "f:%d" % fid, "why": "exists"})
                                 continue
-                            cat.update_rel(fid, new_rel, lib.rootinfo.os_rel_of(new_rel), names.match_key(new_rel),
-                                           names.loose_key(new_rel))
+                            journal.set_rel(lib, fid, new_rel)
                             cat.add_history(f["rel"], fid)
                             occupied(parent).discard(names.loose_key(f["name"]))
                             occupied(parent).add(names.loose_key(alt))
                             moved += 1
                         else:
-                            res["skipped"].append({"id": "f:%d" % fid, "why": "exists"})
+                            why = "exists"
+                            if stale and names.loose_key(new) not in occupied(parent) and \
+                                    file_ref_taken(f, parent, new):
+                                why = "ref_taken"
+                            res["skipped"].append({"id": "f:%d" % fid, "why": why})
                     break
                 todo = later
             res["files"] = moved
@@ -802,12 +851,22 @@ def batch_rename(lib, file_names, dir_names, title, kind="toplu_ad", progress=No
                 new = dirs[d]
                 parent = _parent(d)
                 ko, kn = names.loose_key(names.split_rel(d)[-1]), names.loose_key(new)
+                want_sfx = on_exists == "suffix" or ("d:" + d) in suffix or d in suffix
                 if kn != ko and kn in occupied(parent):
-                    if on_exists == "suffix" or ("d:" + d) in suffix or d in suffix:
+                    if want_sfx:
                         new = _free_name(new, occupied(parent), False)
                         kn = names.loose_key(new)
                     else:
                         res["skipped"].append({"id": "d:" + d, "why": "exists"})
+                        continue
+                if stale and kn != ko and _dir_ref_taken(lib, stale, d, new, dirs):
+                    if want_sfx:
+                        occ_p = occupied(parent)
+                        new = _free_name(new, _NameCheck(lambda k, c: k in occ_p or _dir_ref_taken(
+                            lib, stale, d, c, dirs)), False)
+                        kn = names.loose_key(new)
+                    else:
+                        res["skipped"].append({"id": "d:" + d, "why": "ref_taken"})
                         continue
                 new_rel = (parent + "/" + new) if parent else new
                 try:
@@ -833,6 +892,7 @@ def batch_rename(lib, file_names, dir_names, title, kind="toplu_ad", progress=No
             dmap = DirMap([(d, _compose(d, done)) for d in done])
             res["changes"] = len(changes)
             prog(0.62, "Engine ve Serato güncelleniyor…")
+            _check_apps(lib, bool(eng), s_need)    # adlar değişirken açılmış olabilir: yazmadan hemen önce yine bak
             r = _update_refs(lib, changes, eng, sx if s_need else None, op, dmap=dmap, sbk=sbk)
             mapping = r.pop("_serato_map", {})
             res.update(r)
@@ -843,9 +903,12 @@ def batch_rename(lib, file_names, dir_names, title, kind="toplu_ad", progress=No
             lib.bump()
             raise
         lib.bump()
-        if s_need or changes:
-            lib.analyze_serato()
-        res["verify"] = _verify(lib, eng, changes, dmap, mapping)
+        try:                    # yalnızca okuma / denetim: bir hata işlemin günlüğe yazılmasını (Geri al) engellemesin
+            if s_need or changes:
+                lib.analyze_serato()
+            res["verify"] = _verify(lib, eng, changes, dmap, mapping)
+        except Exception as e:
+            res["verify"] = {"error": str(e)}
         if own_op:
             if maint:
                 prog(0.85, "Engine koleksiyonu güncelleniyor…")
@@ -894,6 +957,63 @@ def _verify(lib, eng, changes, dmap, mapping):
 
 def _like(prefix):
     return prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+def engine_evidence(t):
+    """Bir Engine kaydının hangi şarkı olduğuna dair kanıt: (boyut, başlık, sanatçı, süre)."""
+    return (t.get("fileBytes"), t.get("title"), t.get("artist"), t.get("length"))
+
+
+def stale_ref_keys(eng_ev, sx, moving_keys):
+    """Engine ve Serato'daki yollar -> kanıt listesi [(boyut, başlık, sanatçı, süre)]; bu işlemde taşınan / adı
+    değişen dosyalarınkiler hariç. Diskte BOŞ olan bir hedef yol burada varsa oradaki kayıt başka (kaybolmuş ya da
+    katalogda bayat kalmış) bir şarkınındır: dosya oraya adlandırılırsa Engine'de o şarkının cue'larıyla, Serato
+    crate'lerinde o şarkı yerine bu dosya çalar (yanlış şarkı)."""
+    out = {k: list(v) for k, v in (eng_ev or {}).items()}
+    if sx and sx["raws"]:
+        for k, raws in sx["by_lkey"].items():
+            for raw in raws:
+                info = sx["db"].get(raw) or {}
+                out.setdefault(k, []).append((None, info.get("title"), info.get("artist"), info.get("dur")))
+    for k in moving_keys or ():
+        out.pop(k, None)
+    return out
+
+
+def _same_song(ev, f):
+    """Kanıt bu dosya için ne diyor? True: aynı şarkı (aynı bayt boyutu ya da aynı başlık + sanatçı, süre de
+    tutuyorsa), False: başka şarkı (başlık ve sanatçı belli ve ikisi de farklı), None: bilinmiyor."""
+    size, title, artist, dur = ev
+    if size and f.get("size") and int(size) == int(f["size"]):
+        return True
+    if title and artist and f.get("title") and f.get("artist"):
+        t_ok = names.fold(title) == names.fold(f["title"])
+        a_ok = names.fold(artist) == names.fold(f["artist"])
+        if t_ok and a_ok:
+            try:
+                return not (dur and f.get("duration")) or abs(float(dur) - float(f["duration"])) <= 2.0
+            except (TypeError, ValueError):
+                return True
+        if not t_ok and not a_ok:
+            return False
+    return None
+
+
+def ref_taken(lib, stale, final, current, f):
+    """'final' yolunda BAŞKA bir şarkının Engine / Serato kaydı var mı? Yalnızca harf biçimi / büyük-küçük harf
+    değişiyorsa kendi kaydıdır. O yolun eski katalog satırı aynı sesi gösteriyorsa ya da kayıtlar boyut / başlık +
+    sanatçı ile bu şarkıyı gösteriyorsa (eski yerine dönüyor) kayıtlar bu dosyanındır ve bağlanır."""
+    k = names.loose_key(final)
+    evs = stale.get(k)
+    if not evs or k == names.loose_key(current):
+        return False
+    if f.get("qsig"):
+        for r in lib.catalog.q("SELECT qsig, alen FROM files WHERE lkey=? AND id<>? AND qsig IS NOT NULL",
+                               (k, f.get("id") or 0)):
+            if r["qsig"] == f["qsig"] and r["alen"] == f.get("alen"):
+                return False
+    said = [_same_song(ev, f) for ev in evs]
+    return not (True in said and False not in said)       # en az bir kanıt aynı şarkı diyor, hiçbiri başka demiyor
 
 
 def move_folder(lib, rel, new_parent, progress=None):

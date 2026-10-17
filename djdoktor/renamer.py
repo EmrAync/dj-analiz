@@ -274,6 +274,8 @@ def transform(name, is_file, rules):
     if rules.get("trim"):
         stem = step("trim", stem, stem.strip(" .-_"))
     stem = step("illegal", stem, _fix_illegal(stem))      # en sonda: harf çevirisi ':' üretebilir, 'Con' -> 'Con_'
+    if stem.startswith("."):                               # '.x' / '._x' gizli ya da Mac çöpü sayılır: olmasın
+        stem = step("trim", stem, stem.lstrip(". "))
     if not stem.strip(" ."):
         return name, ["empty"]
     if rules.get("ext_lower") and ext:
@@ -333,17 +335,24 @@ def _scope_key(sc):
 # ---------------------------------------------------------------------------
 # Önizleme
 # ---------------------------------------------------------------------------
-def _refs_by_file(lib):
-    """{fid: (engine_kayıt, serato_kayıt)} — sayılar (önizlemede 'Engine 3, Serato 5 kayıt güncellenecek')."""
-    eng = {}
+def _refs_by_file(lib, rel_of):
+    """({fid: engine_kayıt_sayısı}, serato_dizini, {Engine yol anahtarı: [kanıt]}) — önizlemede 'Engine 3, Serato 5
+    kayıt güncellenecek' ve başka bir şarkının eski kaydına adlandırma denetimi için. rel_of: {fid: rel}"""
+    eng, ev = {}, {}
     try:
         st = lib.engine_state()
         for fid, rows in st["by_file"].items():
             eng[fid] = len(rows)
+            if fid in rel_of:
+                ev.setdefault(names.loose_key(rel_of[fid]), []).extend(
+                    relocate.engine_evidence(st["tracks"][tid]) for tid, _m in rows)
+        for tid, rel, _m in st["orphans"]:
+            if rel:
+                ev.setdefault(names.loose_key(rel), []).append(relocate.engine_evidence(st["tracks"][tid]))
     except Exception:
         pass
     sx = lib.serato_index()
-    return eng, sx
+    return eng, sx, ev
 
 
 def _ser_count(sx, rel):
@@ -364,7 +373,7 @@ def plan(lib, rules=None, scope=None, targets="both", limit=20000, preset=None):
     targets = targets if targets in ("files", "dirs", "both") else "both"
     cat = lib.catalog
     with lib.lock:
-        rows = cat.q("SELECT id, rel, name, kind, size, qsig, alen FROM files WHERE present=1")
+        rows = cat.q("SELECT id, rel, name, kind, size, qsig, alen, duration, title, artist FROM files WHERE present=1")
         rules_ign = [names.loose_key(r) for r, a in cat.folder_rules().items() if a == "ignore"]
         mr = lib.music_root()
         gens = {names.loose_key(g["rel"]): g for g in lib.genre_rows()}
@@ -380,7 +389,7 @@ def plan(lib, rules=None, scope=None, targets="both", limit=20000, preset=None):
             if names.loose_key("/".join(parts[:i])) in ign:
                 return True
         return False
-    eng_n, sx = _refs_by_file(lib)
+    eng_n, sx, eng_ev = _refs_by_file(lib, {r["id"]: r["rel"] for r in rows})
     by_rel = {}
     file_items, dir_set = [], {}
     for r in rows:
@@ -433,42 +442,52 @@ def plan(lib, rules=None, scope=None, targets="both", limit=20000, preset=None):
             ents = os.listdir(lib.rootinfo.os_path(parent) if parent else lib.root)
         except OSError:
             ents = []
-        stay = {}
-        present_keys = set()
-        for e in ents:
-            c = lib.rootinfo.canonical(e)
-            present_keys.add(names.loose_key(c))
-            if (parent, c) in ren_old:
-                continue
-            stay.setdefault(names.loose_key(c), c)
-        seen = {}
-        for it in sorted(its, key=lambda x: (x["kind"] != "dir", x["rel"])):
-            it["conflict"] = None
-            it["with"] = None
-            if it["why"] == ["empty"]:
-                it["conflict"] = "empty"
-                continue
-            if names.loose_key(it["old"]) not in present_keys:
-                it["conflict"] = "gone"
-                continue
-            k = names.loose_key(it["new"])
-            if k in stay:
-                other = (parent + "/" + stay[k]) if parent else stay[k]
-                it["with"] = other
-                it["conflict"] = "exists"
-                o = by_rel.get(other) or cat.file_by_rel(other)
-                src = by_rel.get(it["rel"])
-                if it["kind"] == "file" and o and src and o.get("qsig") and o.get("qsig") == src.get("qsig") and \
-                        o.get("alen") == src.get("alen"):
-                    it["conflict"] = "same_audio"
-            elif k in seen:
-                it["conflict"] = "twin"
-                it["with"] = seen[k]["rel"]
-                if not seen[k].get("conflict"):
-                    seen[k]["conflict"] = "twin"
-                    seen[k]["with"] = it["rel"]
-            else:
-                seen[k] = it
+        # çakışan (adı değişmeyecek) öğeler eski adlarını tutmaya devam eder: onlara adlandırılan başka öğeler de
+        # çakışır (A -> B, ama B -> C yapılamıyorsa A da yapılamaz). Birkaç turda oturur.
+        kept = set()
+        for _round in range(12):
+            stay = {}
+            present_keys = set()
+            for e in ents:
+                c = lib.rootinfo.canonical(e)
+                present_keys.add(names.loose_key(c))
+                if (parent, c) in ren_old and c not in kept:
+                    continue
+                stay.setdefault(names.loose_key(c), c)
+            seen = {}
+            for it in sorted(its, key=lambda x: (x["kind"] != "dir", x["rel"])):
+                if it["old"] in kept:
+                    continue                # önceki turda çakıştı: nedeni aynen kalır
+                it["conflict"] = None
+                it["with"] = None
+                if it["why"] == ["empty"]:
+                    it["conflict"] = "empty"
+                    continue
+                if names.loose_key(it["old"]) not in present_keys:
+                    it["conflict"] = "gone"
+                    continue
+                k = names.loose_key(it["new"])
+                if k in stay:
+                    other = (parent + "/" + stay[k]) if parent else stay[k]
+                    it["with"] = other
+                    it["conflict"] = "exists"
+                    o = by_rel.get(other) or cat.file_by_rel(other)
+                    src = by_rel.get(it["rel"])
+                    if it["kind"] == "file" and o and src and o.get("qsig") and o.get("qsig") == src.get("qsig") and \
+                            o.get("alen") == src.get("alen"):
+                        it["conflict"] = "same_audio"
+                elif k in seen:
+                    it["conflict"] = "twin"
+                    it["with"] = seen[k]["rel"]
+                    if not seen[k].get("conflict"):
+                        seen[k]["conflict"] = "twin"
+                        seen[k]["with"] = it["rel"]
+                else:
+                    seen[k] = it
+            now = {it["old"] for it in its if it["conflict"]}
+            if now <= kept:
+                break
+            kept |= now
     # tür klasörü: başka bir türle aynı ada düşmesin
     gnames = {}
     for gk, g in gens.items():
@@ -494,6 +513,34 @@ def plan(lib, rules=None, scope=None, targets="both", limit=20000, preset=None):
                 d = "/".join(parts[:i])
                 if d in dir_new:
                     files_under.setdefault(d, []).append(r)
+    # başka bir şarkının eski Engine / Serato kaydına düşen ad (dosyası kaybolmuş ya da katalogda bayat): o kayıt
+    # bu dosyayı gösterirdi (yanlış şarkı, yanlış cue) -> çakışma; ' (2)' ile yine de yapılabilir
+    # son yollar yalnızca gerçekten adı değişecek (çakışmayan) klasörlerle hesaplanır
+    done = {it["rel"]: it["new"] for it in items if it["kind"] == "dir" and not it["conflict"]}
+    moving = {names.loose_key(it["rel"]) for it in items if it["kind"] == "file"}
+    for d in dir_new:
+        moving.update(names.loose_key(r["rel"]) for r in files_under.get(d, ()))
+    stale = relocate.stale_ref_keys(eng_ev, sx, moving)
+    if stale:
+        for it in items:
+            if it["conflict"]:
+                continue
+            if it["kind"] == "file":
+                p = names.parent_rel(it["rel"])
+                fp = relocate._compose(p, done) if p else ""
+                final = (fp + "/" + it["new"]) if fp else it["new"]
+                if relocate.ref_taken(lib, stale, final, it["rel"], by_rel.get(it["rel"]) or {"id": it["fid"]}):
+                    it["conflict"], it["with"] = "ref_taken", final
+            else:
+                p = names.parent_rel(it["rel"])
+                base = names.split_rel(relocate._compose(p, done) if p else "") + [it["new"]]
+                pre = it["rel"] + "/"
+                for r in files_under.get(it["rel"], ()):
+                    final = "/".join(base + names.split_rel(r["rel"][len(pre):]))
+                    if relocate.ref_taken(lib, stale, final, r["rel"], r):
+                        it["conflict"], it["with"] = "ref_taken", final
+                        break
+    done = {it["rel"]: it["new"] for it in items if it["kind"] == "dir" and not it["conflict"]}
     ser_n = {}
 
     def sn(r):
@@ -696,6 +743,19 @@ def rename_one(lib, kind, ref, new_name, dry_run=False, progress=None):
                        "exists")
     files = {f["id"]: new} if is_file else {}
     dirs = {} if is_file else {rel: new}
+    if names.loose_key(new) != names.loose_key(old):
+        # bu adla başka (kaybolmuş) bir şarkının Engine / Serato kaydı var mı? (önizlemede hemen söylensin)
+        if is_file:
+            moving = {names.loose_key(rel)}
+        else:
+            moving = {names.loose_key(r["rel"]) for r in cat.q("SELECT rel FROM files WHERE present=1 AND rel LIKE ? "
+                                                                "ESCAPE '\\'", (relocate._like(rel + "/"),))}
+        _n, sx, eng_ev = _refs_by_file(lib, {r["id"]: r["rel"] for r in cat.q("SELECT id, rel FROM files WHERE present=1")})
+        stale = relocate.stale_ref_keys(eng_ev, sx, moving)
+        hit = relocate.ref_taken(lib, stale, (parent + "/" + new) if parent else new, rel, f) if is_file else \
+            relocate._dir_ref_taken(lib, stale, rel, new, {})
+        if hit:
+            raise _err("Engine / Serato'da bu adla başka bir şarkının kaydı var. Başka bir ad seçin.", "ref_taken")
     if dry_run:
         out = preview_refs(lib, files, dirs)
         out.update({"old": names.display(old), "new": names.display(new), "changed": why})
@@ -704,6 +764,8 @@ def rename_one(lib, kind, ref, new_name, dry_run=False, progress=None):
     res = relocate.batch_rename(lib, files, dirs, title, kind="ad_degistir", progress=progress)
     if not res["files"] and not res["dirs"]:
         why = res["skipped"][0]["why"] if res["skipped"] else ""
+        if why == "ref_taken":
+            raise _err("Engine / Serato'da bu adla başka bir şarkının kaydı var. Başka bir ad seçin.", why)
         raise _err("Ad değiştirilemedi%s." % (": aynı adda bir dosya var" if why == "exists" else ""), why or None)
     res["new"] = names.display(new)
     return res

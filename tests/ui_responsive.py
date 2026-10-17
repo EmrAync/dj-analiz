@@ -134,6 +134,15 @@ AUDIT_JS = r"""(o) => {
     bad.push(`${desc(el)} pencere dışında (sol ${Math.round(r.left)}, sağ ${Math.round(r.right)} / ${W})`);
   }
   out.push(...bad.slice(0, 6));
+  // yazı kendi kutusundan dışarı taşıyor (düğme / etiket / çip; kutu kırpmıyorsa yazı komşusunun üstüne biner)
+  const spill = [];
+  for (const el of document.querySelectorAll("button, .tag, .chip, .pill, .gchip")) {
+    if (!el.offsetParent) continue;
+    const cs = getComputedStyle(el);
+    if (cs.display === "inline" || cs.overflowX !== "visible" || cs.visibility === "hidden") continue;
+    if (el.scrollWidth > el.clientWidth + 2) spill.push(`${desc(el)} yazısı kutusundan taşıyor (${el.scrollWidth} > ${el.clientWidth})`);
+  }
+  out.push(...spill.slice(0, 4));
   // sanal tablolar: şarkı / başlık sütunu okunur genişlikte
   for (const t of document.querySelectorAll("table.t.v")) {
     if (t.hidden || !t.offsetParent) continue;
@@ -502,6 +511,127 @@ def run_setup_cfg(b, cfg):
         ctx.close()
 
 
+# Davranış gerilemeleri (bir kez, 1366x768): yenilemede kaydırma yeri, sanal tablonun kaydırmada az yeniden çizmesi,
+# Esc / dışarı tıklama ile kapanan onay pencerelerinin sonucu, boş sütunlar, ayrıntıdaki tempo aralığı
+def run_regress(b, ids):
+    ctx = b.new_context(viewport={"width": 1366, "height": 768})
+    page = ctx.new_page()
+    errs = []
+    page.on("console", lambda m: errs.append("console %s: %s" % (m.type, m.text)) if m.type == "error" else None)
+    page.on("pageerror", lambda e: errs.append("pageerror: %s" % e))
+
+    def fail(screen, msgs):
+        for m in msgs or []:
+            FAILS.append("[davranış] %s: %s" % (screen, m))
+
+    page.goto(URL)
+    page.wait_for_selector("#tabs .tab", timeout=30000)
+    page.evaluate("() => api('/api/prefs', {theme: 'light', text_size: 'normal'}).then(applyPrefs)")
+    keep = r"""async ([sel, how]) => {
+      const sc = () => document.querySelector(sel).closest('.body');
+      const fr = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      sc().scrollTop = 2400; await fr();
+      const before = sc().scrollTop;
+      await (how === 'refresh' ? refresh() : how === 'rerender' ? rerenderMain() : renderTools());
+      await fr();
+      const t = document.querySelector(sel), st = Object.values(VT).find((x) => x.table === t);
+      const top = sc().scrollTop, first = Math.floor((top - t.offsetTop) / st.h);
+      const out = [];
+      if (Math.abs(top - before) > 2) out.push(`${how}: kaydırma yeri kayboldu (${before} → ${top})`);
+      else if (st.a > first || st.b < first + 3) out.push(`${how}: görünen satırlar çizilmedi (${st.a}-${st.b}, ilk ${first})`);
+      sc().scrollTop = 0;
+      return out;
+    }"""
+    page.evaluate("gid => { S.tab = 'music'; S.view = 'g:' + gid; S.sel.clear(); S.q = ''; return refresh(true); }", ids["big_gid"])
+    page.wait_for_selector("#ttab tbody tr[data-id]")
+    fail("kaydirma_yeri_muzik", page.evaluate(keep, ["#ttab", "refresh"]))
+    fail("kaydirma_yeri_muzik", page.evaluate(keep, ["#ttab", "rerender"]))
+    # kaydırırken her satırda değil, birkaç satırda bir yeniden çizilir (tbody'nin içi değişince sayılır)
+    fail("sanal_tablo_cizim", page.evaluate(r"""async () => {
+      const t = document.getElementById('ttab'), sc = t.closest('.body'), st = Object.values(VT).find((x) => x.table === t);
+      let n = 0; const mo = new MutationObserver(() => { n++; }); mo.observe(t.tBodies[0], { childList: true });
+      const fr = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      for (let i = 0; i < 20; i++) { sc.scrollTop += Math.round(st.h / 2); await fr(); }
+      mo.disconnect(); sc.scrollTop = 0;
+      return n > 4 ? [`10 satır kaydırınca tablo ${n} kez yeniden çizildi`] : [];
+    }"""))
+    # tür renkleri: yazı ve beyaz yazılı dolgu iki temada da >= 4.5:1, CSS sınıfı .tag'in rengini gerçekten ezer
+    contrast = r"""async () => {
+      const out = [];
+      const lum = (h) => { const v = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((x) => (x <= .03928 ? x / 12.92 : Math.pow((x + .055) / 1.055, 2.4))); return .2126 * v[0] + .7152 * v[1] + .0722 * v[2]; };
+      const cr = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05); };
+      const cols = new Set([...Object.values(COLORS), ...((S.ov && S.ov.genres) || []).map((g) => g.color)]);
+      for (const c of cols) {
+        const v = {}; gStyle(c).split(';').forEach((kv) => { const [k, x] = kv.split(':'); v[k] = x; });
+        if (cr(v['--gc-t'], '#e8f0fe') < 4.5) out.push(`${c}: açık temada yazı ${v['--gc-t']} okunmuyor`);
+        if (cr(v['--gc-td'], '#1f2a44') < 4.5) out.push(`${c}: koyu temada yazı ${v['--gc-td']} okunmuyor`);
+        if (cr('#ffffff', v['--gc-f']) < 4.5) out.push(`${c}: beyaz yazılı dolgu ${v['--gc-f']} okunmuyor`);
+      }
+      const rgbHex = (s) => '#' + (s.match(/\d+/g) || []).slice(0, 3).map((x) => (+x).toString(16).padStart(2, '0')).join('');
+      for (const th of ['light', 'dark']) {
+        document.documentElement.dataset.theme = th;
+        const t = document.querySelector('#ttab .tag.gtx');
+        if (!t) { out.push('tür etiketi (.tag.gtx) yok'); break; }
+        const want = getComputedStyle(t).getPropertyValue(th === 'dark' ? '--gc-td' : '--gc-t').trim();
+        const got = rgbHex(getComputedStyle(t).color);
+        if (got !== want) out.push(`${th}: tür etiketinin rengi ${got}, beklenen ${want}`);
+      }
+      document.documentElement.dataset.theme = 'light';
+      return out;
+    }"""
+    page.evaluate("() => { S.tab = 'music'; S.view = 'all'; S.q = ''; return refresh(true); }")
+    page.wait_for_selector("#ttab tbody tr[data-id]")
+    fail("tur_rengi_kontrast", page.evaluate(contrast))
+    page.evaluate("() => { S.tab = 'tools'; S.tview = 'table'; return refresh(true); }")
+    page.wait_for_selector("#libt tbody tr[data-id]")
+    fail("kaydirma_yeri_tablo", page.evaluate(keep, ["#libt", "refresh"]))
+    fail("kaydirma_yeri_tablo", page.evaluate(keep, ["#libt", "tools"]))
+    # Esc ya da dışarı tıklama: onay "hayır", ad sorusu "boş" döner (bekleyen işlem askıda kalmaz)
+    for how in ("esc", "outside"):
+        page.evaluate("() => { window.__cb = 'bekliyor'; window.__pb = 'bekliyor'; confirmBox('Emin misin?', 'x').then((v) => { window.__cb = v; }); }")
+        page.wait_for_selector(".dialog [data-x=yes]")
+        if how == "esc":
+            page.keyboard.press("Escape")
+        else:
+            page.mouse.click(5, 5)
+        page.wait_for_timeout(100)
+        v = page.evaluate("() => window.__cb")
+        if v is not False:
+            fail("onay_" + how, ["onay penceresi kapandı ama sonuç %r" % (v,)])
+        page.evaluate("() => { promptBox('Ad', 'Ad', 'x').then((v) => { window.__pb = v; }); }")
+        page.wait_for_selector(".dialog #pv")
+        if how == "esc":
+            page.keyboard.press("Escape")
+        else:
+            page.mouse.click(5, 5)
+        page.wait_for_timeout(100)
+        v = page.evaluate("() => window.__pb")
+        if v is not None:
+            fail("ad_" + how, ["ad penceresi kapandı ama sonuç %r" % (v,)])
+    # liste tablosu: bu listede hiç olmayan BPM / Ton sütunu yer kaplamaz
+    page.evaluate("() => { S.tab = 'lists'; return refresh(true); }")
+    page.wait_for_selector("#newev")
+    page.evaluate("id => selectList(id)", ids["halay"])
+    page.wait_for_selector("#ltab tbody tr[data-ref]")
+    fail("liste_bos_sutun", page.evaluate(r"""() => {
+      const t = document.getElementById('ltab'), hid = (t.dataset.hide || '').split(' '), out = [];
+      [[4, 'bpm', 'BPM'], [5, 'key', 'Ton']].forEach(([c, k, n]) => { if (!S.items.items.some((r) => r[k]) && !hid.includes(String(c))) out.push(`hiç değeri olmayan ${n} sütunu görünüyor`); });
+      return out;
+    }"""))
+    # şarkı ayrıntısı: uyumlu şarkılar başlığı Ayarlar'daki tempo farkını gösterir
+    page.evaluate("() => api('/api/prefs', {mix_bpm_range: 8}).then((p) => { S.st.prefs = p; })")
+    page.evaluate("() => openTrack(S.items.items.find((r) => r.fid).fid)")
+    page.wait_for_selector(".drawer")
+    hd = page.evaluate("() => Array.from(document.querySelectorAll('.drawer h4')).map((h) => h.textContent).join(' | ')")
+    if "%8" not in hd:
+        fail("ayrinti_bpm", ["uyumlu şarkılar başlığı Ayarlar'daki %%8'i göstermiyor: %s" % hd])
+    page.evaluate("() => api('/api/prefs', {mix_bpm_range: 6}).then((p) => { S.st.prefs = p; })")
+    page.keyboard.press("Escape")
+    for e in errs:
+        FAILS.append("[davranış] %s" % e)
+    ctx.close()
+
+
 def wait_task(page, timeout=90000):
     page.wait_for_function("() => !document.querySelector('#taskbar .task')", timeout=timeout)
     page.wait_for_timeout(300)
@@ -570,6 +700,10 @@ with sync_playwright() as p:
         except Exception as e:  # bir görünümde akış koptuysa diğerleri yine denensin
             FAILS.append("[%s] akış durdu: %s" % (cfg[0], str(e).splitlines()[0]))
         print("  %-16s %4.1f sn" % (cfg[0], time.time() - t0))
+    try:
+        run_regress(b, ids)
+    except Exception as e:
+        FAILS.append("[davranış] akış durdu: %s" % str(e).splitlines()[0])
     FAILS.extend(perr)
     b.close()
 

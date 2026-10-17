@@ -70,6 +70,18 @@ class Op:
         return self.lib.catalog.journal_add(self.kind, self.title, payload)
 
 
+def set_rel(lib, fid, rel, moved=True):
+    """Katalogda dosyanın yeni yolu. Hedef yolda katalogda 'var' görünen başka bir satır bayattır (dosya program
+    dışında silinmiş / taşınmış, tarama henüz görmedi): 'yok' işaretlenir. Aksi hâlde UNIQUE hatası bütün işlemi
+    (binlerce dosyalık ad değiştirmeyi ya da geri almayı) düşürürdü. moved=True: dosya az önce üzerine yazmadan
+    (util.safe_rename) oraya taşındı, yani hedef boştu; False ise diskte gerçekten yoksa bayat sayılır."""
+    cat = lib.catalog
+    for r in cat.q("SELECT id, rel, os_rel FROM files WHERE rel=? AND present=1 AND id<>?", (rel, fid)):
+        if moved or not os.path.exists(lib.rootinfo.os_path(r["rel"], r["os_rel"])):
+            cat.update_file(r["id"], present=0)
+    cat.update_rel(fid, rel, lib.rootinfo.os_rel_of(rel), names.match_key(rel), names.loose_key(rel))
+
+
 class UndoNeedsForce(Exception):
     def __init__(self, msg):
         super().__init__(msg)
@@ -93,20 +105,32 @@ def _crate_path(sdir, name):
     return os.path.join(sdir, *name.split("/"))
 
 
-def _remap(rel, dirs):
-    """rel, sonradan (aynı işlemde) adı değişen bir klasörün içindeyse klasörün yeni adıyla."""
-    for old, new in dirs:
-        op_, rp = names.split_rel(old), names.split_rel(rel)
-        if len(rp) > len(op_) and names.loose_key("/".join(rp[:len(op_)])) == names.loose_key(old):
-            rel = "/".join(names.split_rel(new) + rp[len(op_):])
-    return rel
+def _remap(rel, dirs, lk):
+    """rel, sonradan (aynı işlemde) adı değişen bir klasörün içindeyse klasörün yeni adıyla.
+    dirs: [(derinlik, eski_gevşek_anahtar, yeni_parçalar)], lk: önbellekli names.loose_key."""
+    rp = names.split_rel(rel)
+    hit = False
+    for n, okey, newp in dirs:
+        if len(rp) > n and lk("/".join(rp[:n])) == okey:
+            rp = newp + rp[n:]
+            hit = True
+    return "/".join(rp) if hit else rel
 
 
 def fs_changes(lib, steps):
     """Dosya / klasör adımlarının bıraktığı şeyler hâlâ yerinde mi? (program dışında, ör. Finder'da değişmiş olabilir)
-    -> (yerinde_olmayan, eski_yeri_dolu): geri alınca o dosya taşınamaz ama Engine / Serato eski yola dönerdi."""
-    gone = taken = 0
-    mvdirs = [(i, s["old"], s["new"]) for i, s in enumerate(steps) if s["k"] == "mvdir"]
+    -> (yerinde_olmayan_sayısı, [eski yeri başka bir şeyle dolu olanların eski yolu]). Aynı işlemin sonraki adımları
+    (ör. önce karantina, sonra o yere başka kopya) hesaba katılır: geri alma onları önce çözer."""
+    memo = {}
+
+    def lk(x):
+        v = memo.get(x)
+        if v is None:
+            v = memo[x] = names.loose_key(x)
+        return v
+    mvdirs = [(i, len(names.split_rel(s["old"])), lk(s["old"]), names.split_rel(s["new"]))
+              for i, s in enumerate(steps) if s["k"] == "mvdir"]
+    ents = []
     for i, s in enumerate(steps):
         k = s["k"]
         if k == "mv" and s.get("fid"):
@@ -117,23 +141,31 @@ def fs_changes(lib, steps):
             new, old = s["dst"], s["old"]
         else:
             continue
-        later = [(o, n) for j, o, n in mvdirs if j > i]
+        later = [(n, ok, np) for j, n, ok, np in mvdirs if j > i]
         if later:
-            new, old = _remap(new, later), _remap(old, later)
-        if not os.path.exists(lib.rootinfo.os_path(new)):
+            new, old = _remap(new, later, lk), _remap(old, later, lk)
+        ents.append((old, new))
+    gone, taken = 0, []
+    later_new, later_old = set(), set()
+    for old, new in reversed(ents):
+        ko, kn = lk(old), lk(new)
+        if kn not in later_old and not os.path.exists(lib.rootinfo.os_path(new)):
             gone += 1
-        elif names.loose_key(old) != names.loose_key(new) and os.path.exists(lib.rootinfo.os_path(old)):
-            taken += 1
+        elif ko != kn and ko not in later_new and os.path.exists(lib.rootinfo.os_path(old)):
+            taken.append(old)
+        later_new.add(kn)
+        later_old.add(ko)
     return gone, taken
 
 
-def precheck(lib, steps):
+def precheck(lib, steps, gone=None):
     """Geri almadan önce: arada başka bir yerde değişiklik olmuş mu? Varsa açıklama döndürür."""
-    gone, taken = fs_changes(lib, steps)
-    if gone or taken:
+    if gone is None:
+        gone = fs_changes(lib, steps)[0]
+    if gone:
         return ("Bu işlemden sonra %d dosya / klasörün adı ya da yeri program dışında (ör. Finder'da) değişmiş. "
                 "Geri alırsanız onlar olduğu gibi kalır; Engine ve Serato'daki yollarını sonra Araçlar > Adlar > "
-                "Kayıp yollar bağlar." % (gone + taken))
+                "Kayıp yollar bağlar." % gone)
     for s in steps:
         k = s["k"]
         if k == "engsnap":
@@ -236,13 +268,15 @@ def apply_inverse(lib, steps, force=False, notes=None, managed=None):
         elif k == "mvdir":
             src = lib.rootinfo.os_path(s["new"])
             dst = lib.rootinfo.os_path(s["old"])
+            moved = False
             if os.path.isdir(src) and (not os.path.exists(dst) or names.loose_key(s["new"]) == names.loose_key(s["old"])):
                 _rename(src, dst)
+                moved = True
             fl = s.get("files") or []
             for b in range(0, len(fl), 400):          # katalog yazımları paketlerle (binlerce dosyada hızlı)
                 with cat.tx():
                     for fid, old, _new in fl[b:b + 400]:
-                        cat.update_rel(fid, old, lib.rootinfo.os_rel_of(old), names.match_key(old), names.loose_key(old))
+                        set_rel(lib, fid, old, moved)
         elif k == "copy":
             p_ = lib.rootinfo.os_path(s["rel"])
             if os.path.exists(p_):
@@ -335,24 +369,26 @@ def _file_step(lib, s):
     if s["k"] == "mv":
         src = lib.rootinfo.os_path(s["new"])
         dst = lib.rootinfo.os_path(s["old"])
+        moved = False
         if os.path.exists(src) and (not os.path.exists(dst) or names.loose_key(s["new"]) == names.loose_key(s["old"])):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             try:
                 _rename(src, dst)
+                moved = True
             except OSError:
                 return  # eski yerde başka bir dosya var: dosya yeni yerinde kalır, katalog da öyle bilir
         if s.get("fid"):
-            old = s["old"]
-            cat.update_rel(s["fid"], old, lib.rootinfo.os_rel_of(old), names.match_key(old), names.loose_key(old))
+            set_rel(lib, s["fid"], s["old"], moved)
     elif s["k"] == "q":
         src = lib.rootinfo.os_path(s["dst"])
         dst = lib.rootinfo.os_path(s["old"])
+        moved = False
         if os.path.exists(src) and not os.path.exists(dst):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             os.rename(src, dst)
+            moved = True
         if s.get("fid"):
-            old = s["old"]
-            cat.update_rel(s["fid"], old, lib.rootinfo.os_rel_of(old), names.match_key(old), names.loose_key(old))
+            set_rel(lib, s["fid"], s["old"], moved)
             cat.update_file(s["fid"], present=1, origin=s.get("origin") or "library")
 
 
@@ -388,8 +424,14 @@ def undo_last(lib, force=False, progress=None):
             raise UserError("Engine DJ açık. Geri almak için Engine DJ'i kapatın.", "engine_open")
         if need_serato and lib.serato_open(fresh=True):
             raise UserError("Serato açık. Geri almak için Serato'yu kapatın.", "serato_open")
+        # eski yerde artık BAŞKA bir dosya / klasör var: geri alınırsa Engine / Serato o başka dosyayı gösterirdi
+        # (yanlış şarkı çalar). Zorla da yapılmaz; kullanıcı önce o dosyanın adını değiştirir.
+        gone, taken = fs_changes(lib, steps)
+        if taken:
+            raise UserError("Geri alınamıyor: eski yerinde artık başka bir dosya / klasör var: “%s”. Önce onun adını "
+                            "değiştirin ya da başka yere taşıyın." % names.display(taken[0]), "undo_blocked")
         if not force:
-            why = precheck(lib, steps)
+            why = precheck(lib, steps, gone)
             if why:
                 raise UndoNeedsForce(why)
         if progress:

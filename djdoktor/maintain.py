@@ -112,7 +112,7 @@ def run(lib, op=None, progress=None, relink=True):
     dbs = lib.engine_dbs()
     if not dbs:
         return out
-    if lib.engine_open():
+    if lib.engine_open(fresh=True):            # yazmadan hemen önce taze denetim
         out["skipped"] = "engine_open"
         return out
     with lib.lock:

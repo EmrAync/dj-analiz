@@ -134,7 +134,7 @@ def fix_junk(lib, progress=None):
                              "AND rel NOT LIKE '_DJDoktor_/%'")
         if not rows:
             return {"moved": 0}
-        if lib.serato_open():
+        if lib.serato_open(fresh=True):
             raise _err("Serato açık; lütfen kapatın.", "serato_open")
         op = journal.Op(lib, "karantina", "%d çöp dosya karantinaya taşındı" % len(rows))
         if progress:
@@ -188,7 +188,7 @@ def fix_names(lib, emoji=False, progress=None):
 def repair_engine(lib, progress=None):
     """Engine'deki bozuk yolları (ve başka yerde bulunan dosyaları) şimdi onarır."""
     from . import maintain
-    if lib.engine_db() and lib.engine_open():
+    if lib.engine_db() and lib.engine_open(fresh=True):
         raise _err("Engine DJ açık. Onarmak için Engine DJ'i kapatın.", "engine_open")
     op = journal.Op(lib, "bakim", "Engine yolları onarıldı")
     with lib.lock:
@@ -207,7 +207,7 @@ def remove_missing(lib, tids=None, progress=None):
     d = lib.engine_db()
     if not d:
         raise _err("Bu SSD'de Engine kütüphanesi yok.", "no_engine")
-    if lib.engine_open():
+    if lib.engine_open(fresh=True):
         raise _err("Engine DJ açık. Bu işlem için Engine DJ'i kapatın.", "engine_open")
     with lib.lock:
         st = lib.engine_state(force=True)

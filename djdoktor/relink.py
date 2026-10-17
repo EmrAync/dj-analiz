@@ -335,8 +335,10 @@ def _folders_for_meta(lib, ix, items, inferred):
     oylamayla bulunan). -> [{'old','new','refs','genre','rule','music_root'}]"""
     cat = lib.catalog
     want = {}
+    genre_keys = set()
     for g in cat.genres():
         want.setdefault(g["rel"], {}).update(genre=g["id"])
+        genre_keys.add(names.loose_key(g["rel"]))
     for r0, act in cat.folder_rules().items():
         want.setdefault(r0, {}).update(rule=True)
     mr = lib.music_root()
@@ -383,6 +385,9 @@ def _folders_for_meta(lib, ix, items, inferred):
         if new and not sure and kvotes:
             kb, kv = sorted(kvotes.items(), key=lambda kv_: -kv_[1])[0]
             sure = kb == new and kv * 2 > nk and kv >= 2
+        if new and flags.get("genre") and not flags.get("rule") and not flags.get("music_root") and \
+                names.loose_key(new) in genre_keys:
+            new = None                  # o klasör zaten başka bir tür (Finder'da iki tür birleştirilmiş): eşlenmez
         if new and os.path.isdir(lib.rootinfo.os_path(new)):
             out.append({"old": rel, "new": new, "genre": flags.get("genre"), "rule": bool(flags.get("rule")),
                         "music_root": bool(flags.get("music_root")), "sure": sure})
@@ -581,6 +586,7 @@ def apply(lib, token=None, keys=None, picks=None, include_medium=False, progress
             for key, rows in by_db.items():
                 d = dbs.get(key)
                 if not d:
+                    skipped_keys.update(it["key"] for it, _f, _n in rows)     # o kütüphane bu bilgisayarda yok
                     continue
                 try:
                     engine.preflight(d["path"])
@@ -664,6 +670,8 @@ def apply(lib, token=None, keys=None, picks=None, include_medium=False, progress
         if need_s:
             lib.analyze_serato()
         done = [it["key"] for it, _f, _n in need_e + need_s if it["key"] not in skipped_keys]
+        if done and len(done) != n:
+            op.title = "Yolu değişen %d kayıt bağlandı%s" % (len(done), " (otomatik)" if auto else "")
         op.info["relink_keys"] = done               # geri alınırsa arka plan bunları yeniden bağlamaz
         if not auto:
             undecline(lib, done)                    # kullanıcı kendisi seçti: artık 'geri alınmış' sayılmaz

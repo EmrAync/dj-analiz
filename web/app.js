@@ -44,6 +44,9 @@ const S = {
 //   DJD.toolView({..., width})    -> width: "wide" (çok sütunlu tablo, tam genişlik) | "read" (kartlar, okuma genişliği)
 //   table "djd:cols" olayı         -> sütun modeli bir sütunu gizleyince / gösterince (e.detail.hidden = [sütun no])
 //   .split > .side / .picker       -> kenarından sürüklenip genişletilir (kendiliğinden; genişlik sekme başına saklanır)
+//   DJD.restoreScroll(scroller, top) -> yeniden çizimden sonra kaydırma yerini geri koy; sanal tabloları (vtSet) ÖNCE kur
+//   modal(html, cls, onClose)     -> onClose: Esc / dışarı tıklama / closeModal() ile kapanınca bir kez çağrılır
+//   DJD.genreStyle(renk)          -> style="…" değeri; .gtx (renkli yazı) / .gfill (beyaz yazılı dolgu) ile tür rengi her temada okunur
 // ---------------------------------------------------------------------------
 const DJD = {
   tabs: [], toolViews: [], settingsParts: [], healthActs: {}, trackActs: [], listMenus: [],
@@ -56,6 +59,8 @@ const DJD = {
   layout() { layoutScan(true); },
   fitCols(table) { if (table) { fitCols(table); fitWatch(table); } },
   popover(el, anchor) { placePop(el, anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : anchor); },
+  restoreScroll(scroller, top) { vtRestore(scroller, top); },
+  genreStyle(color) { return gStyle(color); },
 };
 window.DJD = DJD;
 
@@ -163,26 +168,33 @@ function toast(msg, kind) {
   setTimeout(kill, kind === "err" ? 9000 : 4500);
 }
 
-function modal(html, cls = "") {
+// Pencere: modal(html, cls, onClose). Esc, dışarı tıklama, closeModal() ya da yerine yeni pencere açılması onClose'u
+// bir kez çağırır (ör. onay penceresi "hayır" döner; bekleyen işlem askıda kalmaz).
+function modal(html, cls = "", onClose) {
   const root = $("#modal");
+  const old = root.firstElementChild;
   root.innerHTML = `<div class="overlay"><div class="dialog ${cls}">${html}</div></div>`;
+  modalGone(old);
   const ov = root.firstElementChild;
-  const close = () => { root.innerHTML = ""; };
+  ov._onClose = onClose || null;
+  const close = () => { const cur = root.firstElementChild; root.innerHTML = ""; modalGone(cur); };
   ov.addEventListener("mousedown", (e) => { if (e.target === ov) close(); });
   const f = ov.querySelector("input:not([type=radio]):not([type=checkbox]), select, textarea");
   if (f) setTimeout(() => f.focus({ preventScroll: true }), 30);
   return { el: ov, close };
 }
-function closeModal() { $("#modal").innerHTML = ""; }
+function modalGone(ov) { const cb = ov && ov._onClose; if (cb) { ov._onClose = null; try { cb(); } catch (e) { /* */ } } }
+function closeModal() { const r = $("#modal"), cur = r.firstElementChild; r.innerHTML = ""; modalGone(cur); }
 
 function confirmBox(title, text, okLabel = "Tamam", danger = false) {
   return new Promise((resolve) => {
     const m = modal(`<div class="dh">${esc(title)}</div><div class="db">${esc(text)}</div>
-      <div class="df"><button class="btn" data-x="no">Vazgeç</button><button class="btn ${danger ? "danger" : "primary"}" data-x="yes">${esc(okLabel)}</button></div>`);
+      <div class="df"><button class="btn" data-x="no">Vazgeç</button><button class="btn ${danger ? "danger" : "primary"}" data-x="yes">${esc(okLabel)}</button></div>`,
+      "", () => resolve(false));
     m.el.addEventListener("click", (e) => {
       const b = e.target.closest("[data-x]");
       if (!b) return;
-      m.close(); resolve(b.dataset.x === "yes");
+      resolve(b.dataset.x === "yes"); m.close();
     });
   });
 }
@@ -191,10 +203,11 @@ function promptBox(title, label, value = "", okLabel = "Kaydet", hint = "") {
   return new Promise((resolve) => {
     const m = modal(`<div class="dh">${esc(title)}</div><div class="db">
       <label class="field"><span>${esc(label)}</span><input id="pv" value="${esc(value)}"></label>${hint ? `<div class="muted small">${hint}</div>` : ""}</div>
-      <div class="df"><button class="btn" data-x="no">Vazgeç</button><button class="btn primary" data-x="yes">${esc(okLabel)}</button></div>`);
+      <div class="df"><button class="btn" data-x="no">Vazgeç</button><button class="btn primary" data-x="yes">${esc(okLabel)}</button></div>`,
+      "", () => resolve(null));
     const inp = $("#pv", m.el);
     setTimeout(() => { inp.focus({ preventScroll: true }); inp.select(); }, 40);
-    const done = (ok) => { const v = inp.value.trim(); m.close(); resolve(ok && v ? v : null); };
+    const done = (ok) => { const v = inp.value.trim(); resolve(ok && v ? v : null); m.close(); };
     inp.addEventListener("keydown", (e) => { if (e.key === "Enter") done(true); if (e.key === "Escape") { e.preventDefault(); done(false); } });
     m.el.addEventListener("click", (e) => { const b = e.target.closest("[data-x]"); if (b) done(b.dataset.x === "yes"); });
   });
@@ -309,6 +322,28 @@ function dotHtml(d, title) {
 }
 
 function genreById(id) { return ((S.ov && S.ov.genres) || []).find((g) => g.id === +id); }
+
+// Tür renkleri (sarı, turuncu, camgöbeği…) yazı ya da beyaz yazılı dolgu olunca da okunur kalsın (≥ 4.5:1, iki temada):
+//   gStyle(renk) -> style değeri: --gc (asıl renk), --gc-t / --gc-td (açık / koyu temada yazı rengi), --gc-f (dolgu)
+//   CSS: .gtx = renkli yazı + asıl renkte çerçeve (ör. tür etiketi), .gfill = beyaz yazılı dolgu (tür düğmesi, çip)
+// Renk zaten yeterliyse olduğu gibi kalır; değilse yazı mürekkebe doğru, dolgu siyaha doğru adım adım koyulaşır.
+const GSTY = new Map();
+function gStyle(c) {
+  c = String(c || "").trim().toLowerCase();
+  if (GSTY.has(c)) return GSTY.get(c);
+  const m = /^#([0-9a-f]{6})$/.exec(c);
+  if (!m) { const s = /^[#a-z0-9(),.% ]{1,40}$/.test(c) ? `--gc:${c};--gc-t:${c};--gc-td:${c};--gc-f:${c}` : ""; GSTY.set(c, s); return s; }
+  const rgb = (h) => [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const lum = (v) => { const f = v.map((x) => { x /= 255; return x <= .03928 ? x / 12.92 : Math.pow((x + .055) / 1.055, 2.4); }); return .2126 * f[0] + .7152 * f[1] + .0722 * f[2]; };
+  const cr = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05); };
+  const hex = (v) => "#" + v.map((x) => Math.round(x).toString(16).padStart(2, "0")).join("");
+  const fit = (base, to, bg) => { for (let p = 0; p <= 1; p += .05) { const v = base.map((x, i) => x + (to[i] - x) * p); if (cr(v, bg) >= 4.6) return hex(v); } return hex(to); };
+  const v = rgb(m[1]);
+  // en kötü zeminler: açıkta seçili satır (#e8f0fe), koyuda seçili satır (#1f2a44)
+  const s = `--gc:${c};--gc-t:${fit(v, [29, 35, 48], [232, 240, 254])};--gc-td:${fit(v, [233, 235, 239], [31, 42, 68])};--gc-f:${fit(v, [0, 0, 0], [255, 255, 255])}`;
+  GSTY.set(c, s);
+  return s;
+}
 
 // ---------------------------------------------------------------------------
 // Yerleşim motoru: tek bir ResizeObserver
@@ -633,9 +668,12 @@ function vtDraw(st, force) {
   const head = st.table.tHead ? st.table.tHead.offsetHeight : 0;
   const y0 = st.scroller.scrollTop - st.table.offsetTop - head;
   const vh = st.scroller.clientHeight || 800;
-  const over = 15;
-  const a = Math.max(0, Math.min(n, Math.floor(y0 / st.h)) - over);
-  const b = Math.min(n, Math.max(0, Math.ceil((y0 + vh) / st.h)) + over);
+  const over = 15, edge = 4;
+  const f = Math.max(0, Math.min(n, Math.floor(y0 / st.h))), l = Math.min(n, Math.max(0, Math.ceil((y0 + vh) / st.h)));
+  // çizili aralık görünen satırları kenardan en az `edge` satır payla hâlâ kapsıyorsa dokunma: kaydırırken her
+  // satırda değil ~10 satırda bir çizilir (tbody yeniden kurulumu + yerleşim her karede olmasın)
+  if (!force && st.a >= 0 && st.a <= Math.max(0, f - edge) && st.b >= Math.min(n, l + edge)) return;
+  const a = Math.max(0, f - over), b = Math.min(n, l + over);
   if (!force && a === st.a && b === st.b) return;
   st.a = a; st.b = b;
   let html = a > 0 ? `<tr class="vpad"><td colspan="${st.cols}" style="height:${a * st.h}px"></td></tr>` : "";
@@ -650,6 +688,13 @@ function vtDraw(st, force) {
   }
 }
 function vtRedraw(id) { const st = VT[id]; if (st) vtDraw(st, true); }
+// Yeniden çizimden sonra kaydırma yerini geri koy. Sanal tablo ÖNCE vtSet ile kurulmalı: boş tabloda scrollTop 0'a
+// kırpılır. Bu kaydırıcıdaki sanal tablolar yeni yere göre hemen çizilir (bir kare boş/yanlış satır görünmez).
+function vtRestore(scroller, top) {
+  if (!scroller || !(top > 0)) return;
+  scroller.scrollTop = top;
+  Object.values(VT).forEach((st) => { if (st.scroller === scroller && st.table.isConnected) vtDraw(st, true); });
+}
 
 // ---------------------------------------------------------------------------
 // Üst çubuk her genişlikte sığar: sığmadıkça sırayla kısalır (f1..f4, bkz. style.css); en sonda sığmayan
@@ -1012,7 +1057,7 @@ function renderSetup() {
     <div class="card">
       <h3>Türler</h3>
       <div class="muted small" style="margin-bottom:10px">Ada tıklayıp değiştirebilirsin (ör. “Halay” yerine “HALAYLAR”). ✕ o türü kaldırır; şarkılarını sonra tek tek seçersin.</div>
-      <div class="gchips">${d.genres.map((g) => { const off = su.engine_off.includes(g.name); return `<span class="gchip" style="background:${esc(g.color)}${off ? ";opacity:.75" : ""}"><span data-gren="${esc(g.name)}" style="cursor:pointer" title="Adını değiştir: ${esc(g.folder)}">${esc(g.folder)}</span><span class="n">${fmtN(g.count)}</span><button class="x" data-geng="${esc(g.name)}" title="${off ? "Engine'e eklenmeyecek — tıkla: ekle" : "Engine'e eklenecek — tıkla: ekleme"}" style="width:auto;padding:0 7px;${off ? "text-decoration:line-through" : ""}">Engine</button><button class="x" data-gdel="${esc(g.name)}" title="Kaldır">✕</button></span>`; }).join("")}
+      <div class="gchips">${d.genres.map((g) => { const off = su.engine_off.includes(g.name); return `<span class="gchip gfill" style="${gStyle(g.color)}${off ? ";opacity:.75" : ""}"><span data-gren="${esc(g.name)}" style="cursor:pointer" title="Adını değiştir: ${esc(g.folder)}">${esc(g.folder)}</span><span class="n">${fmtN(g.count)}</span><button class="x" data-geng="${esc(g.name)}" title="${off ? "Engine'e eklenmeyecek — tıkla: ekle" : "Engine'e eklenecek — tıkla: ekleme"}" style="width:auto;padding:0 7px;${off ? "text-decoration:line-through" : ""}">Engine</button><button class="x" data-gdel="${esc(g.name)}" title="Kaldır">✕</button></span>`; }).join("")}
       <button class="btn sm" id="gadd">+ Tür ekle</button></div>
       <label class="field" style="max-width:22rem;margin-top:16px"><span>Ana müzik klasörünün adı (SSD'de)</span><input id="sroot" value="${esc(su.root)}"></label>
     </div>
@@ -1128,10 +1173,9 @@ function renderMusic() {
   const sideScroll = $(".side .scroll") ? $(".side .scroll").scrollTop : 0;
   v.innerHTML = `<div class="split">${side}<section class="main" id="mmain">${main}</section></div>`;
   S._lastView = S.view;
-  const nb = $("#mmain .body");
-  if (nb && keep) nb.scrollTop = keep;
   if ($(".side .scroll")) $(".side .scroll").scrollTop = sideScroll;
   if (S.view !== "dupes") drawTracks();
+  vtRestore($("#mmain .body"), keep);                   // tablo çizildikten sonra (yoksa kaydırma yeri kaybolur)
   wireMusic();
 }
 
@@ -1165,7 +1209,7 @@ function trackRowHtml(r) {
   if (S.view === "unsorted") {
     if (r.copy_of && r.keep_tags) extra = `<button class="btn sm shr" data-dropcopy="${esc(r.group)}" title="Bu dosyanın aynısı ${esc(r.copy_of)} klasöründe var. Bu kopyadaki not / cue / ton bilgisi daha zengin: bu dosya asıl yere geçer, eski dosya karantinaya taşınır. Listeler değişmez."><span class="ell">⧉ ${esc(r.copy_of)} içinde var · birleştir</span></button>`;
     else if (r.copy_of) extra = `<button class="btn sm shr" data-dropcopy="${esc(r.group)}" title="Bu dosyanın aynısı ${esc(r.copy_of)} klasöründe var. Bu kopya karantinaya taşınır; listeler asıl dosyayı gösterir."><span class="ell">⧉ ${esc(r.copy_of)} içinde var · kaldır</span></button>`;
-    else if (r.sugg) extra = `<button class="gbtn shr ${r.sugg_new ? "outline" : ""}" style="background:${COLORS[r.sugg] || (genreByName(r.sugg) || {}).color || "#64748b"};color:${r.sugg_new ? COLORS[r.sugg] || "#64748b" : "#fff"}" data-sugg="${r.id}" title="${esc(r.sugg)}${r.why ? " · " + esc(r.why) : ""}${r.sugg_new ? " (yeni tür oluşturulur)" : ""}"><span class="ell">→ ${esc(r.sugg)}</span></button>`;
+    else if (r.sugg) extra = `<button class="gbtn shr ${r.sugg_new ? "outline gtx" : "gfill"}" style="${gStyle(COLORS[r.sugg] || (genreByName(r.sugg) || {}).color || "#64748b")}" data-sugg="${r.id}" title="${esc(r.sugg)}${r.why ? " · " + esc(r.why) : ""}${r.sugg_new ? " (yeni tür oluşturulur)" : ""}"><span class="ell">→ ${esc(r.sugg)}</span></button>`;
     extra += `<button class="btn sm" data-pickg="${r.id}">Tür seç ▾</button>`;
   } else if (S.view === "problems") {
     if (r.bad) extra = `<span class="tag bad shr">bozuk / yarım</span><button class="btn sm shr" data-quar="${r.id}" title="Karantinaya al"><span class="ell">Karantinaya al</span></button>`;
@@ -1182,7 +1226,7 @@ function trackRowHtml(r) {
     <td class="c-dot">${dotHtml(r.dot)}</td>
     <td class="c-song" data-info="${r.id}" title="${esc(r.title)}${r.artist ? " · " + esc(r.artist) : ""} — ayrıntılar"><div class="ttl">${esc(r.title)}</div><div class="art">${esc(r.artist || "—")}${r.note ? ` · <span class="nt">${esc(r.note)}</span>` : ""}${fold}</div></td>
     <td class="c-num">${r.bpm || ""}</td><td class="c-num">${esc(r.key)}</td><td class="c-num">${fmtDur(r.dur)}</td>
-    <td class="c-place"><div class="place">${!isG && g ? `<span class="tag" style="border-color:${esc(g.color)};color:${esc(g.color)}" title="${esc(g.name)}">${esc(g.name)}</span>` : ""}${r.folder ? `<span class="folder-chip" data-folder="${esc(r.rel.split("/").slice(0, -1).join("/"))}" title="${esc(r.rel)}">📁 ${esc(r.folder)}</span>` : ""}</div></td>
+    <td class="c-place"><div class="place">${!isG && g ? `<span class="tag gtx" style="${gStyle(g.color)}" title="${esc(g.name)}">${esc(g.name)}</span>` : ""}${r.folder ? `<span class="folder-chip" data-folder="${esc(r.rel.split("/").slice(0, -1).join("/"))}" title="${esc(r.rel)}">📁 ${esc(r.folder)}</span>` : ""}</div></td>
     <td class="c-act"><div class="cacts">${extra}<button class="play" data-play="${r.id}" title="Dinle" aria-label="Dinle">▶</button></div></td></tr>`;
 }
 
@@ -1292,7 +1336,7 @@ function dupesHtml() {
       <span class="tag ${g.kind === "song" ? "" : "warn"}">${kindTxt[g.kind]}</span><button class="btn sm primary right" data-merge="${esc(g.id)}">${g.kind === "engine" ? "Düzelt" : g.kind === "song" ? "Seçileni tut" : "Birleştir"}</button></div>
     ${g.kind === "engine" ? `<div class="m keep"><div><div class="path">${esc(g.members[0].rel)}</div><div class="small muted">Engine'de ${g.tracks.length} kayıt var; Prime 4'te iki kez görünür. Düzelt: listeler korunur, fazla kayıt kalkar.</div></div></div>` :
     g.members.map((m) => `<label class="m ${m.keeper ? "keep" : ""}"><input type="radio" name="k-${esc(g.id)}" value="${m.id}" ${m.keeper ? "checked" : ""}>
-      <div><div class="path">${m.genre ? `<span class="tag" style="color:${esc(m.color)};border-color:${esc(m.color)}">${esc(m.genre)}</span>` : ""}${esc(m.rel)}</div>
+      <div><div class="path">${m.genre ? `<span class="tag gtx" style="${gStyle(m.color)}">${esc(m.genre)}</span>` : ""}${esc(m.rel)}</div>
       <div class="small">${m.why.filter((w) => !(m.genre && w === m.genre + " klasöründe")).map((w) => `<span class="tag">${esc(w)}</span>`).join("")}${m.bitrate ? `<span class="tag">${m.bitrate} kbps</span>` : ""}</div></div>
       ${m.content ? '<span class="tag blue" title="Bu kopyanın etiketleri (not, ton, cue) daha dolu: dosya, tutulan kopyanın yerine geçer; diğeri karantinaya gider.">etiketleri korunur</span>' : ""}
       ${m.keeper ? '<span class="tag st ok">tutulacak</span>' : '<span class="tag st">karantinaya</span>'}<button class="play" data-play="${m.id}" title="Dinle">▶</button></label>`).join("")}
@@ -1418,8 +1462,8 @@ function rerenderMain() {
   if (!m) return;
   const st = m.querySelector(".body") ? m.querySelector(".body").scrollTop : 0;
   m.innerHTML = S.view === "dupes" ? dupesHtml() : tracksHtml();
-  const b = m.querySelector(".body"); if (b) b.scrollTop = st;
   if (S.view !== "dupes") drawTracks();
+  vtRestore(m.querySelector(".body"), st);
 }
 
 async function moveTo(fids, gid, gname) {
@@ -1624,7 +1668,7 @@ function listRowHtml(r, i) {
   const fold = `${r.bpm ? `<span class="vf" data-c="4"> · ${r.bpm}</span>` : ""}${r.key ? `<span class="vf" data-c="5"> · ${esc(r.key)}</span>` : ""}${r.dur ? `<span class="vf" data-c="6"> · ${fmtDur(r.dur)}</span>` : ""}${nc && r.note ? `<span class="vf" data-c="7"> · <span class="nt">${esc(r.note)}</span></span>` : ""}`;
   return `<tr data-ref="${esc(r.ref)}" ${ro ? "" : 'draggable="true"'}>
       <td class="c-idx">${ro ? i + 1 : `<span class="grip" title="Sürükle">⋮⋮</span>`}</td><td class="c-dot">${dotHtml(r.dot, r.missing ? "Dosya bulunamadı" : undefined)}</td>
-      <td class="c-song" ${r.fid ? `data-info="${r.fid}" title="${esc(r.title)}${r.artist ? " · " + esc(r.artist) : ""} — ayrıntılar"` : `title="${esc(r.title)}"`}><div class="ttl">${esc(r.title)}</div><div class="art">${esc(r.artist || "—")}${r.genre ? ` · <span style="color:${esc(r.color)}">${esc(r.genre)}</span>` : ""}${fold}</div></td>
+      <td class="c-song" ${r.fid ? `data-info="${r.fid}" title="${esc(r.title)}${r.artist ? " · " + esc(r.artist) : ""} — ayrıntılar"` : `title="${esc(r.title)}"`}><div class="ttl">${esc(r.title)}</div><div class="art">${esc(r.artist || "—")}${r.genre ? ` · <span class="gtx" style="${gStyle(r.color)}">${esc(r.genre)}</span>` : ""}${fold}</div></td>
       <td class="c-num">${r.bpm || ""}</td><td class="c-num">${esc(r.key)}</td><td class="c-num">${fmtDur(r.dur)}</td>
       ${nc ? `<td class="c-note">${ro ? `<span class="small nt" title="${esc(r.note)}">${esc(r.note)}</span>` : `<input class="note" data-note="${esc(r.ref)}" value="${esc(r.note)}" placeholder="not ekle" aria-label="Not">`}</td>` : ""}
       <td class="c-act"><div class="cacts">${r.fid ? `<button class="play" data-play="${r.fid}" aria-label="Dinle">▶</button>` : ""}${ro ? "" : `<button class="icon-btn" data-rm="${esc(r.ref)}" title="Listeden çıkar" aria-label="Listeden çıkar">✕</button>`}</div></td></tr>`;
@@ -1639,7 +1683,8 @@ function listMainHtml() {
   const ev = it.ev || {};
   const pend = it.items.filter((r) => r.dot === "pending").length;
   const nc = listNoteCol(it);
-  const cols = `<colgroup><col data-w="2.6em"><col data-w="2em"><col data-flex="1" data-min="10em" data-w="18em"><col data-w="3.9em" data-pri="2"><col data-w="3.9em" data-pri="3"><col data-w="4.2em" data-pri="4">`
+  const off = (k) => (it.items.length && !it.items.some((r) => r[k]) ? " data-off" : "");   // bu listede hiç yoksa yer kaplamaz
+  const cols = `<colgroup><col data-w="2.6em"><col data-w="2em"><col data-flex="1" data-min="10em" data-w="18em"><col data-w="3.9em" data-pri="2"${off("bpm")}><col data-w="3.9em" data-pri="3"${off("key")}><col data-w="4.2em" data-pri="4">`
     + `${nc ? `<col data-w="14em" data-min="7em" data-max="24em" data-flex="0.6" data-pri="5">` : ""}<col data-w="${ro ? "2.8em" : "5.2em"}"></colgroup>`;
   const subTxt = `${it.path.slice(0, -1).join(" / ") || "En üst"} · ${fmtN(it.items.length)} şarkı · ${fmtLong(it.dur)}${l.kids ? ` · ${l.kids} alt liste` : ""}${pend ? ` · ${pend} analiz bekliyor` : ""}`;
   return `<div class="head lhead">${tb}<div class="ht">
@@ -1949,7 +1994,7 @@ async function loadInbox() {
 function renderInbox() {
   const ib = S.inbox;
   const gs = ib.genres;
-  const gbtns = (path) => gs.map((g) => `<button class="gbtn" style="background:${esc(g.color)}" data-ing="${esc(path)}" data-g="${g.id}">${esc(g.name)}</button>`).join("");
+  const gbtns = (path) => gs.map((g) => `<button class="gbtn gfill" style="${gStyle(g.color)}" title="${esc(g.name)}" data-ing="${esc(path)}" data-g="${g.id}">${esc(g.name)}</button>`).join("");
   const wait = ib.items.filter((i) => ["nogenre", "similar", "broken", "unsupported", "held"].includes(i.status) || (!ib.auto && ["new", "exists"].includes(i.status)));
   const going = ib.items.filter((i) => i.status === "downloading" || (ib.auto && i.status === "new"));
   const sepName = ib.inbox.includes("\\") ? "\\" : "/";
@@ -1996,7 +2041,7 @@ function renderInbox() {
     ${going.length ? `<div class="card" style="padding:0"><div class="cardh"><h3>Sırada</h3></div>${going.map((i) => `<div class="ib"><span class="tag blue">${i.status === "downloading" ? "iniyor…" : S.st.engine_open ? "Engine DJ kapanınca eklenecek" : "ekleniyor…"}</span><div class="meta"><div class="ttl" title="${esc(i.title || i.name)}">${esc(i.title || i.name)}</div><div class="art">${esc(i.genre || "")}</div></div></div>`).join("")}</div>` : ""}
     ${!wait.length && !going.length ? `<div class="empty" style="padding:28px"><div class="big">📥</div>Gelen kutusu boş. Yeni indirdiğin şarkıyı <b>${esc(ib.inbox)}${sepName}Halay</b> gibi bir tür klasörüne kaydet.</div>` : ""}
     ${dl.length ? `<div class="card" style="padding:0"><div class="cardh"><h3>İndirilenler klasöründe unutulanlar (${dl.length})</h3><div class="muted small">Türünü seçersen gelen kutusuna alınır.</div></div>
-      ${dl.map((d) => `<div class="ib"><div class="meta"><div class="ttl" title="${esc(d.name)}">${esc(d.name)}</div></div><div class="acts">${gs.map((g) => `<button class="gbtn" style="background:${esc(g.color)}" data-take="${esc(d.path)}" data-g="${g.id}">${esc(g.name)}</button>`).join("")}<button class="btn sm ghost" data-ign="${esc(d.path)}">Yoksay</button></div></div>`).join("")}</div>` : ""}
+      ${dl.map((d) => `<div class="ib"><div class="meta"><div class="ttl" title="${esc(d.name)}">${esc(d.name)}</div></div><div class="acts">${gs.map((g) => `<button class="gbtn gfill" style="${gStyle(g.color)}" title="${esc(g.name)}" data-take="${esc(d.path)}" data-g="${g.id}">${esc(g.name)}</button>`).join("")}<button class="btn sm ghost" data-ign="${esc(d.path)}">Yoksay</button></div></div>`).join("")}</div>` : ""}
     ${ib.log.length ? `<div class="card" style="padding:0"><div class="cardh"><h3>Son işlenenler</h3></div>${ib.log.slice(0, 20).map((l) => `<div class="ib"><span class="tag ${l.status === "eklendi" ? "ok" : ""}">${esc({ eklendi: "eklendi", zaten_vardi: "zaten vardı", ayiklanan: "ayıklandı" }[l.status] || l.status)}</span><div class="meta"><div title="${esc(l.src)}">${esc(l.src)}</div><div class="art">${l.rel ? esc(l.rel) : ""} · ${new Date(l.ts * 1000).toLocaleString("tr-TR")}</div></div></div>`).join("")}</div>` : ""}
     </div></div>`;
   const v = $("#view");
@@ -2074,10 +2119,10 @@ function renderTools() {
   S._lastT = S.tview;
   const xh = $("#tmain > .head");
   if (xh && !xh.querySelector(".sidebtn")) xh.insertAdjacentHTML("afterbegin", SIDEBTN);   // eklenti görünümleri de çekmeceyi açabilsin
-  if (keep && $("#tmain .body")) $("#tmain .body").scrollTop = keep;
   if (S.tview === "table") drawLibTable();
   wireTools();
   if (xv && xv.after) xv.after(S.tdata);
+  vtRestore($("#tmain .body"), keep);                   // tablolar (eklentininkiler de) çizildikten sonra
 }
 
 // --- Sağlık --------------------------------------------------------------
@@ -2356,7 +2401,7 @@ async function openTrack(fid) {
   const grp = d.dupe_group;
   const html = `<div class="drawer-bg" data-dx="1"></div><aside class="drawer" role="dialog" aria-label="Şarkı ayrıntısı">
     <div class="dw-h"><div><div class="dw-t" title="${esc(f.title || f.name)}">${esc(f.title || f.name)}</div><div class="muted ell" title="${esc(f.artist || "")}">${esc(f.artist || "—")}</div>
-      <div style="margin-top:6px">${dotHtml(es[0])} <span class="small">${es[1]}</span>${d.genre ? ` <span class="tag" style="border-color:${esc(d.color)};color:${esc(d.color)}">${esc(d.genre)}</span>` : ""}</div></div>
+      <div style="margin-top:6px">${dotHtml(es[0])} <span class="small">${es[1]}</span>${d.genre ? ` <span class="tag gtx" style="${gStyle(d.color)}">${esc(d.genre)}</span>` : ""}</div></div>
       <button class="icon-btn" data-dx="1" title="Kapat (Esc)">✕</button></div>
     <div class="dw-b">
       <div class="exrow" style="margin-bottom:12px;flex-wrap:wrap"><button class="btn sm" data-dplay="${f.id}">▶ Dinle</button><button class="btn sm" data-dopen="${f.id}">📂 Göster</button>
@@ -2374,7 +2419,7 @@ async function openTrack(fid) {
       ${d.engine ? `<div class="dw-s"><h4>Engine DJ</h4><div class="kv">${kv("Durum", d.engine.analyzed ? "analiz edildi" : "analiz bekliyor")}${kv("Beatgrid", d.engine.grid ? "var" : "")}${kv("Engine yolu", d.engine.path)}${d.engine.copies > 1 ? kv("Uyarı", "Engine'de " + d.engine.copies + " kez kayıtlı") : ""}</div></div>` : ""}
       ${(d.engine_lists.length || d.serato_lists.length) ? `<div class="dw-s"><h4>Listeler</h4>${d.engine_lists.map((x) => `<span class="tag blue">${esc(x)}</span>`).join("")}${d.serato_lists.map((x) => `<span class="tag" title="Serato crate">S · ${esc(x)}</span>`).join("")}</div>` : ""}
       ${grp ? `<div class="dw-s"><h4>Kopyalar (${grp.members.length})</h4>${grp.members.map((m) => `<div class="small" style="padding:2px 0"><span class="tag ${m.keeper ? "ok" : ""}">${m.keeper ? "tutulacak" : "kopya"}</span>${esc(m.rel)}</div>`).join("")}<button class="btn sm" data-dgo="dupes" style="margin-top:6px">Kopyalara git</button></div>` : ""}
-      <div class="dw-s"><h4>Uyumlu şarkılar <span class="muted small">(aynı / komşu ton, ±%6 BPM)</span></h4>
+      <div class="dw-s"><h4>Uyumlu şarkılar <span class="muted small">(aynı / komşu ton, ±%${bpmRange()} BPM)</span></h4>
         ${d.compatible.length ? d.compatible.map((c) => `<div class="hrow"><div class="meta" data-info="${c.id}"><div class="ttl">${esc(c.title)}</div><div class="art">${esc(c.artist || "—")} · ${c.bpm || "?"} · ${esc(c.key)} · ${esc(c.match)}${c.genre ? " · " + esc(c.genre) : ""}</div></div><button class="play" data-play="${c.id}">▶</button><button class="icon-btn" data-dlist="${c.id}" title="Listeye ekle">＋</button></div>`).join("")
           : `<div class="muted small">${f.camelot || f.bpm || d.engine ? "Bu tona ve tempoya uyan şarkı bulunamadı." : "Ton ve BPM bilgisi yok (Engine'de analiz edilince gelir)."}</div>`}</div>
     </div></aside>`;
@@ -2398,6 +2443,8 @@ async function openTrack(fid) {
   };
 }
 function closeDrawer() { const r = $("#drawer"); if (r) r.innerHTML = ""; }
+// Ayarlar'daki geçiş tempo farkı (%): sunucu (events.compatible) da aynı sınırları kullanır
+function bpmRange() { const v = Math.round(+((S.st && S.st.prefs) || {}).mix_bpm_range || 6); return Math.max(1, Math.min(25, v)); }
 
 // ---------------------------------------------------------------------------
 // Etkinlik kontrolü (gig check)
