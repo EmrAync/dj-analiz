@@ -75,7 +75,7 @@ class App:
                     self._lib = None
                 if not os.path.isdir(rec["root"]):
                     if required:
-                        raise UserError("SSD takılı değil (%s bulunamadı). SSD'yi takın ya da yeniden seçin."
+                        raise UserError("SSD takılı değil (%s bulunamadı). SSD'yi tak ya da yeniden seç."
                                         % rec["root"], "no_root")
                     return None
                 self._lib = Library(self.settings, rec)
@@ -437,7 +437,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": _open(app, body)})
         er = ext.get(r0)
         if er and not er[1]:
-            res = er[0](self, None, method, parts, qs, body)
+            res = self._ext_call(er, None, method, parts, qs, body)
             if res is not None or getattr(self, "_sent", False):
                 return res
 
@@ -587,7 +587,7 @@ class Handler(BaseHTTPRequestHandler):
             if act == "sync" and method == "POST":
                 prefer = {int(k): v for k, v in (body.get("prefer") or {}).items()}
                 if lib.serato_open():
-                    raise UserError("Serato açık. Eşitlemek için Serato'yu kapatın.", "serato_open")
+                    raise UserError("Serato açık. Eşitlemek için Serato'yu kapat.", "serato_open")
                 op = journal.Op(lib, "serato", "Serato ile eşitlendi")
                 res = mirror.sync(lib, op=op, prefer=prefer)
                 op.commit()
@@ -655,10 +655,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": util.open_in_file_manager(ar if body.get("archive") else ib)})
         # ---------------- eklenti modülleri (ext.route) ----------------
         if er and er[1]:
-            res = er[0](self, lib, method, parts, qs, body)
+            res = self._ext_call(er, lib, method, parts, qs, body)
             if res is not None or getattr(self, "_sent", False):
                 return res
         return self._err("Bilinmeyen istek: %s" % route, 404)
+
+    def _ext_call(self, er, lib, method, parts, qs, body):
+        """Eklenti rotası. Eksik / bozuk istek alanı (int(None) vb.) 'Beklenmeyen hata' (500) değil 400 olsun."""
+        try:
+            return er[0](self, lib, method, parts, qs, body)
+        except (ValueError, TypeError, KeyError) as e:
+            if getattr(self, "_sent", False):
+                raise
+            self.app.log(traceback.format_exc())
+            return self._err("Geçersiz istek (%s). Sayfayı yenileyip tekrar dene." % type(e).__name__, 400, "bad_request")
 
 
 def _public_prefs(p):
@@ -783,7 +793,7 @@ def _quarantine(lib, fids):
     op = journal.Op(lib, "karantina", "%d dosya karantinaya alındı" % len(ok))
     with lib.lock:
         if lib.serato_open():
-            raise UserError("Serato açık; lütfen kapatın.", "serato_open")
+            raise UserError("Serato açık; lütfen kapat.", "serato_open")
         n = dedupe.quarantine_files(lib, ok, "ayiklanan", op)
         lib.bump()
         op.commit()

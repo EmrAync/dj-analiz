@@ -291,8 +291,21 @@ def find_browser(plat=None, env=None, isfile=None, which=None, reg=None, home=No
     return None
 
 
-def profile_dir(ws):
-    return os.path.join(ws, PROFILE_DIR)
+def profile_dir(ws, env=None, platform=None, home=None):
+    """Uygulama penceresinin tarayıcı profili. Belgeler'de DEĞİL (iCloud / OneDrive "Belgeler" eşitlemesi yüzlerce
+    önbellek dosyasını buluta taşımasın): Windows %LOCALAPPDATA%, macOS ~/Library/Application Support,
+    Linux ~/.config. Testlerde (DJDOKTOR_HOME) çalışma klasörünün içinde kalır."""
+    env = os.environ if env is None else env
+    platform = platform or sys.platform
+    home = home or os.path.expanduser("~")
+    if env.get("DJDOKTOR_HOME"):
+        return os.path.join(ws, PROFILE_DIR)
+    if platform.startswith("win"):
+        base = env.get("LOCALAPPDATA")
+        return ntpath.join(base, APP_NAME, PROFILE_DIR) if base else os.path.join(ws, PROFILE_DIR)
+    if platform == "darwin":
+        return os.path.join(home, "Library", "Application Support", APP_NAME, PROFILE_DIR)
+    return os.path.join(env.get("XDG_CONFIG_HOME") or os.path.join(home, ".config"), "djdoktor", PROFILE_DIR)
 
 
 def app_command(browser_path, url, profile):

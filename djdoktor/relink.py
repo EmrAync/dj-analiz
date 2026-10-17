@@ -444,7 +444,9 @@ def plan(lib):
             "folders": [{"old": names.display(f["old"]), "new": names.display(f["new"]), "genre": f["genre"],
                          "rule": f["rule"], "music_root": f["music_root"], "sure": f["sure"], "_old": f["old"],
                          "_new": f["new"]} for f in folders],
-            "counts": counts, "blocked": blocked, "methods": METHODS}
+            "counts": counts, "blocked": blocked, "methods": METHODS,
+            # dosyası bulunamayan Engine kayıtlarını kaldırma düğmesi için (bağlama 'blocked' ile ayrıca kilitlenir)
+            "engine_open": bool(miss["engine"]) and bool(lib.engine_open())}
 
 
 def scan_and_plan(lib, progress=None, cancel=None):
@@ -519,7 +521,7 @@ def _merge_into_path(w, tid, newp, other=None, safe=False, managed=frozenset()):
     return keep["id"]
 
 
-def apply(lib, token=None, keys=None, picks=None, include_medium=False, progress=None, auto=False, pl=None):
+def apply(lib, token=None, keys=None, picks=None, include_medium=False, progress=None, auto=False):
     """Seçilen eşleşmeleri TEK işlemde bağlar. keys: uygulanacak öğeler (None: yalnızca 'kesin' olanlar; include_medium
     ile 'yuksek' de). picks: {anahtar: fid} (birden çok aday varsa kullanıcının seçtiği dosya).
     -> {'engine','engine_merged','serato','folders','history','journal','left'}"""
@@ -529,7 +531,7 @@ def apply(lib, token=None, keys=None, picks=None, include_medium=False, progress
     res = {"engine": 0, "engine_merged": 0, "serato": 0, "mirror_links": 0, "folders": 0, "history": 0,
            "journal": None, "left": 0, "skipped": None}
     with lib.lock:
-        pl = pl or plan(lib)
+        pl = plan(lib)                                  # her zaman kilit altında, güncel durumdan
         if token and pl["token"] != token:
             raise _err("Bu arada bir şey değişti; liste yenilendi. Kontrol edip yeniden bağla.", "stale")
         ix = None
@@ -560,9 +562,9 @@ def apply(lib, token=None, keys=None, picks=None, include_medium=False, progress
         s_open = bool(need_s) and lib.serato_open(fresh=True)
         if not auto:
             if e_open:
-                raise _err("Engine DJ açık. Bağlamak için Engine DJ'i kapatın.", "engine_open")
+                raise _err("Engine DJ açık. Bağlamak için Engine DJ'i kapat.", "engine_open")
             if s_open:
-                raise _err("Serato açık. Bağlamak için Serato'yu kapatın.", "serato_open")
+                raise _err("Serato açık. Bağlamak için Serato'yu kapat.", "serato_open")
         if e_open:
             need_e, res["skipped"] = [], "engine_open"
         if s_open:
@@ -688,4 +690,6 @@ def auto(lib):
             (not x.get("merge") or x.get("merge_safe"))]
     if not sure and not [f for f in pl["folders"] if f["sure"] and not os.path.isdir(lib.rootinfo.os_path(f["_old"]))]:
         return None
-    return apply(lib, auto=True, pl=pl)
+    # plan kilitsiz hesaplandı (yalnızca "yapılacak iş var mı" için); arada kullanıcı bir dosyanın adını değiştirmiş
+    # olabilir, bu yüzden uygulama planı kilit altında yeniden kurar (eski plana göre yazılmaz)
+    return apply(lib, auto=True)

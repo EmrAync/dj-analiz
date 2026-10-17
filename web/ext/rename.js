@@ -76,7 +76,11 @@
     RN.force = new Set([...RN.force].filter((i) => ids.has(i)));
   }
   async function load() {
-    if (!RN.info) { try { RN.info = await api("/api/renamer/presets"); } catch (e) { RN.info = { presets: [], genres: [] }; } }
+    // türler / klasörler her değişiklikten sonra (ad değişikliği, geri alma, bağlama, tarama) yeniden okunur
+    if (!RN.info || RN.infoStamp !== S.stamp) {
+      try { RN.info = await api("/api/renamer/presets"); } catch (e) { RN.info = { presets: [], genres: [] }; }
+      RN.infoStamp = S.stamp;      // seçili kapsam kendiliğinden "Tüm SSD"ye genişletilmez (klasör yoksa plan uyarır)
+    }
     if (RN.mode === "links") {
       if (!RN.lk) { try { RN.lk = await api("/api/renamer/relink"); } catch (e) { RN.err = e.message; } lselDefault(); }
     } else await loadPlan();
@@ -186,17 +190,18 @@
       const c = L.counts;
       const nsel = lselCount();
       const onlyKesin = nsel && [...RN.lsel].every((k) => { const x = L.items.find((y) => y.key === k); return x && x.confidence === "kesin"; }) && !Object.keys(RN.picks).length;
-      const blocked = L.blocked ? `<div class="hint"><span class="ic">🔒</span><div><b>${L.blocked === "engine_open" ? "Engine DJ açık." : "Serato açık."}</b> Kapatınca bağlayabilirsin.</div></div>` : "";
-      const folders = (L.folders || []).length ? `<div class="card rn-folders"><b>Adı değişmiş klasörler</b>${L.folders.map((f) => `<div class="small ell">${esc(f.old)} → <b>${esc(f.new)}</b>${f.genre ? ' <span class="tag blue">tür</span>' : ""}${f.music_root ? ' <span class="tag blue">ana klasör</span>' : ""}</div>`).join("")}</div>` : "";
       const nonEng = L.items.filter((x) => x.status === "none" && x.src === "engine");
+      const lockE = !L.blocked && L.engine_open && nonEng.length;
+      const blocked = L.blocked || lockE ? `<div class="hint"><span class="ic">🔒</span><div><b>${L.blocked === "serato_open" ? "Serato açık." : "Engine DJ açık."}</b> Kapatınca ${L.blocked ? "bağlayabilirsin" : "kaldırabilirsin"}.</div></div>` : "";
+      const folders = (L.folders || []).length ? `<div class="card rn-folders"><b>Adı değişmiş klasörler</b>${L.folders.map((f) => `<div class="small ell">${esc(f.old)} → <b>${esc(f.new)}</b>${f.genre ? ' <span class="tag blue">tür</span>' : ""}${f.music_root ? ' <span class="tag blue">ana klasör</span>' : ""}</div>`).join("")}</div>` : "";
       const f = [["all", "Hepsi", L.items.length], ["found", "Bulundu", c.found], ["ambiguous", "Birden çok aday", c.ambiguous], ["none", "Bulunamadı", c.none]]
         .filter(([k, _t, v]) => k === "all" || v).map(([k, t, v]) => `<button class="chip ${RN.lflt === k ? "on" : ""}" data-rnlf="${k}">${t} ${fmtN(v)}</button>`).join("");
-      main = `${blocked}<div class="card rn-sum"><div class="rn-sumt minw0">${L.items.length ? `<b>${fmtN(c.found)}</b> kayıp kaydın dosyası bulundu <span class="muted">(Engine ${fmtN(c.engine)}, Serato ${fmtN(c.serato)} kayıp)</span>
+      main = `${blocked}<div class="card rn-sum"><div class="rn-sumt minw0">${L.items.length ? `${c.found ? `<b>${fmtN(c.found)}</b> kayıp kaydın dosyası bulundu` : `<b>${fmtN(L.items.length)}</b> kayıp kayıt — dosyası diskte yok`} <span class="muted">(Engine ${fmtN(c.engine)}, Serato ${fmtN(c.serato)} kayıp)</span>
           <div class="muted small ell">Bağlarken önce yedek alınır; tek tıkla Geri al.</div>` : `<b>Kayıp yol yok.</b> <div class="muted small">Engine ve Serato'daki bütün kayıtlar diskteki dosyayı buluyor.</div>`}</div>
           <button class="btn" id="rnscan" title="Önce SSD'yi tarar, sonra arar">↻ Tara ve bul</button>
           ${L.items.length ? `<button class="btn primary big" id="rnlink" ${!nsel || L.blocked ? "disabled" : ""}>${onlyKesin ? "Kesin olanları bağla" : "Seçilenleri bağla"} (${fmtN(nsel)})</button>` : ""}</div>
         ${folders}
-        ${L.items.length ? `<div class="rn-bar"><div class="chips rn-flt">${f}</div><button class="btn sm" id="rnlhigh" style="display:none" title="Adı aynı, ama boyut / süre kanıtı yok">Yüksek güvenlileri de seç</button>${nonEng.length ? `<button class="btn sm danger" id="rnrm" title="Dosyası hiçbir yerde bulunamayan Engine kayıtları (yedek alınır, geri alınabilir)">Bulunamayan ${fmtN(nonEng.length)} Engine kaydını kaldır</button>` : ""}</div>
+        ${L.items.length ? `<div class="rn-bar"><div class="chips rn-flt">${f}</div><button class="btn sm" id="rnlhigh" style="display:none" title="Adı aynı, ama boyut / süre kanıtı yok">Yüksek güvenlileri de seç</button>${nonEng.length ? `<button class="btn sm danger" id="rnrm" ${L.engine_open ? "disabled" : ""} title="${L.engine_open ? "Engine DJ açık: kaldırmak için kapat." : "Dosyası hiçbir yerde bulunamayan Engine kayıtları (yedek alınır, geri alınabilir)"}">Bulunamayan ${fmtN(nonEng.length)} Engine kaydını kaldır</button>` : ""}</div>
         <table class="t v rn-t" id="rnltab"><colgroup><col data-w="2.4em"><col data-w="5.8em" data-min="4.6em"><col data-flex="1" data-min="9em" data-w="18em"><col data-w="1.4em"><col data-flex="1" data-min="9em" data-w="18em"><col data-w="9.5em" data-min="6em" data-pri="2"></colgroup>
           <thead><tr><th class="c-chk"><input type="checkbox" id="rnlall" title="Bulunanların hepsini seç"></th><th></th><th>Kayıtta</th><th></th><th>Diskte</th><th>Güven</th></tr></thead><tbody></tbody></table>` : ""}`;
     }

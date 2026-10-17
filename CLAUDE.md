@@ -2,6 +2,10 @@
 
 Read this first. It is the hand-off from the sessions that built v1 and v2. The user (a Turkish mobile DJ in
 Germany) wants Claude Code to keep developing the program. UI language is **Turkish**; code comments are mostly Turkish.
+**Always answer the user in Turkish** (his own request, 17.10.2026). His "continue" messages after a usage-limit reset are
+auto-generated in German — still answer in Turkish. His plan's usage limit fills quickly: multi-agent workflows (4–5
+parallel agents, ~1–1.6 M tokens each run) exhausted it three times in 2.2; the container has 4 CPUs, so a workflow runs
+only 2 agents at a time anyway. Prefer working directly; commit + push after every milestone so a limit stop loses nothing.
 
 ## 1. The user and the problem
 
@@ -15,6 +19,10 @@ Germany) wants Claude Code to keep developing the program. UI language is **Turk
   - he must always see which songs are **analyzed** and whose path **Engine has confirmed**;
   - a song must **never be added to Engine twice**;
   - calm, eye-friendly UI, little reading, **no reports to read**, light theme.
+- Feedback (16.10.2026, second message): responsive layout everywhere ("scrollbars disappear / content runs off to the
+  right"), a "professional program, not just HTML", bulk renaming of Turkish characters (Engine DJ) **without losing
+  paths** (his example: a song ending in "Türkü" used in Serato crates, renamed to "Turku" → path lost), Camelot work,
+  AI-supported list building ("which song can come after which"), and a folder on the desktop. Done in 2.2.0 (§6, §10).
 - Feedback (16.10.2026): *"v1'de çok şey mümkündü, v2'de onların hiçbiri yok"* — v1 had many more capabilities
   that v2 dropped — and *"takılıyor, program çok sıkıntılı çalışıyor"* — it hangs / feels sluggish. Addressed in 2.1.0
   (§7, §8). His wish: the **simple use stays as it is** (Müzikler / Listeler / Gelen); professional v1 features live in
@@ -39,12 +47,18 @@ Germany) wants Claude Code to keep developing the program. UI language is **Turk
 ## 3. Run, test, package
 
 ```bash
-python baslat.py [--port 8770] [--no-browser]     # opens http://127.0.0.1:8770 (v1 used 8765)
+python baslat.py [--app|--browser|--no-browser] [--console] [--port 8770]   # http://127.0.0.1:8770 (v1 used 8765)
 python3 -B tests/test_v2.py [test_name ...]       # 12 end-to-end backend tests on a synthetic SSD (no pytest)
+python3 -B tests/test_rename.py [test_name ...]   # 35 tests: bulk rename, conflicts, undo, relink after outside renames
+python3 -B tests/test_assistant.py                # 14 tests: Camelot, transitions, sort, set builder, AI (fake opener), save
+python3 -B tests/test_ai.py; python3 -B tests/test_desktop.py   # AI client (no network) / app window, icons, shortcuts, watchdog
 python3 -B tests/ui_smoke.py /tmp/shots           # Playwright + Chromium click-through, screenshots, fails on JS/HTTP errors
+python3 -B tests/ui_responsive.py /tmp/r          # responsive gate: 14 configs (360x640 … 2560x1440, zoom, large text, dark)
+python3 -B tests/ui_rename.py /tmp/a; python3 -B tests/ui_assistant.py /tmp/b
 python3 -B tests/bench_big.py [dir] [n_files]     # speed check: ~5k files, ~4k Engine tracks, big lists, 160 crates
-python3 tools/package.py [dist_dir]               # user zip (keeps CRLF .bat, chmod 755 .command)
+python3 tools/package.py [dist_dir]               # user zip, top folder "DJ Doktor" (keeps CRLF .bat, chmod 755 .command)
 ```
+UI tests take `DJD_UI_PORT` (default 8899/8902/…) so several can run at once.
 
 - Use `-B` so no `__pycache__` lands in folders you don't own.
 - **exFAT matters** (case-insensitive names, 1–2 s timestamps). Run the suite on a real exFAT mount before releasing:
@@ -89,8 +103,15 @@ python3 tools/package.py [dist_dir]               # user zip (keeps CRLF .bat, c
 | `health.py` | Araçlar > Sağlık: problem categories (live, cached) + fixes: junk → quarantine, safe rename (files + folders via `relocate`), Engine path repair, remove Engine records without a file (snapshot undo) |
 | `events.py` | section suggestions, pre-gig check (`gig_check`), harmonic/tempo compatible tracks |
 | `exporters.py` | rekordbox XML (with Serato cues), M3U8, library CSV → `Documents/DJ Doktor/Dışa Aktarım` |
+| `ext.py` | route registry for feature modules: `@route(name, needs_lib)` → `/api/<name>/…`; modules listed in `ext.MODULES` |
+| `renamer.py` | **Adlar** (2.2): rules (turkish_ascii via `names.ascii_tr`, fix_illegal/SFM, emoji, spaces, tr_case, safe regex…), presets `engine_safe` / `only_illegal` / `tidy`, scope all/genre/folder/files, `plan` (token + conflicts exists/twin/empty/genre_twin/too_long/same_audio/**ref_taken**), `apply`, `rename_one`; route `renamer` |
+| `relocate.batch_rename` | many file + folder renames as ONE op, one backup per DB; Engine paths, Serato `database V2` + all crates (also mirrored) and genre rules follow; exFAT-safe (temp names, NFC/NFD twins via `_Taken`); refuses targets where another song's Engine/Serato record sits (`stale_ref_keys` / `ref_taken`) |
+| `relink.py` | **Kayıp yollar** (2.2): Engine/Serato records whose file is gone → find the file (history `gecmis`, audio signature, simplified name + size/duration, folder-rename voting, name+size) with confidence kesin/yuksek/orta; `apply` = one op; background `auto()` applies only `kesin` and merges Engine records only when the dropped one has no user work (`merge_safe`); an undone relink is remembered (`relink_declined` meta) |
+| `assistant.py` | **Asistan** (2.2): track model (cached by `view_key`), energy (Mixed In Key tag or genre+BPM estimate), `transition()` score 0–100 (key 40, tempo 30, energy 15, genre 15, learned pairs +15, same artist −12; weights in `WEIGHTS`), learned pairs from Engine lists, Serato crates, Engine `hm.db` and Serato history (read-only), `next_tracks`, `harmonic_sort` (greedy + 2-opt, ≤400), `build_set` (beam search, curves), AI set via `ai.ask_json` (≤250 candidates, metadata only, never paths), save via `lists` (journaled); route `assistant` |
+| `ai.py` | Claude Messages API over urllib (no SDK: zero deps + Py 3.8): structured JSON output, server-side fallback, error codes → Turkish messages; key in prefs (`ai_api_key`, never returned to the UI); route `ai` (status/test) |
+| `desktop.py` | app window (Edge/Chrome/Brave `--app`, own profile outside Documents), `Watchdog` (quit after window closed: heartbeat + `bye` beacon, never while a task runs), desktop shortcut (Windows .lnk via PowerShell, macOS `DJ Doktor.app`, Linux .desktop), icons drawn without deps (PNG/ICO/ICNS), run file `calisiyor.json`; route `app` (needs no library) |
 | `util.py` | `safe_rename`, process detection (cached), drives, misc |
-| `web/` | `index.html`, `app.js` (one file SPA: tabs **Müzikler / Listeler / Gelen** + **Araçlar**; virtual tables via `vtSet`; track detail drawer `openTrack`), `style.css` (light default) |
+| `web/` | `index.html`, `app.js` (one file SPA: tabs **Müzikler / Listeler / Gelen** + **Araçlar**; virtual tables via `vtSet`; track detail drawer `openTrack`; `window.DJD` extension hooks), `style.css` (light default; responsive contract documented at the top), `ext/rename.*` (Araçlar > Adlar), `ext/assistant.*` (tab Asistan), `ext/desktop.*` (heartbeat, Ayarlar > Uygulama, "kapandı" overlay) |
 
 ## 5. Formats and gotchas
 
@@ -111,6 +132,10 @@ python3 tools/package.py [dist_dir]               # user zip (keeps CRLF .bat, c
   - Characters that are illegal on exFAT become SFM private-use chars when the Mac writes them: `" * : < > ? \ |` map
     to U+F020–F027, and a trailing space or dot becomes U+F028 / U+F029 (Finder shows `/` for U+F022).
   - The canonical "disk form" is NFC + SFM; `names.loose_key` = case-insensitive match key.
+- **Journal step kinds** (see `journal.py` header): `mv`, `mvdir`, `eng`, `engsnap`, `ser`, `sersnap`, `crate`, `serlink`,
+  `hist` (rel_history rows), …  Undo prechecks: `journal.fs_changes` → changed outside since → `needs_force`; the old
+  place now holds another file → `undo_blocked` (even with force). After a move use `journal.set_rel` (marks a stale
+  catalog row at the target absent) instead of `catalog.update_rel`.
 - **Change detection**: exFAT mtime can be 1–2 s coarse and list renames don't change the file size. `engine.db_stamp`
   therefore includes the SQLite header plus an in-process write counter. Keep it that way.
 
@@ -125,6 +150,21 @@ python3 tools/package.py [dist_dir]               # user zip (keeps CRLF .bat, c
 - **Not yet verified with the real apps**: that program-inserted Engine tracks and the managed lists show up correctly
   in Engine DJ desktop and on the Prime 4, and that analysis then turns them "ready". Verify on the user's machine with
   a copy first (backups are automatic).
+
+- **2.2.0** (17.10.2026):
+  - Responsive layout everywhere (§10), Araçlar > **Adlar** (bulk + single rename, Engine/Serato/crates follow, one undo),
+    **Kayıp yollar** (relink after outside renames), tab **Asistan** (Camelot wheel, next track, set builder, harmonic
+    sort, optional AI set with the user's own Anthropic key), app window + desktop shortcut + auto-quit, launchers
+    without a console window (`baslat.py --detach`, pythonw on Windows).
+  - Tested: test_v2 12/12 and test_rename 35/35 (ext4 + exFAT), test_assistant 14/14, test_ai 4/4, test_desktop 20/20
+    (Py 3.13 + 3.8), every file compiles on 3.8/3.9; ui_smoke, ui_responsive (14 configs), ui_rename, ui_assistant clean.
+  - Reviewed adversarially (rename + integration); found and fixed: renaming onto a path that another song's stale
+    Engine/Serato record still holds, background merge dropping analyzed Engine records, undo after outside changes,
+    genre folders merged in Finder, ambiguous outside renames re-added to Engine, background relink with a stale plan.
+- **Not yet verified with the real apps (2.2):** Windows .bat + pythonw start, the PowerShell .lnk, the macOS .app bundle
+  (Gatekeeper, python3 from Finder's minimal PATH), Edge/Chrome `--app` windows, real Engine `hm.db` / Serato
+  `History/Sessions` parsing (check `assistant.learned(lib)["info"]["history_sessions"] > 0` on his Mac), and renames
+  seen by the real Engine DJ / Prime 4 / Serato. Test on his machine with a copy first.
 
 ## 7. Known issues — "takılıyor" (hangs / sluggish)
 
@@ -157,6 +197,12 @@ Open:
 2. `compute_flags` and `analyze_serato` still run over everything (under the lock) after a scan that found changes.
 3. Readahead thread count is a guess for USB drives; measure on the user's SSD (Mac exFAT and Windows) if scans feel slow.
 4. Ask the user for `Documents/DJ Doktor/gunluk/djdoktor.log` and exact steps when he reports a hang.
+
+Open (2.2, low): a double fault during rollback (SSD unplugged mid-batch) cannot be journaled — recovery relies on
+Kayıp yollar after reconnect; `/api/ping?hold=1` is unauthenticated (only delays auto-quit by 30 s); Engine history /
+Serato sessions / .cue sheets keep old names after a rename; "İptal" of an AI request only abandons it (the server
+finishes the call); the assistant chain in "Sonra ne çalınır?" lives only in the open page; the API key sits in
+`Documents/DJ Doktor/ayarlar.json` (chmod 600; Documents may be cloud-synced on his Mac).
 
 ## 8. v1 capabilities (brought back in 2.1.0)
 
@@ -195,3 +241,21 @@ planning per section, sharing an event list as PDF.
   changes call `lib.bump()`. Views cached with `lib.cached(...)` must not mutate shared rows (`audio_files()` is shared).
 - Long tables in the UI use `vtSet(tableId, rows, rowHtml)` with `table.t.v` + a `<colgroup>`: rows have a fixed
   height and never wrap. Selection changes call `syncSel()`, not a re-render.
+
+## 10. 2.2 notes for developers
+
+- **Responsive contract** (top of `style.css`): `.ell` / `.ell2` / `.wrap-any` / `.minw0`; containers get
+  `data-w="xs|s|m|l|xl|xxl"` (30/45/60/75/100 rem) and `#view` `data-h`; columns `<col data-w data-min data-max data-flex
+  data-pri data-off>` (vtSet tables fit automatically, plain tables via `DJD.fitCols`); `DJD.popover`, `menu(ev, items)`
+  (flips/clamps, closes on scroll/Esc), `DJD.restoreScroll`, `DJD.genreStyle(color)` + `.gtx/.gfill` (genre colours
+  ≥ 4.5:1 in both themes), `--accent-fill` / `--bad-fill` behind white text, `data-dock` bottom bars lift toasts.
+  `tests/ui_responsive.py` is the gate — add new screens to it.
+- **Rename safety**: never rename a file onto a path where Engine/Serato still has another song's record (conflict
+  `ref_taken`, UI "Bu adla başka şarkı kayıtlı", optional " (2)"); app-open checks are fresh right before writing,
+  also re-checked after the long file-system phase; any failure rolls back files, catalog, Engine and Serato.
+- **Desktop**: `Baslat_Windows.bat` / `Baslat_Mac.command` call `baslat.py --detach` (Windows: pythonw, no console; add
+  "konsol" to keep the console). The app window's browser profile lives in `%LOCALAPPDATA%\DJ Doktor\Pencere`,
+  `~/Library/Application Support/DJ Doktor/Pencere` or `~/.config/djdoktor/Pencere`. The server quits after the window
+  closes (grace for reloads, never during a task); never in `--no-browser` mode or in tests.
+- **AI**: only metadata is sent (index, title, artist, genre, BPM, Camelot, energy, duration, played-together hints) —
+  a test asserts no paths in the request. Without a key everything works offline.

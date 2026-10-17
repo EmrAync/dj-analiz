@@ -480,9 +480,9 @@ def merge(lib, picks, progress=None):
         need_serato = any(_serato_refs(sx, files[a]["rel"]) for a, _b, _c in pairs if a in files)
         # yazmadan hemen önce taze denetim (önbellekteki birkaç saniyelik 'kapalı' sonucu kullanılmaz)
         if need_engine and lib.engine_open(fresh=True):
-            raise UserError("Engine DJ açık. Çiftleri birleştirmek için Engine DJ'i kapatın.", code="engine_open")
+            raise UserError("Engine DJ açık. Çiftleri birleştirmek için Engine DJ'i kapat.", code="engine_open")
         if need_serato and lib.serato_open(fresh=True):
-            raise UserError("Serato açık. Çiftleri birleştirmek için Serato'yu kapatın.", code="serato_open")
+            raise UserError("Serato açık. Çiftleri birleştirmek için Serato'yu kapat.", code="serato_open")
         n_files = len({a for a, _b, _c in pairs})
         title = ("%d fazla kopya kaldırıldı" % n_files) if n_files else "Engine'de iki kez görünen parçalar düzeltildi"
         op = journal.Op(lib, "ciftler", title)

@@ -107,7 +107,7 @@ def open_ro(db_path: str):
     warn = ""
     recover(db_path)
     if hot_journal(db_path):
-        warn = "Engine DJ veritabanında yarım kalmış bir işlem var. Engine DJ'i bir kez açıp kapatın."
+        warn = "Engine DJ veritabanında yarım kalmış bir işlem var. Engine DJ'i bir kez açıp kapat."
         con = sqlite3.connect(_uri(db_path, "ro") + "&immutable=1", uri=True)
     else:
         try:
@@ -285,10 +285,10 @@ def preflight(db_path: str):
     if not os.path.isfile(db_path):
         raise EngineError("Engine veritabanı bulunamadı: %s" % db_path)
     if is_running(fresh=True):
-        problems.append("Engine DJ şu anda açık. Değişiklikler için Engine DJ'i kapatın.")
+        problems.append("Engine DJ şu anda açık. Değişiklikler için Engine DJ'i kapat.")
     recover(db_path)
     if hot_journal(db_path):
-        problems.append("Veritabanında yarım kalmış bir işlem var. Engine DJ'i bir kez açıp düzgünce kapatın.")
+        problems.append("Veritabanında yarım kalmış bir işlem var. Engine DJ'i bir kez açıp düzgünce kapat.")
     try:
         con, _ = open_ro(db_path)
         uuid, ver = schema_of(con)
@@ -409,7 +409,7 @@ def semantic_fingerprint(db_path: str) -> str:
 
 def restore(db_path: str, backup_path: str):
     if is_running(fresh=True):
-        raise EngineError("Engine DJ açıkken geri yükleme yapılamaz. Lütfen kapatın.")
+        raise EngineError("Engine DJ açıkken geri yükleme yapılamaz. Lütfen kapat.")
     src = sqlite3.connect(_uri(backup_path, "ro"), uri=True)
     dst = sqlite3.connect(db_path, timeout=3)
     try:
@@ -440,10 +440,10 @@ class Writer:
 
     def __init__(self, db_path: str, lib_dir: str, root: str, check_running: bool = True):
         if check_running and is_running(fresh=True):
-            raise EngineError("Engine DJ açık. Değişiklik yapmak için Engine DJ'i kapatın.")
+            raise EngineError("Engine DJ açık. Değişiklik yapmak için Engine DJ'i kapat.")
         recover(db_path)
         if hot_journal(db_path):
-            raise EngineError("Engine veritabanında yarım kalmış bir işlem var. Engine DJ'i bir kez açıp kapatın.")
+            raise EngineError("Engine veritabanında yarım kalmış bir işlem var. Engine DJ'i bir kez açıp kapat.")
         self.db_path = db_path
         self.lib_dir = lib_dir
         self.root = root

@@ -100,6 +100,11 @@ def plan(lib, d, data, resolver=None, relink=True):
             taken.add(fid)
         else:
             missing += 1
+            # kesin olmayan eşleşme (yüksek / orta / birden çok aday): kendiliğinden bağlanmaz, ama aday dosyalar
+            # Engine'e YENİ kayıt olarak da eklenmez — yoksa şarkı Engine'de iki kez olur. Kullanıcı Kayıp yollar'da seçer.
+            for c in [x.get("fid")] + [c.get("fid") for c in (x.get("candidates") or [])]:
+                if c and c in files and c not in taken:
+                    held.add(c)
     return {"tracks": tracks, "by_file": by_file, "files": files, "repairs": repairs, "relinks": relinks,
             "missing": missing, "held": held}
 

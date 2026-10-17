@@ -214,9 +214,9 @@ def ingest(lib, entries, progress=None, auto=False):
     cat = lib.catalog
     gens = {g["id"]: g for g in lib.genre_rows()}
     month = time.strftime("%Y-%m")
-    if lib.engine_db() and lib.engine_open():
+    if lib.engine_db() and lib.engine_open(fresh=True):
         # SSD'ye kopyalama + Engine'e ekleme tek işlem olsun (tek tıkla geri alınabilsin)
-        raise _err("Engine DJ açık. Engine DJ'i kapatınca şarkı SSD'ye ve Engine'e birlikte eklenir"
+        raise _err("Engine DJ açık. Engine DJ'i kapatca şarkı SSD'ye ve Engine'e birlikte eklenir"
                    " (Otomatik ekle açıksa kendiliğinden).", "engine_open")
     with lib.lock:
         cur = {i["path"]: i for i in scan(lib, settle=0 if not auto else 2.0)["items"]}

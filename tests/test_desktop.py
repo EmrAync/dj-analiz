@@ -243,6 +243,16 @@ def test_windows_lnk_script():
 # ---------------------------------------------------------------------------
 # Tarayıcı bulma
 # ---------------------------------------------------------------------------
+def test_profile_dir_outside_documents():
+    ws = "/Users/emre/Documents/DJ Doktor"
+    assert desktop.profile_dir(ws, env={}, platform="darwin", home="/Users/emre") == \
+        "/Users/emre/Library/Application Support/DJ Doktor/Pencere"
+    assert desktop.profile_dir(ws, env={"LOCALAPPDATA": r"C:\Users\E\AppData\Local"}, platform="win32") == \
+        r"C:\Users\E\AppData\Local\DJ Doktor\Pencere"
+    assert desktop.profile_dir(ws, env={}, platform="linux", home="/home/e") == "/home/e/.config/djdoktor/Pencere"
+    assert desktop.profile_dir(ws, env={"DJDOKTOR_HOME": ws}, platform="darwin") == os.path.join(ws, "Pencere")
+
+
 def test_find_browser():
     files = {r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"}
     b = desktop.find_browser("win32", WENV, files.__contains__, lambda c: None, fake_reg({}))

@@ -39,10 +39,10 @@ def _parent(rel):
 def _check_apps(lib, need_engine, need_serato):
     """Yazmadan hemen önce: Engine DJ / Serato açık mı? (taze denetim; önbellekteki eski sonuç kullanılmaz)"""
     if need_engine and lib.engine_open(fresh=True):
-        raise _err("Engine DJ açık. Bu değişiklik için Engine DJ'i kapatın (açıkken yapılan değişiklik Engine "
+        raise _err("Engine DJ açık. Bu değişiklik için Engine DJ'i kapat (açıkken yapılan değişiklik Engine "
                    "tarafından ezilebilir).", "engine_open")
     if need_serato and lib.serato_open(fresh=True):
-        raise _err("Serato açık. Bu değişiklik için Serato'yu kapatın.", "serato_open")
+        raise _err("Serato açık. Bu değişiklik için Serato'yu kapat.", "serato_open")
 
 
 # ---------------------------------------------------------------------------

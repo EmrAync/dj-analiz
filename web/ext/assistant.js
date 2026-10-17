@@ -576,7 +576,7 @@
     if (why) { toast(why, "err"); return; }
     const d = saveSource(src);
     const multi = d.sections.length > 1;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDay();
     const m = modal(`<div class="dh">Engine'e kaydet</div><div class="db">
       <label class="field"><span>Adı</span><input id="assvt" value="${esc(d.title)}"></label>
       <div class="opts"><label class="opt ${multi ? "" : "on"}"><input type="radio" name="assvk" value="list" ${multi ? "" : "checked"}><div><b>Liste</b><div class="muted small">Tek liste, ${d.sections.reduce((a, s) => a + s.ids.length, 0)} şarkı sırasıyla.</div></div></label>
@@ -598,7 +598,7 @@
         const r = await api("/api/assistant/save", { kind, title, date: kind === "event" ? $("#assvd", m.el).value : null, sections: d.sections });
         m.close();
         S.cur = r.id;
-        toast(kind === "event" ? `Etkinlik kaydedildi: Listeler'de “${title}”.` : `Liste kaydedildi: Listeler'de “${title}”.` + (r.skipped ? ` ${r.skipped} şarkı eklenemedi.` : ""), "ok");
+        toast((kind === "event" ? `Etkinlik kaydedildi: Listeler'de “${title}”.` : `Liste kaydedildi: Listeler'de “${title}”.`) + (r.skipped ? ` ${r.skipped} şarkı eklenemedi.` : ""), "ok");
         await refresh();
       } catch (er) { b.disabled = false; toast(er.message, "err"); }
     });
@@ -789,12 +789,13 @@
     html: (st) => {
       const p = st.prefs || {};
       const ef = p.ai_effort || "medium";
-      return `<div class="as-set-ai"><h4 style="margin:18px 0 6px">Yapay zekâ <span class="muted small">(isteğe bağlı · Mix Asistanı)</span></h4>
+      return `<div class="as-set-ai"><h4 style="margin:18px 0 6px">Yapay zekâ <span class="muted small">(isteğe bağlı · Asistan)</span></h4>
         <label class="field"><span>Anthropic API anahtarı</span><input type="password" id="aikey" autocomplete="off" spellcheck="false" placeholder="${esc(p.ai_key_set ? p.ai_key_mask + "  (kayıtlı)" : "sk-ant-…")}"></label>
         <div class="exrow"><button class="btn sm" id="aisave">Kaydet</button><button class="btn sm" id="aitest">Dene</button>${p.ai_key_set ? `<button class="btn sm danger" id="aidel">Anahtarı sil</button>` : ""}<span class="small muted minw0" id="aimsg">${p.ai_key_set ? "Anahtar kayıtlı." : "Anahtar yoksa çevrimdışı öneriler kullanılır."}</span></div>
-        <div class="frow"><label class="field"><span>Model</span><input id="aimodel" value="${esc(p.ai_model || "claude-opus-5-5")}" spellcheck="false"></label>
-          <label class="field"><span>Düşünme</span><select id="aieffort">${[["low", "Hızlı"], ["medium", "Dengeli"], ["high", "Derin"]].map(([k, t]) => `<option value="${k}" ${ef === k ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+        <div class="frow"><label class="field"><span>Düşünme</span><select id="aieffort">${[["low", "Hızlı"], ["medium", "Dengeli"], ["high", "Derin"]].map(([k, t]) => `<option value="${k}" ${ef === k ? "selected" : ""}>${t}</option>`).join("")}</select></label>
           <label class="field"><span>Geçişte tempo farkı (%)</span><input type="number" id="mixbpm" min="1" max="20" step="1" value="${esc(p.mix_bpm_range || 6)}"></label></div>
+        <details class="as-adv"><summary class="small muted">Gelişmiş</summary>
+          <label class="field"><span>Model (değiştirmen gerekmez)</span><input id="aimodel" value="${esc(p.ai_model || "claude-opus-5-5")}" spellcheck="false"></label></details>
         <div class="muted small">Yalnızca şarkı adı, sanatçı, tür, BPM, ton ve süre gönderilir; dosya ya da yol gönderilmez.</div></div>`;
     },
     wire: (el) => {

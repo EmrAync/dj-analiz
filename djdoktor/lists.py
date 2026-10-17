@@ -39,10 +39,10 @@ def _err(msg, code=None):
 def require_engine(lib):
     d = lib.engine_db()
     if not d:
-        raise _err("Bu SSD'de Engine kütüphanesi yok. Engine DJ'de bu SSD'ye bir kez parça aktarın; "
+        raise _err("Bu SSD'de Engine kütüphanesi yok. Engine DJ'de bu SSD'ye bir kez parça aktar; "
                    "kütüphane oluşunca listeler burada görünür.", "no_engine")
-    if lib.engine_open():
-        raise _err("Engine DJ açık. Listeleri düzenlemek için Engine DJ'i kapatın (Prime 4 ve bu program aynı "
+    if lib.engine_open(fresh=True):              # yazmadan hemen önce taze denetim
+        raise _err("Engine DJ açık. Listeleri düzenlemek için Engine DJ'i kapat (Prime 4 ve bu program aynı "
                    "listeleri kullanır).", "engine_open")
     return d
 

@@ -116,7 +116,7 @@ def normalize_rules(rules=None, preset=None):
         ic = bool(x.get("icase"))
         if rx:
             if _RISKY.search(find):
-                raise _err("Bu düzenli ifade çok yavaş çalışabilir (iç içe tekrar). Daha basit yazın.", "regex_risky")
+                raise _err("Bu düzenli ifade çok yavaş çalışabilir (iç içe tekrar). Daha basit yaz.", "regex_risky")
             try:
                 re.compile(find, re.I if ic else 0)
             except re.error as e:
@@ -755,7 +755,7 @@ def rename_one(lib, kind, ref, new_name, dry_run=False, progress=None):
         hit = relocate.ref_taken(lib, stale, (parent + "/" + new) if parent else new, rel, f) if is_file else \
             relocate._dir_ref_taken(lib, stale, rel, new, {})
         if hit:
-            raise _err("Engine / Serato'da bu adla başka bir şarkının kaydı var. Başka bir ad seçin.", "ref_taken")
+            raise _err("Engine / Serato'da bu adla başka bir şarkının kaydı var. Başka bir ad seç.", "ref_taken")
     if dry_run:
         out = preview_refs(lib, files, dirs)
         out.update({"old": names.display(old), "new": names.display(new), "changed": why})
@@ -765,7 +765,7 @@ def rename_one(lib, kind, ref, new_name, dry_run=False, progress=None):
     if not res["files"] and not res["dirs"]:
         why = res["skipped"][0]["why"] if res["skipped"] else ""
         if why == "ref_taken":
-            raise _err("Engine / Serato'da bu adla başka bir şarkının kaydı var. Başka bir ad seçin.", why)
+            raise _err("Engine / Serato'da bu adla başka bir şarkının kaydı var. Başka bir ad seç.", why)
         raise _err("Ad değiştirilemedi%s." % (": aynı adda bir dosya var" if why == "exists" else ""), why or None)
     res["new"] = names.display(new)
     return res

@@ -135,7 +135,7 @@ def fix_junk(lib, progress=None):
         if not rows:
             return {"moved": 0}
         if lib.serato_open(fresh=True):
-            raise _err("Serato açık; lütfen kapatın.", "serato_open")
+            raise _err("Serato açık; lütfen kapat.", "serato_open")
         op = journal.Op(lib, "karantina", "%d çöp dosya karantinaya taşındı" % len(rows))
         if progress:
             progress(0.2, "Taşınıyor…")
@@ -189,7 +189,7 @@ def repair_engine(lib, progress=None):
     """Engine'deki bozuk yolları (ve başka yerde bulunan dosyaları) şimdi onarır."""
     from . import maintain
     if lib.engine_db() and lib.engine_open(fresh=True):
-        raise _err("Engine DJ açık. Onarmak için Engine DJ'i kapatın.", "engine_open")
+        raise _err("Engine DJ açık. Onarmak için Engine DJ'i kapat.", "engine_open")
     op = journal.Op(lib, "bakim", "Engine yolları onarıldı")
     with lib.lock:
         lib._maint_sig = None
@@ -208,7 +208,7 @@ def remove_missing(lib, tids=None, progress=None):
     if not d:
         raise _err("Bu SSD'de Engine kütüphanesi yok.", "no_engine")
     if lib.engine_open(fresh=True):
-        raise _err("Engine DJ açık. Bu işlem için Engine DJ'i kapatın.", "engine_open")
+        raise _err("Engine DJ açık. Bu işlem için Engine DJ'i kapat.", "engine_open")
     with lib.lock:
         st = lib.engine_state(force=True)
         cand = {tid for tid, _rel, m in st["orphans"] if m in ("missing", "nodir")}

@@ -1131,6 +1131,56 @@ def test_auto_relink_in_background():
     assert maintain.background(lib).get("auto_linked") is None     # ikinci kez bağlanacak bir şey yok
 
 
+def test_ambiguous_outside_rename_not_added_twice():
+    """Dışarıda adı değişen şarkının aynı sesli başka kopyası var (belirsiz eşleşme): arka plan onu Engine'e yeni kayıt
+    olarak eklemez; kullanıcı seçince analizli eski kayıt bağlanır."""
+    lib = fresh("ambig_bg")
+    maintain.after_change(lib)
+    q = "SELECT id, path FROM Track WHERE path LIKE '%Delilo%'"
+    before = eng(lib, q)
+    assert len(before) == 1, before
+    src = os.path.join(lib.root, "Müzik", "Halay", "Grup Ateş - Delilo.mp3")
+    os.rename(src, os.path.join(lib.root, "Müzik", "Halay", "Delilo B.mp3"))
+    lib.full_scan()
+    it = [x for x in relink.plan(lib)["items"] if x["src"] == "engine" and "Delilo" in x["old"]][0]
+    assert it["status"] == "ambiguous", it
+    maintain.background(lib)
+    assert eng(lib, q) == before, eng(lib, q)          # ikinci Engine kaydı yok
+    pl = relink.plan(lib)
+    fid = lib.catalog.q1("SELECT id FROM files WHERE present=1 AND rel LIKE '%Delilo B%'")["id"]
+    picks = {x["key"]: fid for x in pl["items"] if "Delilo" in x["old"]}
+    relink.apply(lib, pl["token"], keys=[], picks=picks)
+    after = eng(lib, q)
+    assert len(after) == 1 and after[0][0] == before[0][0] and after[0][1].endswith("Delilo B.mp3"), after
+
+
+def test_auto_relink_replans_under_lock():
+    """Arka plan planı kilitsiz kurar; arada kullanıcı dosyanın adını yeniden değiştirirse eski plana göre yazılmaz."""
+    lib = fresh("auto_race")
+    maintain.after_change(lib)
+    os.rename(os.path.join(lib.root, "Müzik", "Horon", "Karadeniz Horon 1.mp3"),
+              os.path.join(lib.root, "Müzik", "Horon", "Horon B.mp3"))
+    lib.full_scan()
+    stale = relink.plan(lib)
+    fid = lib.catalog.q1("SELECT id FROM files WHERE present=1 AND rel LIKE '%Horon B%'")["id"]
+    renamer.rename_one(lib, "file", fid, "Horon C")
+    orig, calls = relink.plan, [0]
+
+    def fake(l, *a, **k):
+        calls[0] += 1
+        return stale if calls[0] == 1 else orig(l, *a, **k)
+    relink.plan = fake
+    try:
+        relink.auto(lib)
+    finally:
+        relink.plan = orig
+    paths = [p for (p,) in eng(lib, "SELECT path FROM Track")] + dbv2(lib) + [p for v in crates(lib).values() for p in v]
+    assert not [p for p in paths if "Horon B" in unicodedata.normalize("NFC", p)], paths
+    assert [p for (p,) in eng(lib, "SELECT path FROM Track") if p.endswith("Horon C.mp3")]
+    bc, bd, bo = broken(lib)
+    assert not bc and not bd and not bo, (bc, bd, bo)
+
+
 def test_dedupe_serato_fresh_mirror_dialect():
     """Çift birleştirme (dedupe._serato_merge): Serato yolları diskten TAZE okunur (B1: sonradan eklenen crate),
     Mac lehçesi korunur (B3: ASCII ham yol -> Türkçe hedef NFD), aynalı crate bağı yenilenir (B2: ayna 'çakışma' /

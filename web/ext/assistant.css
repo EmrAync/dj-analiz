@@ -171,3 +171,8 @@ table.as-set td .why { font-size: .86em; }
 .as-stats { line-height: 1.4; }
 .as-set-ai .exrow { margin: 4px 0 6px; }
 .as-set-ai .frow > .field { flex: 1 1 9rem; }
+
+/* Ayarlar > Yapay zekâ: model alanı "Gelişmiş" altında */
+.as-adv { margin: 6px 0 2px; }
+.as-adv summary { cursor: pointer; width: max-content; }
+.as-adv .field { max-width: 22rem; margin-top: 6px; }

@@ -321,6 +321,9 @@ function dotHtml(d, title) {
   return `<span class="dot ${d || "none"}" title="${esc(title || t)}"></span>`;
 }
 
+// bugünün tarihi yerel saate göre (toISOString UTC verir: Almanya'da gece 00–02 arası "dün" çıkardı)
+function localDay(d) { d = d ? new Date(d) : new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); }
+
 function genreById(id) { return ((S.ov && S.ov.genres) || []).find((g) => g.id === +id); }
 
 // Tür renkleri (sarı, turuncu, camgöbeği…) yazı ya da beyaz yazılı dolgu olunca da okunur kalsın (≥ 4.5:1, iki temada):
@@ -1937,7 +1940,7 @@ function newEventDialog(baseId) {
   const t = S.lists;
   const temps = t.templates || [];
   const bases = t.lists.filter((l) => !l.managed && (l.kids || l.n));
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDay();
   const m = modal(`<div class="dh">Yeni etkinlik</div><div class="db">
     <label class="field"><span>Adı</span><input id="evt" placeholder="ör. Ahmet & Ayşe Düğün"></label>
     <div class="frow"><label class="field"><span>Tarih</span><input type="date" id="evd" value="${today}"></label>

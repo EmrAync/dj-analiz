@@ -421,9 +421,9 @@ def undo_last(lib, force=False, progress=None):
         need_engine = any(s["k"] in ("eng", "engsnap") for s in steps)
         need_serato = any(s["k"] in ("ser", "sersnap", "crate") for s in steps)
         if need_engine and lib.engine_open(fresh=True):
-            raise UserError("Engine DJ açık. Geri almak için Engine DJ'i kapatın.", "engine_open")
+            raise UserError("Engine DJ açık. Geri almak için Engine DJ'i kapat.", "engine_open")
         if need_serato and lib.serato_open(fresh=True):
-            raise UserError("Serato açık. Geri almak için Serato'yu kapatın.", "serato_open")
+            raise UserError("Serato açık. Geri almak için Serato'yu kapat.", "serato_open")
         # eski yerde artık BAŞKA bir dosya / klasör var: geri alınırsa Engine / Serato o başka dosyayı gösterirdi
         # (yanlış şarkı çalar). Zorla da yapılmaz; kullanıcı önce o dosyanın adını değiştirir.
         gone, taken = fs_changes(lib, steps)
