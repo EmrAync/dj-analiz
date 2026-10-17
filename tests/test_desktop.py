@@ -322,8 +322,8 @@ class Clock:
 def test_watchdog_app_policy():
     c = Clock()
     wd = desktop.Watchdog("app", clock=c)
-    assert c.go(c.t + 170, wd) is None
-    assert c.go(c.t + 20, wd) == "nostart"            # pencere hiç bağlanmadı
+    assert c.go(c.t + 590, wd) is None
+    assert c.go(c.t + 20, wd) == "nostart"            # pencere hiç bağlanmadı (10 dk)
     # kapanış: bye + 10 sn içinde yeni sayfa yok
     c = Clock()
     wd = desktop.Watchdog("app", clock=c)
@@ -346,13 +346,13 @@ def test_watchdog_app_policy():
     for _ in range(10):
         assert c.go(c.t + 60, wd) is None
         wd.hb("C")
-    # kalp atışı kesildi (pencere çöktü): 180 sn sonra
-    assert c.go(c.t + 175, wd) is None
+    # kalp atışı kesildi (pencere çöktü): 10 dk sonra
+    assert c.go(c.t + 595, wd) is None
     assert c.go(c.t + 10, wd) in ("timeout", "closed")
     c = Clock()
     wd = desktop.Watchdog("app", clock=c)
     wd.hb("A")
-    assert c.go(c.t + 179, wd) is None
+    assert c.go(c.t + 599, wd) is None
     assert c.go(c.t + 3, wd) == "timeout"
 
 
@@ -459,7 +459,7 @@ def test_server_routes_and_quit():
     assert info["offer"] is False
     assert call(port, "/api/app/info")[0] == 401                       # jeton başlığı şart
     assert call(port, "/api/app/hb", {"cid": "A"}, token=token)[0] == 200
-    assert app.watchdog.status()["clients"] == 1
+    assert app.watchdog.status()["clients"] == 2      # sayfanın kalp atışı + arayüz istekleri ("ui")
     assert call(port, "/api/app/bye?c=A", {})[0] == 401                # sendBeacon: jetonsuz reddedilir
     assert call(port, "/api/app/bye?t=yanlis&c=A", {})[0] == 401
     assert call(port, "/api/app/bye?t=%s&c=A" % token, {})[0] == 200   # sorgudaki jeton yalnızca burada geçer
@@ -519,6 +519,31 @@ def test_server_app_mode_autoquit():
         assert not th.is_alive(), "pencere kapanınca sunucu kapanmalı"
     finally:
         desktop.find_browser, desktop.spawn_detached, desktop.Watchdog.GRACE = old
+
+
+def test_server_no_heartbeat_but_ui_requests_stays_open():
+    """Kullanıcının Windows'unda kalp atışı hiç ulaşmadı ve program 3 dk sonra 'nostart' ile kapandı (iş %85'teyken).
+    Arayüzün sıradan istekleri de 'pencere açık' sayılmalı; günlükteki kapanış satırı sebebi göstermeli."""
+    old = (desktop.find_browser, desktop.spawn_detached, desktop.Watchdog.START, desktop.Watchdog.TIMEOUT)
+    desktop.find_browser = lambda *a, **k: {"name": "Sahte Edge", "path": "/yok/msedge"}
+    desktop.spawn_detached = lambda cmd, **k: None
+    desktop.Watchdog.START, desktop.Watchdog.TIMEOUT = 1.5, 1.5
+    try:
+        app, port, token, th = start_server("app")
+        for _ in range(8):                                  # 4 sn boyunca yalnızca durum sorgusu (kalp atışı yok)
+            assert call(port, "/api/state", token=token)[0] == 200
+            time.sleep(0.5)
+        assert th.is_alive(), "arayüz istek atarken kapanmamalı"
+        st, _b = call(port, "/api/app/log", {"msg": "TypeError: deneme"}, token=token)
+        assert st == 200
+        time.sleep(3.5)                                     # istek kesildi (pencere çöktü) -> zaman aşımı
+        th.join(5)
+        assert not th.is_alive()
+        log = open(app.log_path, encoding="utf-8").read() if getattr(app, "log_path", None) else ""
+        if log:
+            assert "arayüz: TypeError: deneme" in log and "kapanıyor: timeout" in log, log[-500:]
+    finally:
+        desktop.find_browser, desktop.spawn_detached, desktop.Watchdog.START, desktop.Watchdog.TIMEOUT = old
 
 
 # ---------------------------------------------------------------------------
@@ -587,7 +612,7 @@ def test_ui_app_window():
             assert app.settings.prefs()["app_window"] is False
             page.click(".djd-appset [data-pref=app_window]")
             page.wait_for_timeout(400)
-            assert app.watchdog.status()["clients"] == 1
+            assert app.watchdog.status()["clients"] == 2      # sayfanın kalp atışı + arayüz istekleri ("ui")
             page.goto("about:blank")                                         # pencere kapandı (pagehide + bye)
             th.join(10)
             assert not th.is_alive(), "pencere kapanınca sunucu kapanmalı"

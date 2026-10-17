@@ -180,6 +180,15 @@
     },
   });
 
+  // --- sayfa hataları günlüğe (Belgeler/DJ Doktor/gunluk/djdoktor.log) ----------------------------------------
+  let logged = 0;
+  function report(msg) {
+    if (logged++ > 20 || D.gone) return;
+    try { rawFetch("/api/app/log", { method: "POST", headers: { "X-DJD-Token": TOKEN, "Content-Type": "application/json" }, body: JSON.stringify({ msg: String(msg).slice(0, 800) }) }).catch(() => { /* */ }); } catch (e) { /* */ }
+  }
+  window.addEventListener("error", (e) => report((e.message || "hata") + " @ " + (e.filename || "").split("/").pop() + ":" + (e.lineno || "")));
+  window.addEventListener("unhandledrejection", (e) => report("söz: " + ((e.reason && (e.reason.stack || e.reason.message)) || e.reason)));
+
   // --- başlat -------------------------------------------------------------------------------------------------
   headLinks();
   start();

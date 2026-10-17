@@ -21,6 +21,12 @@ from .config import Settings, app_dir
 from .library import STATE_DIR, Library, UserError
 from .tasks import TaskManager
 
+
+# Windows kayıt defteri .js / .css için yanlış tür verebiliyor (ör. text/plain): kendimiz belirleyelim
+for _ext, _typ in ((".js", "text/javascript"), (".css", "text/css"), (".html", "text/html"), (".svg", "image/svg+xml"),
+                   (".png", "image/png"), (".webmanifest", "application/manifest+json")):
+    mimetypes.add_type(_typ, _ext)
+
 WEB_DIR = os.path.join(app_dir(), "web")
 
 
@@ -104,7 +110,8 @@ class App:
 
     def shutdown(self, reason=""):
         """Sunucuyu başka bir iş parçacığından durdurur; temizlik run() içinde yapılır."""
-        self.log("kapanıyor: %s" % reason)
+        wd = getattr(self, "watchdog", None)
+        self.log("kapanıyor: %s %s" % (reason, wd.status() if wd is not None else ""))
         srv = self.srv
         if srv is not None:
             threading.Thread(target=srv.shutdown, name="djd-shutdown", daemon=True).start()
@@ -268,6 +275,12 @@ class Handler(BaseHTTPRequestHandler):
                         return self._err("Yetkisiz", 401)
                 elif self.headers.get("X-DJD-Token") != self.app.token:
                     return self._err("Yetkisiz", 401)
+                else:
+                    # arayüzün her isteği (4 sn'de bir durum sorgusu) "pencere açık" demektir: kalp atışı bir
+                    # sebeple ulaşmasa da program, kullanıcı çalışırken kendini kapatmaz
+                    wd = self.app.watchdog
+                    if wd is not None and path != "/api/app/bye":
+                        wd.hb("ui")
                 return self._api(method, path[5:], qs)
             if path in ("/", "/index.html"):
                 return self._index()
@@ -1010,6 +1023,10 @@ def run(port=8770, open_browser=True, mode=None, windowless=False):
         app._wake.set()
         srv.server_close()
         bg.join(timeout=30)          # arka plan işi (ara tarama durur) bitsin
+        # süren yazma işi (taşıma, ad değişikliği…) asla yarıda kesilmesin: bitmesini bekle (en çok 30 dk)
+        t_end = time.time() + 1800
+        while not app.tasks.idle() and time.time() < t_end:
+            time.sleep(0.5)
         app.close()
         desktop.clear_run_file(app.settings.ws, app.port)
         app.log("kapandı")

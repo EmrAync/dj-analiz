@@ -161,6 +161,12 @@ UI tests take `DJD_UI_PORT` (default 8899/8902/…) so several can run at once.
   - Reviewed adversarially (rename + integration); found and fixed: renaming onto a path that another song's stale
     Engine/Serato record still holds, background merge dropping analyzed Engine records, undo after outside changes,
     genre folders merged in Finder, ambiguous outside renames re-added to Engine, background relink with a stale plan.
+- **2.2.1** (17.10.2026): on his Windows PC the app window's heartbeat never reached the server, so the watchdog quit
+  with `nostart` 180 s after every start (during a move at 85 % → "Failed to fetch", UI dead). Now every authenticated
+  UI request counts as a heartbeat (`wd.hb("ui")`), START/TIMEOUT are 600 s, the shutdown log line includes the
+  watchdog status, page JS errors are logged (`/api/app/log` → "arayüz: …"), the process waits for running tasks
+  before exiting, and .js/.css MIME types are pinned (Windows registry). Root cause of the missing heartbeat is still
+  unknown — check `djdoktor.log` for "arayüz:" lines on his machine.
 - **Not yet verified with the real apps (2.2):** Windows .bat + pythonw start, the PowerShell .lnk, the macOS .app bundle
   (Gatekeeper, python3 from Finder's minimal PATH), Edge/Chrome `--app` windows, real Engine `hm.db` / Serato
   `History/Sessions` parsing (check `assistant.learned(lib)["info"]["history_sessions"] > 0` on his Mac), and renames

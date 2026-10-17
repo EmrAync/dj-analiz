@@ -364,7 +364,9 @@ class Watchdog:
     Bir görev sürerken (busy) hiçbir karar verilmez; görev bitince yeniden bakılır.
     Bilgisayar uykudan uyanınca (iki tick arası çok uzun) pencerelerin süresi tazelenir."""
 
-    GRACE, TIMEOUT, START, HOLD, SLEEP_GAP = 10.0, 180.0, 180.0, 30.0, 30.0
+    # TIMEOUT / START uzun: gizli / simge durumundaki pencerede tarayıcı zamanlayıcıları dakikada bire iner; yanlışlıkla
+    # kapanmak (kullanıcı çalışırken) pencere kapandıktan sonra birkaç dakika açık kalmaktan çok daha kötü
+    GRACE, TIMEOUT, START, HOLD, SLEEP_GAP = 10.0, 600.0, 600.0, 30.0, 30.0
 
     def __init__(self, policy="app", busy=None, clock=None, grace=None, timeout=None, start=None):
         self.policy = policy
@@ -394,6 +396,7 @@ class Watchdog:
     def bye(self, cid="?"):
         with self.lock:
             self.clients.pop(str(cid)[:64], None)
+            self.clients.pop("ui", None)     # kapanan sayfanın istekleri de sayılmasın (başka pencere varsa geri gelir)
             self.seen = True
             self.last_bye = self.clock()
 
@@ -408,7 +411,8 @@ class Watchdog:
 
     def status(self):
         with self.lock:
-            return {"policy": self.policy, "clients": len(self.clients), "quit": self.quit_req}
+            return {"policy": self.policy, "clients": len(self.clients), "quit": self.quit_req, "seen": self.seen,
+                    "bye": self.last_bye is not None}
 
     def tick(self):
         """Kapanma nedeni ('user' | 'closed' | 'timeout' | 'nostart') ya da None."""
@@ -757,6 +761,12 @@ def _api(h, lib, method, parts, qs, body):
         return h._json(info(app))
     if method != "POST":
         return None
+    if act == "log" and method == "POST":
+        # sayfadaki JavaScript hataları günlüğe (kullanıcı "hata verdi" dediğinde sebep görülsün)
+        msg = str(body.get("msg") or "")[:800].replace("\n", " | ")
+        if msg:
+            app.log("arayüz: %s" % msg)
+        return h._json({"ok": True})
     if act == "hb":
         cid = body.get("cid") or qs.get("c") or "?"
         if wd:
