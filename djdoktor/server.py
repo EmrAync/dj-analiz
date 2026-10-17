@@ -459,6 +459,16 @@ class Handler(BaseHTTPRequestHandler):
                 app.settings.remove_library(body.get("id"))
                 return self._json({"ok": True})
         if r0 == "prefs" and method == "POST":
+            if body.get("inbox_loc") == "custom":
+                try:
+                    lib0 = app.lib()
+                except Exception:
+                    lib0 = None
+                body["inbox_dir"] = inbox.check_custom_dir(lib0, body.get("inbox_dir"))
+                body["archive_dir"] = ""
+            elif body.get("inbox_loc") in ("pc", "ssd"):
+                body["inbox_dir"] = ""
+                body["archive_dir"] = ""
             app.settings.set_prefs(**body)
             return self._json(_public_prefs(app.settings.prefs()))
         if r0 == "open" and method == "POST":

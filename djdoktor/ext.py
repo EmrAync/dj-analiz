@@ -20,7 +20,7 @@ import importlib
 
 ROUTES = {}
 # yüklenecek özellik modülleri (dosya yoksa sessizce atlanır)
-MODULES = ("renamer", "assistant", "ai", "desktop")
+MODULES = ("renamer", "assistant", "ai", "desktop", "browse")
 _loaded = False
 
 

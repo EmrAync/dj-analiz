@@ -54,7 +54,35 @@ def dirs(lib):
         # SSD kökünde (Mac'te ve PC'de aynı yer); kütüphane taraması bu iki klasöre girmez (BUILTIN_EXCLUDES)
         return os.path.join(lib.root, "DJ Gelen"), os.path.join(lib.root, "DJ Arşiv")
     di, da = default_dirs()
+    if p.get("inbox_loc") == "custom" and p.get("inbox_dir"):
+        ib = p["inbox_dir"]
+        # arşiv: seçilen klasörün yanında "DJ Arşiv" (kendi ayarı yoksa)
+        return ib, (p.get("archive_dir") or os.path.join(os.path.dirname(ib.rstrip("/\\")) or ib, "DJ Arşiv"))
     return (p.get("inbox_dir") or di), (p.get("archive_dir") or da)
+
+
+def check_custom_dir(lib, path):
+    """Kullanıcının seçtiği Gelen klasörü: var mı, müzik klasörünün içinde mi? SSD'deyse taramadan çıkarılır."""
+    from .library import UserError
+    path = (path or "").strip()
+    if not path or not os.path.isdir(path):
+        raise UserError("Klasör bulunamadı: %s" % path)
+    if lib is not None:
+        root = os.path.normcase(os.path.abspath(lib.root))
+        ap = os.path.normcase(os.path.abspath(path))
+        if ap == root:
+            raise UserError("SSD'nin kendisi Gelen klasörü olamaz; içinde bir klasör seç ya da oluştur.")
+        mr = os.path.normcase(os.path.abspath(os.path.join(lib.root, lib.music_root())))
+        if ap == mr or ap.startswith(mr + os.sep):
+            raise UserError("Gelen klasörü müzik klasörünün (%s) içinde olamaz; şarkılar karışır." % lib.music_root())
+        if ap.startswith(root + os.sep):
+            # SSD'de: kütüphane taraması bu klasöre girmesin (adına göre)
+            ex = list(lib.prefs().get("extra_excludes") or [])
+            name = os.path.basename(ap)
+            if name not in ex:
+                ex.append(name)
+                lib.settings.set_prefs(extra_excludes=ex)
+    return path
 
 
 def nice_name(filename):

@@ -426,6 +426,31 @@ def test_inbox_on_ssd():
         lib.settings.set_prefs(inbox_loc="pc")
 
 
+def test_inbox_custom_folder():
+    lib, fx = fresh("inbox_custom")
+    setup_default(lib)
+    own = os.path.join(lib.root, "Indirilenler")
+    os.makedirs(own)
+    try:
+        inbox.check_custom_dir(lib, os.path.join(lib.root, "Müzik", "Halay"))
+        assert False, "müzik klasörünün içi kabul edilmemeli"
+    except UserError:
+        pass
+    p = inbox.check_custom_dir(lib, own)
+    lib.settings.set_prefs(inbox_loc="custom", inbox_dir=p)
+    try:
+        ib, ar = inbox.dirs(lib)
+        assert ib == own and ar == os.path.join(lib.root, "DJ Arşiv"), (ib, ar)
+        make_fixture.write_mp3(os.path.join(own, "Kendi Klasorum.mp3"), 105, 150, "Kendi Klasorum", "Z")
+        os.utime(os.path.join(own, "Kendi Klasorum.mp3"), (1, 1700000000))
+        lib.full_scan()
+        assert not lib.catalog.q("SELECT rel FROM files WHERE rel LIKE 'Indirilenler/%'")
+        st = {os.path.basename(i["path"]): i["status"] for i in inbox.scan(lib)["items"]}
+        assert st.get("Kendi Klasorum.mp3") == "nogenre", st
+    finally:
+        lib.settings.set_prefs(inbox_loc="pc", inbox_dir="", extra_excludes=[])
+
+
 def test_inbox():
     lib, fx = fresh("inbox")
     setup_default(lib)

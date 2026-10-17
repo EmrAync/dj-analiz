@@ -48,7 +48,7 @@ only 2 agents at a time anyway. Prefer working directly; commit + push after eve
 
 ```bash
 python baslat.py [--app|--browser|--no-browser] [--console] [--port 8770]   # http://127.0.0.1:8770 (v1 used 8765)
-python3 -B tests/test_v2.py [test_name ...]       # 13 end-to-end backend tests on a synthetic SSD (no pytest)
+python3 -B tests/test_v2.py [test_name ...]       # 14 end-to-end backend tests on a synthetic SSD (no pytest)
 python3 -B tests/test_rename.py [test_name ...]   # 35 tests: bulk rename, conflicts, undo, relink after outside renames
 python3 -B tests/test_assistant.py                # 14 tests: Camelot, transitions, sort, set builder, AI (fake opener), save
 python3 -B tests/test_ai.py; python3 -B tests/test_desktop.py   # AI client (no network) / app window, icons, shortcuts, watchdog
@@ -175,6 +175,13 @@ UI tests take `DJD_UI_PORT` (default 8899/8902/…) so several can run at once.
   (count includes orphans) with a button to Kayıp yollar. Gelen folder location pref `inbox_loc` = pc | ssd (`<SSD>/DJ
   Gelen`, `<SSD>/DJ Arşiv`, never scanned: BUILTIN_EXCLUDES); new inbox songs without a genre get a suggestion
   (`sugg`). Engine: "Analiz bekleyenler" gets one child list per genre (managed meta `analysis_g`).
+- **2.2.3** (his feedback): Listeler sidebar in sections — "Engine listelerim", "Programın listeleri (otomatik)"
+  (collapsed), "Serato crate'leri", "Klasörler (SSD)" (folder tree incl. folders without music, counts direct / total);
+  crates and folders open read-only (`djdoktor/browse.py`, route **`gozat`** — `browse` is taken by the core folder
+  picker!; `S.cur` = number or "crate:…"/"folder:…"), crate → "Engine'e liste olarak al". Drawer: "Yollar" (disk path +
+  copy, SSD path, Engine path with found/not found, Serato crate count), why the dot is red/orange, BPM/key come from
+  file tags (not Engine analysis). Gelen folder: "Başka klasör seç…" (`inbox_loc=custom`, `inbox.check_custom_dir`:
+  not inside the music root; on the SSD → added to `extra_excludes`; archive = sibling "DJ Arşiv").
 - **Not yet verified with the real apps (2.2):** Windows .bat + pythonw start, the PowerShell .lnk, the macOS .app bundle
   (Gatekeeper, python3 from Finder's minimal PATH), Edge/Chrome `--app` windows, real Engine `hm.db` / Serato
   `History/Sessions` parsing (check `assistant.learned(lib)["info"]["history_sessions"] > 0` on his Mac), and renames

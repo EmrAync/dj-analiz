@@ -613,3 +613,14 @@ details.gcx summary { cursor: pointer; display: flex; align-items: center; gap: 
 #player .pl-tm, #player .pl-du { flex: none; font-variant-numeric: tabular-nums; }
 #view[data-w="xs"] ~ #player .pl-du, #view[data-w="xs"] ~ #player [data-pl="back"],
 #view[data-w="xs"] ~ #player [data-pl="fwd"] { display: none; }
+
+/* Listeler kenarı: bölümler (Engine listelerim / Programın listeleri / Serato crate'leri / Klasörler) */
+.tree .lsec { display: flex; align-items: center; gap: 4px; margin: 10px 2px 2px; padding: 6px 6px; cursor: pointer;
+  font-size: .74em; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+  border-top: 1px solid var(--line); user-select: none; }
+.tree .lsec:first-child { margin-top: 0; border-top: 0; }
+.tree .lsec .cnt { margin-left: auto; font-weight: 600; }
+.tree .lsec:hover { color: var(--ink); }
+.tree .nav-item.dim .name { color: var(--muted); }
+.split.lists.xview > .picker { display: none !important; }
+.btn.xs { padding: 0 6px; font-size: .78em; line-height: 1.6; min-height: 0; }

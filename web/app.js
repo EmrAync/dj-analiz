@@ -320,6 +320,16 @@ document.addEventListener("pointermove", (e) => { if (S.drag && e.buttons === 0)
 document.addEventListener("focusin", (e) => { if (e.target.matches("input, textarea, select")) S.editing = true; });
 document.addEventListener("focusout", (e) => { if (e.target.matches("input, textarea, select")) S.editing = false; });
 
+// Noktanın nedeni (kırmızı neden kırmızı?) — satırın üzerine gelince ve ayrıntı panelinde görünür
+function dotWhy(r) {
+  if (r.bad) return "Kırmızı: dosya bozuk ya da yarım inmiş";
+  if (r.fmt) return "Kırmızı: Prime 4 bu dosya biçimini çalmaz";
+  if (r.es === "broken") return "Kırmızı: Engine'deki yol bu dosyayı bulamıyor (program otomatik onarır)";
+  if (r.dot === "pending") return "Turuncu: Engine'de, ama Engine DJ henüz analiz etmedi";
+  if (r.dot === "ready") return "Yeşil: Engine'de ve analiz edildi";
+  if (r.dot === "none") return "Boş: Engine'de değil";
+  return "";
+}
 function dotHtml(d, title) {
   const t = { ready: "Hazır: Engine'de, analiz edildi", pending: "Engine'de, analiz bekliyor", none: "Engine'de değil", problem: "Sorun var" }[d] || "";
   return `<span class="dot ${d || "none"}" title="${esc(title || t)}"></span>`;
@@ -973,7 +983,8 @@ async function chooseRoot(root, relocateId) {
   await refresh(true);
 }
 
-async function browseDialog(relocateId, path = "") {
+// onPick verilirse genel klasör seçici olur (ör. Gelen klasörü): seçilen yol onPick'e gider
+async function browseDialog(relocateId, path = "", onPick = null) {
   let d;
   try { d = await api("/api/browse?path=" + encodeURIComponent(path || "")); } catch (e) { toast(e.message, "err"); return; }
   const marks = d.path ? `${d.serato ? '<span class="tag blue">Serato</span>' : ""}${d.engine ? '<span class="tag blue">Engine</span>' : ""}${d.djd ? '<span class="tag ok">DJ Doktor</span>' : ""}` : "";
@@ -984,10 +995,11 @@ async function browseDialog(relocateId, path = "") {
     <div class="df"><button class="btn" data-x="no">Vazgeç</button>${d.path && !d.system ? `<button class="btn primary" data-x="yes">Bu klasör</button>` : ""}</div>`, "wide");
   m.el.addEventListener("click", (e) => {
     const it = e.target.closest("[data-p]");
-    if (it) { browseDialog(relocateId, it.dataset.p); return; }
+    if (it) { browseDialog(relocateId, it.dataset.p, onPick); return; }
     const b = e.target.closest("[data-x]");
     if (!b) return;
     if (b.dataset.x !== "yes") { m.close(); return; }
+    if (onPick) { m.close(); onPick(d.path); return; }
     if (d.serato || d.engine || d.djd) chooseRoot(d.path, relocateId);
     else wrongDriveDialog(d.path, relocateId, true);
   });
@@ -1230,7 +1242,7 @@ function trackRowHtml(r) {
   const fold = `${r.bpm ? `<span class="vf" data-c="4"> · ${r.bpm} BPM</span>` : ""}${r.key ? `<span class="vf" data-c="5"> · ${esc(r.key)}</span>` : ""}${r.dur ? `<span class="vf" data-c="6"> · ${fmtDur(r.dur)}</span>` : ""}${r.folder ? `<span class="vf" data-c="7"> · ${esc(isG || !g ? r.folder : g.name)}</span>` : ""}`;
   return `<tr data-id="${r.id}" draggable="true" class="${on ? "sel" : ""}">
     <td class="c-chk"><input type="checkbox" ${on ? "checked" : ""} aria-label="Seç"></td>
-    <td class="c-dot">${dotHtml(r.dot)}</td>
+    <td class="c-dot">${dotHtml(r.dot, dotWhy(r))}</td>
     <td class="c-song" data-info="${r.id}" title="${esc(r.title)}${r.artist ? " · " + esc(r.artist) : ""} — ayrıntılar"><div class="ttl">${esc(r.title)}</div><div class="art">${esc(r.artist || "—")}${r.note ? ` · <span class="nt">${esc(r.note)}</span>` : ""}${fold}</div></td>
     <td class="c-num">${r.bpm || ""}</td><td class="c-num">${esc(r.key)}</td><td class="c-num">${fmtDur(r.dur)}</td>
     <td class="c-place"><div class="place">${!isG && g ? `<span class="tag gtx" style="${gStyle(g.color)}" title="${esc(g.name)}">${esc(g.name)}</span>` : ""}${r.folder ? `<span class="folder-chip" data-folder="${esc(r.rel.split("/").slice(0, -1).join("/"))}" title="${esc(r.rel)}">📁 ${esc(r.folder)}</span>` : ""}</div></td>
@@ -1279,7 +1291,7 @@ function tracksHtml() {
   return `<div class="head">${SIDEBTN}<div class="ht"><h2><span class="ell" title="${esc(title)}">${esc(title)}</span>${gActs}</h2><div class="sub" title="${esc(sub)}">${esc(sub)}</div></div>
       <input class="search" id="msearch" placeholder="Ara: şarkı, sanatçı, klasör…" value="${esc(S.q)}"></div>
     <div class="body">${hint}
-    <table class="t v" id="ttab" ${rows.length ? "" : "hidden"}>${trackCols()}<thead><tr><th class="c-chk"><input type="checkbox" id="chkall" aria-label="Hepsini seç"></th><th></th><th>Şarkı <span class="muted" id="tcount"></span></th><th>BPM</th><th>Ton</th><th>Süre</th><th>${isG ? "Alt klasör" : "Yer"}</th><th></th></tr></thead><tbody></tbody></table>
+    <table class="t v" id="ttab" ${rows.length ? "" : "hidden"}>${trackCols()}<thead><tr><th class="c-chk"><input type="checkbox" id="chkall" aria-label="Hepsini seç"></th><th></th><th>Şarkı <span class="muted" id="tcount"></span></th><th title="Dosyanın etiketinden (Serato / Mixed In Key / indirilen yer yazmış olabilir). Engine analiziyle ilgisi yok.">BPM</th><th title="Dosyanın etiketinden (Serato / Mixed In Key / indirilen yer yazmış olabilir). Engine analiziyle ilgisi yok.">Ton</th><th>Süre</th><th>${isG ? "Alt klasör" : "Yer"}</th><th></th></tr></thead><tbody></tbody></table>
     <div id="tempty" ${rows.length ? "hidden" : ""}>${emptyTracksHtml()}</div></div>
     <div id="bulkbar" class="foot" data-dock></div>`;
 }
@@ -1707,11 +1719,19 @@ function playerTime() {
 // ---------------------------------------------------------------------------
 // LİSTELER (Engine'in kendi listeleri; değişiklik anında kaydedilir)
 // ---------------------------------------------------------------------------
+// S.cur: Engine listesi (sayı) ya da salt okunur görünüm: "crate:<ad>" (Serato) / "folder:<yol>" (disk klasörü)
+const isX = (id) => typeof id === "string";
+function xUrl(id) {
+  return id.startsWith("crate:") ? "/api/gozat/crate?name=" + encodeURIComponent(id.slice(6))
+    : "/api/gozat/folder?rel=" + encodeURIComponent(id.slice(7));
+}
 async function loadLists() {
   S.lists = await api("/api/lists");
   if (!S.ov) { try { S.ov = await api("/api/overview"); } catch (e) { /* */ } }
-  if (S.cur && !S.lists.lists.some((l) => l.id === S.cur)) S.cur = null;
-  S.items = S.cur ? await api("/api/list/" + S.cur) : null;
+  try { S.br = { crates: (await api("/api/gozat/crates")).crates, folders: (await api("/api/gozat/folders")).folders }; }
+  catch (e) { S.br = S.br || { crates: [], folders: [] }; }
+  if (S.cur && !isX(S.cur) && !S.lists.lists.some((l) => l.id === S.cur)) S.cur = null;
+  try { S.items = S.cur ? await api(isX(S.cur) ? xUrl(S.cur) : "/api/list/" + S.cur) : null; } catch (e) { S.cur = null; S.items = null; }
   if (!S.pick.loaded) { await pickSearch(); }
   renderLists();
 }
@@ -1724,21 +1744,49 @@ function listKids() {
 
 function treeHtml() {
   const kids = listKids();
-  const out = [];
-  const walk = (pid, depth) => {
+  const all = S.lists.lists || [];
+  const mine = [], auto = [];
+  const walk = (pid, depth, out) => {
     for (const l of kids[pid] || []) {
       const has = (kids[l.id] || []).length > 0;
-      const open = S.open[l.id] !== undefined ? S.open[l.id] : (l.kind !== "genres");
+      const open = S.open[l.id] !== undefined ? S.open[l.id] : (l.kind !== "genres" && l.kind !== "analysis");
       out.push(`<div class="nav-item ${S.cur === l.id ? "on" : ""}" data-lid="${l.id}" style="padding-left:${8 + Math.min(depth, 6) * 14}px" title="${esc(l.path.join(" / "))}">
         <span class="tw" data-tw="${l.id}">${has ? (open ? "▾" : "▸") : ""}</span>
         <span class="name">${l.kind === "analysis" ? "⏳ " : l.ev ? "📅 " : ""}${esc(l.title)}</span>
-        ${l.managed ? '<span class="auto" title="Program tarafından otomatik tutulur">otomatik</span>' : ""}${l.serato ? `<span class="ser" title="Serato'da da var${l.serato.dirty ? " (Serato kapanınca güncellenecek)" : ""}">S${l.serato.dirty ? "…" : ""}</span>` : ""}
+        ${l.serato ? `<span class="ser" title="Serato'da da var${l.serato.dirty ? " (Serato kapanınca güncellenecek)" : ""}">S${l.serato.dirty ? "…" : ""}</span>` : ""}
         <span class="cnt">${l.n || ""}</span></div>`);
-      if (has && open) walk(l.id, depth + 1);
+      if (has && open) walk(l.id, depth + 1, out);
     }
   };
-  walk(0, 0);
-  return out.join("");
+  // kendi listelerin üstte; programın tuttukları (Analiz bekleyenler, Türler) ayrı ve kapalı bölümde
+  for (const l of kids[0] || []) (l.managed ? auto : mine).push(l);
+  const top = (arr) => { const out = []; arr.forEach((l) => { const k = kids[0]; kids[0] = [l]; walk(0, 0, out); kids[0] = k; }); return out.join(""); };
+  const sec = (key, title, n, body, defOpen) => {
+    const open = S.open["s:" + key] !== undefined ? S.open["s:" + key] : defOpen;
+    return `<div class="lsec" data-sec="${key}"><span class="tw">${open ? "▾" : "▸"}</span>${title}<span class="cnt">${n}</span></div>${open ? `<div class="lsecb">${body || '<div class="muted small" style="padding:4px 12px">Yok.</div>'}</div>` : ""}`;
+  };
+  const br = S.br || { crates: [], folders: [] };
+  // Serato crate'leri (%% alt crate)
+  const crates = br.crates.map((c) => `<div class="nav-item ${S.cur === "crate:" + c.name ? "on" : ""}" data-xid="crate:${esc(c.name)}" style="padding-left:${8 + Math.min(c.parts.length - 1, 6) * 14}px" title="Serato crate: ${esc(c.parts.join(" / "))}">
+      <span class="tw"></span><span class="name">${esc(c.parts[c.parts.length - 1])}</span>${c.linked ? '<span class="ser" title="Engine listesiyle eşli">E</span>' : ""}<span class="cnt">${c.n || ""}</span></div>`).join("");
+  // disk klasörleri (ağaç; müziği olmayanlar soluk)
+  const fk = {};
+  br.folders.forEach((f) => { (fk[f.parent] = fk[f.parent] || []).push(f); });
+  const fout = [];
+  const fwalk = (parent, depth) => {
+    for (const f of fk[parent] || []) {
+      const has = (fk[f.rel] || []).length > 0;
+      const open = !!S.open["f:" + f.rel];
+      fout.push(`<div class="nav-item ${S.cur === "folder:" + f.rel ? "on" : ""} ${f.total ? "" : "dim"}" data-xid="folder:${esc(f.rel)}" style="padding-left:${8 + Math.min(depth, 8) * 14}px" title="${esc(f.rel)}${f.total ? ` · ${f.total} müzik` : " · müzik yok"}">
+        <span class="tw" data-ftw="${esc(f.rel)}">${has ? (open ? "▾" : "▸") : ""}</span><span class="name">📁 ${esc(f.name)}</span><span class="cnt">${f.n ? f.n : ""}${f.total > f.n ? `<span class="muted"> / ${f.total}</span>` : ""}</span></div>`);
+      if (has && open) fwalk(f.rel, depth + 1);
+    }
+  };
+  fwalk("", 0);
+  return sec("mine", "Engine listelerim", mine.length, top(mine), true)
+    + sec("auto", "Programın listeleri (otomatik)", auto.length, top(auto), false)
+    + (S.st.active.has_serato ? sec("serato", "Serato crate'leri", br.crates.length, crates, false) : "")
+    + sec("folders", "Klasörler (SSD)", br.folders.filter((f) => !f.parent).length, fout.join(""), false);
 }
 
 function renderLists() {
@@ -1751,7 +1799,7 @@ function renderLists() {
   const ro = t.readonly;
   const lro = ro || (S.items && S.items.managed);
   // dar pencerede: ağaç ve ekleme paneli çekmece olur (CSS: #view[data-w] .split.lists); açık/kapalı S'de durur
-  v.innerHTML = `<div class="split lists ${S.treeOpen || !S.items ? "tree-open" : ""} ${S.pickOpen ? "pick-open" : ""} ${lro ? "ro" : ""}">
+  v.innerHTML = `<div class="split lists ${S.cur && isX(S.cur) ? "xview" : ""} ${S.treeOpen || !S.items ? "tree-open" : ""} ${S.pickOpen ? "pick-open" : ""} ${lro ? "ro" : ""}">
     <aside class="side"><div class="sideh">
       <button class="btn primary" id="newev" ${ro ? "disabled" : ""}>＋ Yeni etkinlik</button><button class="btn" id="newlist" ${ro ? "disabled" : ""}>＋ Liste</button>
       <button class="icon-btn" id="lmore" title="Diğer">⋯</button><button class="icon-btn tclose" id="treex" title="Kapat" aria-label="Listeleri kapat">✕</button></div>
@@ -1801,11 +1849,13 @@ function listMainHtml() {
       ${it.ev ? `<div class="evrow"><input type="date" class="search" id="evdate" value="${esc(ev.date || "")}" aria-label="Tarih"><input class="search" id="evvenue" placeholder="Yer / salon" value="${esc(ev.venue || "")}" aria-label="Yer"></div>` : ""}
     </div>
     <div class="hacts">
-      ${it.items.length || l.kids ? `<button class="btn sm" id="gigbtn" title="Etkinlikten önce: her şarkı yerinde, analiz edilmiş, Prime 4 çalar mı?">✓ Kontrol et</button><button class="btn sm" id="printbtn" title="Yazdırılabilir liste">🖨 Yazdır</button>` : ""}
+      ${isX(it.id) && it.kind === "crate" && !S.lists.readonly ? `<button class="btn sm" id="ximport" title="Bu crate'i Engine'e liste olarak al (Serato'da da eşli kalır)">Engine'e liste olarak al</button>` : ""}
+      ${isX(it.id) ? "" : `${it.items.length || l.kids ? `<button class="btn sm" id="gigbtn" title="Etkinlikten önce: her şarkı yerinde, analiz edilmiş, Prime 4 çalar mı?">✓ Kontrol et</button><button class="btn sm" id="printbtn" title="Yazdırılabilir liste">🖨 Yazdır</button>` : ""}
       ${S.st.active.has_serato ? `<label class="switch ${l.serato ? "on" : ""}" id="sertog" title="Bu liste Serato'da da crate olarak dursun; değişiklikler iki yönlü eşitlenir"><i></i>Serato'da da</label>` : ""}
-      <button class="icon-btn" id="lmenu" title="Diğer">⋯</button>${ro ? "" : `<button class="btn sm primary pickbtn" id="pickbtn">＋ Şarkı ekle</button>`}</div></div>
-    <div class="body">${it.managed ? `<div class="hint blue"><span class="ic">ℹ</span><div>${l.kind === "analysis" ? "Bu liste Engine'de analiz edilmemiş şarkıları gösterir. Engine DJ'de bu listeyi seç → tümünü seç → sağ tık → <b>Analyze / Re-analyze tracks</b>. Bitenler kendiliğinden düşer." : "Bu listeyi program tutar (tür klasörünün aynısı). Değiştirmek için kopyasını al."}</div></div>` : ""}
+      <button class="icon-btn" id="lmenu" title="Diğer">⋯</button>${ro ? "" : `<button class="btn sm primary pickbtn" id="pickbtn">＋ Şarkı ekle</button>`}`}</div></div>
+    <div class="body">${isX(it.id) ? `<div class="hint"><span class="ic">${it.kind === "crate" ? "🎧" : "📁"}</span><div>${it.kind === "crate" ? "Serato crate'i — burada yalnızca görüntülenir." : `SSD'deki klasör: <b>${esc(it.rel || "(kök)")}</b> — burada yalnızca görüntülenir. Şarkıyı türe taşımak için Müzikler'i kullan.`}${it.items.some((r) => r.missing) ? ` <span class="nt">${it.items.filter((r) => r.missing).length} şarkının dosyası bulunamadı.</span>` : ""}</div></div>` : it.managed ? `<div class="hint blue"><span class="ic">ℹ</span><div>${l.kind === "analysis" ? "Bu liste Engine'de analiz edilmemiş şarkıları gösterir. Engine DJ'de bu listeyi seç → tümünü seç → sağ tık → <b>Analyze / Re-analyze tracks</b>. Bitenler kendiliğinden düşer." : "Bu listeyi program tutar (tür klasörünün aynısı). Değiştirmek için kopyasını al."}</div></div>` : ""}
     ${it.items.length ? `<table class="t v" id="ltab">${cols}<thead><tr><th></th><th></th><th>Şarkı</th><th>BPM</th><th>Ton</th><th>Süre</th>${nc ? "<th>Not</th>" : ""}<th></th></tr></thead><tbody></tbody></table>`
+      : isX(it.id) ? `<div class="empty"><div class="big">📁</div>${it.kind === "crate" ? "Bu crate boş." : "Bu klasörde doğrudan müzik yok. Alt klasörlerine soldan bakabilirsin."}</div>`
       : `<div class="empty"><div class="big">＋</div>Liste boş. Sağdan şarkı ara ve <b>＋</b> ile ekle ya da sürükleyip bırak.${ro ? "" : `<div style="margin-top:10px"><button class="btn primary pickbtn" id="pickbtn2">＋ Şarkı ekle</button></div>`}</div>`}</div>`;
 }
 
@@ -1853,13 +1903,13 @@ async function selectList(id) {
   S.treeOpen = false;
   const sp = $("#view .split.lists");
   if (sp) sp.classList.remove("tree-open");
-  try { S.items = await api("/api/list/" + id); } catch (e) { toast(e.message, "err"); S.items = null; }
+  try { S.items = await api(isX(id) ? xUrl(id) : "/api/list/" + id); } catch (e) { toast(e.message, "err"); S.items = null; }
   if (S.pick.gid === "sugg") await pickSearch();
   $("#lmain").innerHTML = listMainHtml();
   afterListMain();
   $("#tree").innerHTML = treeHtml();
   $("#picker").innerHTML = pickerHtml();
-  if (sp) sp.classList.toggle("ro", !!(S.lists.readonly || (S.items && S.items.managed)));
+  if (sp) { sp.classList.toggle("ro", !!(S.lists.readonly || (S.items && S.items.managed))); sp.classList.toggle("xview", isX(id)); }
 }
 
 // Dar pencerede ağaç / ekleme paneli çekmecesi
@@ -1895,6 +1945,11 @@ async function refreshLists() {
 function wireLists() {
   const v = $("#view");
   v.onclick = async (e) => {
+    if (e.target.id === "ximport" && S.items) {
+      const name = S.items.id.slice(6);
+      try { await task("/api/serato/import", { names: [name] }); toast("Engine'e liste olarak alındı.", "ok"); } catch (er) { return; }
+      await refresh(true); return;
+    }
     if (e.target.closest("#pickbtn, #pickbtn2")) { listDrawer("pick", !S.pickOpen); return; }
     if (e.target.closest("#pickx")) { listDrawer("pick", false); return; }
     if (e.target.closest("#treebtn, #treebtn2")) { listDrawer("tree", true); return; }
@@ -1907,6 +1962,12 @@ function wireLists() {
       S.open[id] = !cur; localStorage.setItem("djd.open", JSON.stringify(S.open));
       $("#tree").innerHTML = treeHtml(); return;
     }
+    const sc = e.target.closest("[data-sec]");
+    if (sc) { const k = "s:" + sc.dataset.sec; const def = sc.dataset.sec === "mine"; S.open[k] = !(S.open[k] !== undefined ? S.open[k] : def); localStorage.setItem("djd.open", JSON.stringify(S.open)); $("#tree").innerHTML = treeHtml(); return; }
+    const ftw = e.target.closest("[data-ftw]");
+    if (ftw && ftw.textContent) { const k = "f:" + ftw.dataset.ftw; S.open[k] = !S.open[k]; localStorage.setItem("djd.open", JSON.stringify(S.open)); $("#tree").innerHTML = treeHtml(); return; }
+    const xi = e.target.closest("[data-xid]");
+    if (xi) { await selectList(xi.dataset.xid); return; }
     const li = e.target.closest("[data-lid]");
     if (li) { await selectList(+li.dataset.lid); return; }
     const play = e.target.closest("[data-play]");
@@ -2136,7 +2197,8 @@ function renderInbox() {
   const tail = (p) => { const a = String(p || "").split(/[\\/]+/).filter(Boolean); return a.length > 2 ? "…" + sepName + a.slice(-2).join(sepName) : String(p || ""); };
   $("#view").innerHTML = `<div class="main read"><div class="head"><div class="ht"><h2>Gelen</h2><div class="sub">Yeni şarkılar buradan girer. İndirirken türün klasörünü seç; gerisini program yapar.</div></div>
     <div class="ib-ctl"><label class="small muted">Gelen klasörü <select id="inloc" title="Yeni şarkıları nereye indiriyorsun?">
-      <option value="pc" ${ib.loc !== "ssd" ? "selected" : ""}>Bu bilgisayarda</option><option value="ssd" ${ib.loc === "ssd" ? "selected" : ""}>SSD'de</option></select></label>
+      <option value="pc" ${!ib.loc || ib.loc === "pc" ? "selected" : ""}>Bu bilgisayarda</option><option value="ssd" ${ib.loc === "ssd" ? "selected" : ""}>SSD'de</option>
+      ${ib.loc === "custom" ? `<option value="custom" selected>Seçtiğim klasör</option>` : ""}<option value="pick">Başka klasör seç…</option></select></label>
     <label class="switch ${ib.auto ? "on" : ""}" id="autotog"><i></i>Otomatik ekle</label></div></div>
     <div class="body">
     <div class="flow">
@@ -2175,6 +2237,16 @@ function renderInbox() {
   };
   v.onchange = async (e) => {
     if (e.target.id !== "inloc") return;
+    if (e.target.value === "custom") return;
+    if (e.target.value === "pick") {
+      e.target.value = ib.loc || "pc";
+      browseDialog(null, "", async (p) => {
+        try { await api("/api/prefs", { inbox_loc: "custom", inbox_dir: p }); toast("Gelen klasörü: " + p, "ok"); }
+        catch (er) { toast(er.message, "err"); }
+        await refresh(true);
+      });
+      return;
+    }
     try {
       await api("/api/prefs", { inbox_loc: e.target.value });
       toast(e.target.value === "ssd" ? "Gelen klasörü artık SSD'de: “DJ Gelen”." : "Gelen klasörü artık bu bilgisayarda.", "ok");
@@ -2520,20 +2592,26 @@ async function openTrack(fid) {
   const grp = d.dupe_group;
   const html = `<div class="drawer-bg" data-dx="1"></div><aside class="drawer" role="dialog" aria-label="Şarkı ayrıntısı">
     <div class="dw-h"><div><div class="dw-t" title="${esc(f.title || f.name)}">${esc(f.title || f.name)}</div><div class="muted ell" title="${esc(f.artist || "")}">${esc(f.artist || "—")}</div>
-      <div style="margin-top:6px">${dotHtml(es[0])} <span class="small">${es[1]}</span>${d.genre ? ` <span class="tag gtx" style="${gStyle(d.color)}">${esc(d.genre)}</span>` : ""}</div></div>
+      <div style="margin-top:6px">${dotHtml(d.issues && d.issues.some((i) => i.severity === "kritik") ? "problem" : es[0])} <span class="small">${es[1]}</span>${d.genre ? ` <span class="tag gtx" style="${gStyle(d.color)}">${esc(d.genre)}</span>` : ""}</div></div>
       <button class="icon-btn" data-dx="1" title="Kapat (Esc)">✕</button></div>
     <div class="dw-b">
       <div class="exrow" style="margin-bottom:12px;flex-wrap:wrap"><button class="btn sm" data-dplay="${f.id}">▶ Dinle</button><button class="btn sm" data-dopen="${f.id}">📂 Göster</button>
         <button class="btn sm" data-dmove="${f.id}">Türe taşı ▾</button><button class="btn sm" data-dlist="${f.id}">Listeye ekle ▾</button>
         ${DJD.trackActs.map((a, i) => `<button class="btn sm" data-dext="${i}">${esc(a.label)}</button>`).join("")}</div>
-      ${d.issues && d.issues.length ? `<div class="dw-s"><h4>Sorunlar</h4>${d.issues.map((i) => `<div class="small"><span class="tag ${i.severity === "kritik" ? "bad" : i.severity === "uyari" ? "warn" : ""}">${esc(i.title)}</span> <span class="muted">${esc(i.desc)}</span></div>`).join("")}</div>` : ""}
+      <div class="dw-s"><h4>Yollar</h4><div class="kv">
+        <div class="k">Dosya</div><div class="v"><span class="wrap-any">${esc(d.abs || d.disp)}</span> <button class="btn xs" data-dcopy="${esc(d.abs || d.disp)}" title="Kopyala">⧉</button></div>
+        <div class="k">SSD içinde</div><div class="v wrap-any">${esc(d.disp)}</div>
+        ${d.engine ? `<div class="k">Engine</div><div class="v"><span class="wrap-any">${esc(d.engine.path || "")}</span> <span class="tag ${d.es === "broken" ? "bad" : "ok"}">${d.es === "broken" ? "✗ dosyayı bulamıyor" : "✓ dosyayı buluyor"}</span></div>` : `<div class="k">Engine</div><div class="v muted">Engine'de kayıt yok</div>`}
+        <div class="k">Serato</div><div class="v ${d.serato_lists.length ? "" : "muted"}">${d.serato_lists.length ? d.serato_lists.length + " crate'te" : "hiçbir crate'te değil"}</div></div></div>
+      ${d.issues && d.issues.length ? `<div class="dw-s"><h4>Sorunlar (nokta bu yüzden ${d.issues.some((i) => i.severity === "kritik") ? "kırmızı" : "uyarılı"})</h4>${d.issues.map((i) => `<div class="small"><span class="tag ${i.severity === "kritik" ? "bad" : i.severity === "uyari" ? "warn" : ""}">${esc(i.title)}</span> <span class="muted">${esc(i.desc)}</span></div>`).join("")}</div>` : ""}
       <div class="dw-s"><h4>Bilgiler</h4><div class="kv">
         ${kv("BPM", f.bpm ? Math.round(f.bpm * 10) / 10 : (d.engine && d.engine.bpm ? Math.round(d.engine.bpm * 10) / 10 + " (Engine)" : ""))}
         ${kv("Ton", f.camelot || (d.engine && d.engine.key ? d.engine.key + " (Engine)" : ""))}${kv("Enerji (MIK)", f.mik_energy)}
         ${kv("Süre", fmtDur(f.duration))}${kv("Kalite", [(f.ext || "").replace(".", "").toUpperCase(), f.bitrate ? f.bitrate + " kbps" : "", f.sample_rate ? (f.sample_rate / 1000) + " kHz" : ""].filter(Boolean).join(" · "))}
         ${kv("Boyut", fmtSize(f.size))}${kv("Albüm", f.album)}${kv("Tür etiketi", f.genre)}${kv("Yıl", f.year)}${kv("Plak şirketi", f.label)}
         ${kv("Besteci", f.composer)}${kv("Remix", f.remixer)}${kv("Not", f.note)}${kv("Yorum", f.comment && f.comment !== f.note ? f.comment : "")}
-        ${kv("Gruplama", f.grouping)}${kv("Yol", d.disp)}</div></div>
+        ${kv("Gruplama", f.grouping)}</div>
+        ${f.bpm || f.camelot ? `<div class="muted small" style="margin-top:6px">BPM ve ton dosyanın etiketinden gelir (Serato, Mixed In Key ya da indirdiğin yer yazmış). Engine'in kendi analizi ayrıdır: grid, dalga formu ve cue için Engine DJ'de bir kez analiz gerekir.</div>` : ""}</div>
       ${cues ? `<div class="dw-s"><h4>Cue noktaları (Serato)</h4><div class="cues">${cues}</div></div>` : ""}
       ${d.engine ? `<div class="dw-s"><h4>Engine DJ</h4><div class="kv">${kv("Durum", d.engine.analyzed ? "analiz edildi" : "analiz bekliyor")}${kv("Beatgrid", d.engine.grid ? "var" : "")}${kv("Engine yolu", d.engine.path)}${d.engine.copies > 1 ? kv("Uyarı", "Engine'de " + d.engine.copies + " kez kayıtlı") : ""}</div></div>` : ""}
       ${(d.engine_lists.length || d.serato_lists.length) ? `<div class="dw-s"><h4>Listeler</h4>${d.engine_lists.map((x) => `<span class="tag blue">${esc(x)}</span>`).join("")}${d.serato_lists.map((x) => `<span class="tag" title="Serato crate">S · ${esc(x)}</span>`).join("")}</div>` : ""}
@@ -2548,6 +2626,8 @@ async function openTrack(fid) {
     if (e.target.closest("[data-dx]")) { closeDrawer(); return; }
     const pl = e.target.closest("[data-dplay], [data-play]");
     if (pl) { playFid(+(pl.dataset.dplay || pl.dataset.play), pl); return; }
+    const cp = e.target.closest("[data-dcopy]");
+    if (cp) { try { await navigator.clipboard.writeText(cp.dataset.dcopy); toast("Yol kopyalandı.", "ok"); } catch (er) { toast(cp.dataset.dcopy); } return; }
     const op = e.target.closest("[data-dopen]");
     if (op) { api("/api/open", { fid: +op.dataset.dopen }).catch((er) => toast(er.message, "err")); return; }
     const mv = e.target.closest("[data-dmove]");
