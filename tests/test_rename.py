@@ -780,6 +780,51 @@ def test_relink_reimported_duplicates():
     assert before[1] == after[1], ("Engine", set(before[1][0]) ^ set(after[1][0]), set(before[1][1]) ^ set(after[1][1]))
 
 
+def test_auto_relink_merge_only_without_user_work():
+    """Arka plandaki otomatik bağlama, bulunan dosyanın Engine'de zaten başka bir kaydı varsa (kullanıcı dosyayı
+    yeniden eklemiş) iki kaydı YALNIZCA silinecek kayıtta emek yoksa (analiz, grid / cue, kendi listesi) birleştirir;
+    varsa hiçbir kaydı silmez, karar kullanıcıya kalır (Kayıp yollar). Her turda boşuna yedek de alınmaz."""
+    rel = "Müzik/Türkçe Pop/Sezen Aksu - Firuze.mp3"
+    new = "Müzik/Türkçe Pop/Sezen Aksu - Firuze (Yeni).mp3"
+    for analyzed_new in (1, 0):
+        lib = fresh("noauto%d" % analyzed_new)
+        maintain.after_change(lib)
+        con = sqlite3.connect(lib.engine_db()["path"])
+        con.execute("UPDATE Track SET isAnalyzed=1 WHERE path=?", ("../" + rel,))
+        con.commit()
+        con.close()
+        tid_old = eng(lib, "SELECT id FROM Track WHERE path=?", ("../" + rel,))[0][0]
+        os.rename(os.path.join(lib.root, *rel.split("/")), os.path.join(lib.root, *new.split("/")))
+        lib.full_scan()
+        con = sqlite3.connect(lib.engine_db()["path"])
+        con.execute("INSERT INTO Track(path, filename, title, isAnalyzed, fileType, isAvailable, "
+                    "isMetadataOfPackedTrackChanged, isPerfomanceDataOfPackedTrackChanged, isMetadataImported, "
+                    "pdbImportKey, isBeatGridLocked, streamingFlags, explicitLyrics, albumArtId, dateAdded) "
+                    "VALUES(?,?,'Firuze',?,'mp3',1,0,0,1,0,0,0,0,1,1)", ("../" + new, new.split("/")[-1], analyzed_new))
+        con.commit()
+        con.close()
+        rows0 = eng(lib, "SELECT id, path FROM Track WHERE path LIKE '%Firuze%'")
+        assert len(rows0) == 2, rows0
+        pl = relink.plan(lib)
+        it = next(x for x in pl["items"] if x["src"] == "engine" and x["status"] == "found")
+        assert it["merge"] and it["confidence"] == "kesin" and it["merge_safe"] == (not analyzed_new), it
+        lib._maint_sig = None
+        maintain.background(lib)
+        rows = eng(lib, "SELECT id, path FROM Track WHERE path LIKE '%Firuze%'")
+        if analyzed_new:
+            assert rows == rows0, rows                         # emek içeren kayıt kendiliğinden silinmedi
+            b0 = nbackups(lib)
+            lib._maint_sig = None
+            maintain.background(lib)
+            assert nbackups(lib) == b0, (b0, nbackups(lib))   # her arka plan turunda boşuna yedek alınmaz
+            pl = relink.plan(lib)
+            it = next(x for x in pl["items"] if x["src"] == "engine" and x["status"] == "found")
+            r = relink.apply(lib, pl["token"], keys=[it["key"]])                   # kullanıcı seçerse birleşir
+            assert r["engine_merged"] == 1, r
+            rows = eng(lib, "SELECT id, path FROM Track WHERE path LIKE '%Firuze%'")
+        assert rows == [(tid_old, "../" + new)], rows           # analizli eski kayıt kaldı, yeni yolu gösteriyor
+
+
 def test_auto_relink_in_background():
     lib = fresh("auto")
     _outside(lib)
@@ -789,6 +834,62 @@ def test_auto_relink_in_background():
     assert not bc and not bd and not bo, (bc, bd, bo)
     assert "otomatik" in lib.catalog.journal_top()["title"]
     assert maintain.background(lib).get("auto_linked") is None     # ikinci kez bağlanacak bir şey yok
+
+
+def test_dedupe_serato_fresh_mirror_dialect():
+    """Çift birleştirme (dedupe._serato_merge): Serato yolları diskten TAZE okunur (B1: sonradan eklenen crate),
+    Mac lehçesi korunur (B3: ASCII ham yol -> Türkçe hedef NFD), aynalı crate bağı yenilenir (B2: ayna 'çakışma' /
+    'Serato'da değişti' sanmaz). Tek 'Geri al' her şeyi birebir döndürür."""
+    from djdoktor import dedupe
+    lib = fresh("ddm")
+    rm_rel = "melis music/06.10.2026/Ali Kemal - Halay Başı.mp3"
+    keep_rel = "Müzik/Halay/Ali Kemal - Halay Başı.mp3"
+    # B3: tutulan kopya Türkçe adlı ve database V2'de yok; kaldırılan kopyanın ham yolu tamamen ASCII
+    sen = "Müzik/Horon/Şen Horon.mp3"
+    make_fixture.write_mp3(os.path.join(lib.root, *sen.split("/")), 1501, 30, "Şen Horon", "K")
+    os.makedirs(os.path.join(lib.root, "Dj Kopya"), exist_ok=True)
+    shutil.copyfile(os.path.join(lib.root, *sen.split("/")), os.path.join(lib.root, "Dj Kopya", "Sen Horon.mp3"))
+    lib.full_scan()
+    maintain.after_change(lib)
+    write_crate(lib, "Ascii Crate", ["Dj Kopya/Sen Horon.mp3"])
+    # B2: kaldırılan kopya aynalı bir listede (Engine listesi <-> Serato crate)
+    lst = lists.create(lib, 0, "Kına Aynası")
+    lists.add(lib, lst["id"], fids=[fid_of(lib, rm_rel)])
+    mirror.link(lib, lst["id"], True)
+    uuid = lib.engine_state()["uuid"]
+    ln = lib.catalog.serato_links(uuid)[lst["id"]]
+    write_crate(lib, ln["crate"], [NFD(rm_rel)])          # aynanın yazdığı crate kaldırılan kopyayı gösteriyor
+    lib.catalog.set_serato_link(uuid, lst["id"], ln["crate"],
+                                serato.file_hash(os.path.join(sdir(lib), "Subcrates", ln["crate"] + ".crate")),
+                                ln["last_refs"], 0)
+    lib.analyze_serato()
+    assert all(v == "ok" for v in mirror.state(lib).values()), mirror.state(lib)
+    # B1: Serato'da sonradan eklenen crate (program henüz okumadı; Windows yazımı, başka hiçbir yerde yok)
+    write_crate(lib, "Yeni Crate", [unicodedata.normalize("NFC", rm_rel)])
+    before = (tree(lib.root), serato_bytes(lib.root), engine_core(lib))
+    gs = dedupe.groups(lib)
+    g1 = next(g for g in gs if g["kind"] == "exact" and any(m["rel"] == rm_rel for m in g["members"]))
+    g2 = next(g for g in gs if any(m["rel"] == "Dj Kopya/Sen Horon.mp3" for m in g["members"]))
+    res = dedupe.merge(lib, [{"group": g1["id"], "keeper": fid_of(lib, keep_rel)},
+                             {"group": g2["id"], "keeper": fid_of(lib, sen)}])
+    cr = crates(lib)
+    assert cr["Yeni Crate"] == [NFD(keep_rel)], cr["Yeni Crate"]                          # B1
+    assert cr["Ascii Crate"] == [NFD(sen)], cr["Ascii Crate"]                             # B3
+    assert cr[ln["crate"]] == [NFD(keep_rel)], cr[ln["crate"]]
+    bc, bd, bo = broken(lib)
+    assert not bc and not bd and not bo, (bc, bd, bo)
+    st = mirror.state(lib)
+    assert not [v for v in st.values() if v in ("conflict", "pull")], st                  # B2
+    assert lib.catalog.journal_top()["id"] == res["journal"]
+    mirror.background(lib)
+    assert lib.catalog.journal_top()["id"] == res["journal"]                             # ayrı bir işlem yok
+    assert all(v == "ok" for v in mirror.state(lib).values()), mirror.state(lib)
+    journal.undo_last(lib)
+    after = (tree(lib.root), serato_bytes(lib.root), engine_core(lib))
+    assert before[0] == after[0], set(before[0]) ^ set(after[0])
+    assert before[1] == after[1], "Serato birebir dönmedi"
+    assert before[2] == after[2], ("Engine dönmedi", set(before[2][0]) ^ set(after[2][0]),
+                                   set(before[2][1]) ^ set(after[2][1]))
 
 
 def test_perf_plan_5000_apply_1000():

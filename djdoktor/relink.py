@@ -278,7 +278,7 @@ def find_missing(lib, sx=None):
     """Engine (her veritabanı) ve Serato'da (database V2 + bütün crate'ler, diskten taze) dosyası bulunamayan
     kayıtlar. -> {'engine': [...], 'serato': [...], 'sx': serato dizini}"""
     from . import maintain
-    out = {"engine": [], "serato": [], "sx": None}
+    out = {"engine": [], "serato": [], "sx": None, "engine_fids": {}, "engine_trk": {}}
     rs = Resolver(lib.catalog, lib.root)
     for d in lib.engine_dbs():
         try:
@@ -291,12 +291,19 @@ def find_missing(lib, sx=None):
             continue
         mg = maintain.managed_ids(lib, data["uuid"]) if d["key"] == "drive" else set()
         lists_of = defaultdict(list)
-        want = {tid for tid, _r in miss}
+        nl_all = defaultdict(int)
         for p in data["playlists"]:
-            if p["id"] in mg:
-                continue
-            for tid in set(x for x in p["entries"] if x in want):
-                lists_of[tid].append(" / ".join(p["path"]))
+            for tid in set(x for x in p["entries"] if x):
+                nl_all[tid] += 1
+                if p["id"] not in mg:
+                    lists_of[tid].append(" / ".join(p["path"]))
+        # bu veritabanında zaten kaydı olan dosyalar ve kayıtların 'emeği' (bağlama iki kaydı birleştirecekse
+        # hangisinin kalacağı ve silinecek kayıtta analiz / grid / kullanıcı listesi olup olmadığı)
+        out["engine_fids"][d["key"]] = {fid: [tid for tid, _m in v] for fid, v in _bf.items()}
+        out["engine_trk"][d["key"]] = {
+            tid: {"an": bool(t.get("isAnalyzed")), "user": bool(t.get("isAnalyzed") or t.get("has_grid") or
+                                                               lists_of.get(tid)), "nl": nl_all.get(tid, 0)}
+            for tid, t in tracks.items()}
         for tid, rel in miss:
             t = tracks[tid]
             out["engine"].append({"key": "e:%s:%d" % (d["key"], tid), "db": d["key"], "tid": tid,
@@ -400,7 +407,12 @@ def plan(lib):
                   "artist": r.get("artist") or "", "_old": r["rel"], "_new": x.get("rel"),
                   "declined": r["key"] in dec}
             if src == "engine":
-                it.update(db=r["db"], tid=r["tid"], where=r["lists"], _path=r["path"])
+                # bulunan dosyanın Engine'de zaten ayrı bir kaydı var: bağlamak iki kaydı birleştirir
+                other = (miss["engine_fids"].get(r["db"]) or {}).get(x.get("fid")) or []
+                merge = bool(x.get("fid") and other)
+                it.update(db=r["db"], tid=r["tid"], where=r["lists"], _path=r["path"], merge=merge,
+                          merge_tid=other[0] if merge else None,
+                          merge_safe=merge and _merge_safe(miss["engine_trk"].get(r["db"]) or {}, r["tid"], other[0]))
             else:
                 it.update(where=r["where"], _raw=r["raw"])
             items.append(it)
@@ -450,15 +462,50 @@ def _nlists(w, tid):
     return r["n"] if r else 0
 
 
-def _merge_into_path(w, tid, newp):
-    """Hedef yolda başka bir Engine kaydı var (kullanıcı dosyayı yeniden eklemiş): analizli / listelerde olan kayıt
-    kalır, diğerinin liste yerleri ona geçer ve fazla kayıt kaldırılır. -> kalan kayıt"""
+def _merge_safe(trk, tid, other):
+    """Birleştirmede silinecek kayıtta kullanıcının emeği (analiz, beat grid, kendi listeleri) yoksa True.
+    Seçim _merge_into_path ile aynıdır: analizli / daha çok listede olan / eski kayıt kalır."""
+    a, b = trk.get(tid), trk.get(other)
+    if not a or not b:
+        return False
+    score = lambda t, i: (t["an"], t["nl"], -i)  # noqa: E731
+    drop = b if score(a, tid) >= score(b, other) else a
+    return not drop["user"]
+
+
+def _user_data(w, tid, managed=frozenset()):
+    """Engine kaydında kullanıcının emeği var mı? (analiz; beat grid, cue, loop verisi; programın tutmadığı listeler)"""
+    t = w.track(tid)
+    if not t:
+        return False
+    if t["isAnalyzed"]:
+        return True
+    pd = w.q1("SELECT length(beatData) AS b, length(quickCues) AS q, length(loops) AS l FROM PerformanceData "
+              "WHERE trackId=?", (tid,))
+    if pd and any(pd[k] for k in ("b", "q", "l")):
+        return True
+    for r in w.con.execute("SELECT DISTINCT listId FROM PlaylistEntity WHERE databaseUuid=? AND trackId=?",
+                           (t["originDatabaseUuid"], t["originTrackId"])):
+        if r[0] not in managed:
+            return True
+    return False
+
+
+def _merge_into_path(w, tid, newp, other=None, safe=False, managed=frozenset()):
+    """Hedef yolda (ya da aynı dosyayı başka bir yazımla gösteren 'other' kaydında) başka bir Engine kaydı var
+    (kullanıcı dosyayı yeniden eklemiş): analizli / listelerde olan kayıt kalır, diğerinin liste yerleri ona geçer
+    ve fazla kayıt kaldırılır. -> kalan kayıt. safe=True (arka plan): silinecek kayıtta kullanıcının emeği
+    varsa birleştirilmez (None)."""
     ex = w.track_by_path(newp)
-    if not ex:
+    if (not ex or ex["id"] == tid) and other and other != tid:
+        ex = w.track(other)
+    if not ex or ex["id"] == tid:
         return None
     a, b = w.track(tid), w.track(ex["id"])
     score = lambda t: (bool(t["isAnalyzed"]), _nlists(w, t["id"]), -t["id"])  # noqa: E731
     keep, drop = (a, b) if score(a) >= score(b) else (b, a)
+    if safe and _user_data(w, drop["id"], managed):
+        return None
     kref = (keep["originDatabaseUuid"], keep["originTrackId"])
     dref = (drop["originDatabaseUuid"], drop["originTrackId"])
     if dref != kref:
@@ -500,6 +547,8 @@ def apply(lib, token=None, keys=None, picks=None, include_medium=False, progress
             else:                                       # varsayılan: geri alınmış bağlamalar yeniden yapılmaz
                 ok = not it.get("declined") and (it["confidence"] == "kesin" or
                                                   (include_medium and it["confidence"] == "yuksek"))
+                if auto and it.get("merge") and not it.get("merge_safe"):
+                    ok = False                          # arka plan emek içeren Engine kaydını silmez
             if ok:
                 chosen.append((it, it["fid"], it["_new"]))
         need_e = [c for c in chosen if c[0]["src"] == "engine"]
@@ -524,6 +573,7 @@ def apply(lib, token=None, keys=None, picks=None, include_medium=False, progress
         title = ("Yolu değişen %d kayıt bağlandı" % n) if n else "Adı değişen klasörler türlere bağlandı"
         op = journal.Op(lib, "bakim", title + (" (otomatik)" if auto else ""))
         n0 = 0
+        skipped_keys = set()
         try:
             # Engine
             by_db = defaultdict(list)
@@ -541,17 +591,30 @@ def apply(lib, token=None, keys=None, picks=None, include_medium=False, progress
                 bk = engine.backup(d["path"], lib.backup_dir("engine"), "baglama")
                 engine.prune_backups(lib.backup_dir("engine"))
                 w = engine.Writer(d["path"], d["lib_dir"], lib.root)
+                mg = frozenset(maintain.managed_ids(lib, w.uuid)) if key == "drive" else frozenset()
                 merged = 0
                 try:
                     for it, fid, new in rows:
                         oldp = it["_path"]
                         newp = engine.repath(oldp, None, new, d["lib_dir"], lib.root)
-                        r = w.track_set_path(it["tid"], newp, expect=oldp)
+                        other = it.get("merge_tid") if fid == it.get("fid") else None
+                        cur = w.track(it["tid"])
+                        if cur and cur["path"] == oldp and other and other != it["tid"] and w.track(other):
+                            r = "cakisma"            # dosyanın başka bir yazımla kaydı var: Engine'de iki kez olmasın
+                        else:
+                            r = w.track_set_path(it["tid"], newp, expect=oldp)
                         if r == "ok":
                             res["engine"] += 1
                         elif r == "cakisma":
-                            if _merge_into_path(w, it["tid"], newp):
+                            # arka plan, silinecek kayıtta analiz / cue / kullanıcı listesi varsa birleştirmez:
+                            # kullanıcı 'Kayıp yollar'da seçerse birleşir
+                            if _merge_into_path(w, it["tid"], newp, other=other, safe=auto, managed=mg):
                                 merged += 1
+                            else:
+                                res["clash_left"] = res.get("clash_left", 0) + 1
+                                skipped_keys.add(it["key"])
+                        elif r != "ayni":            # kayıt silinmiş / arada değişmiş: dokunulmadı
+                            skipped_keys.add(it["key"])
                     w.commit()
                 except Exception:
                     w.rollback()
@@ -584,7 +647,7 @@ def apply(lib, token=None, keys=None, picks=None, include_medium=False, progress
             hist, seen = [], set()
             with cat.tx():
                 for it, fid, new in need_e + need_s:
-                    if not fid:
+                    if not fid or it["key"] in skipped_keys:
                         continue
                     lk = names.loose_key(it["_old"])
                     if lk not in seen:
@@ -602,20 +665,21 @@ def apply(lib, token=None, keys=None, picks=None, include_medium=False, progress
         lib.bump()
         if need_s:
             lib.analyze_serato()
-        done = [it["key"] for it, _f, _n in need_e + need_s]
+        done = [it["key"] for it, _f, _n in need_e + need_s if it["key"] not in skipped_keys]
         op.info["relink_keys"] = done               # geri alınırsa arka plan bunları yeniden bağlamaz
         if not auto:
             undecline(lib, done)                    # kullanıcı kendisi seçti: artık 'geri alınmış' sayılmaz
         res["maint"] = maintain.after_change(lib, op)
         res["journal"] = op.commit()
-        res["left"] = max(0, sum(1 for x in pl["items"] if x["status"] != "none") - len(need_e) - len(need_s))
+        res["left"] = max(0, sum(1 for x in pl["items"] if x["status"] != "none") - len(done))
         return res
 
 
 def auto(lib):
     """Arka plan: yalnızca 'kesin' eşleşmeleri bağlar (Engine / Serato kapalıysa). Diğerleri kullanıcıya kalır."""
     pl = plan(lib)
-    if not any(x.get("confidence") == "kesin" and not x["declined"] for x in pl["items"]) and not \
-            [f for f in pl["folders"] if f["sure"] and not os.path.isdir(lib.rootinfo.os_path(f["_old"]))]:
+    sure = [x for x in pl["items"] if x.get("confidence") == "kesin" and not x["declined"] and
+            (not x.get("merge") or x.get("merge_safe"))]
+    if not sure and not [f for f in pl["folders"] if f["sure"] and not os.path.isdir(lib.rootinfo.os_path(f["_old"]))]:
         return None
     return apply(lib, auto=True, pl=pl)

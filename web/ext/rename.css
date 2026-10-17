@@ -2,7 +2,7 @@
 .rn-seg { display: inline-flex; flex: 0 1 auto; min-width: 0; border: 1px solid var(--line); border-radius: 99px; background: var(--panel); padding: 2px; gap: 2px; max-width: 100%; }
 .rn-seg button { border: 0; background: transparent; border-radius: 99px; padding: .32em .9em; cursor: pointer; color: var(--ink-2); font: inherit; font-size: .92em; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .rn-seg button > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.rn-seg button.on { background: var(--accent); color: #fff; font-weight: 600; }
+.rn-seg button.on { background: var(--accent-fill); color: #fff; font-weight: 600; }
 .rn-seg button .badge { font-size: .78em; }
 
 .rn-top { display: flex; flex-direction: column; gap: 10px; }
