@@ -732,6 +732,27 @@ def test_relink_ambiguous_needs_pick():
     r = relink.apply(lib, pl["token"], keys=[], picks={it["key"]: want["fid"]})
     assert r["engine"] == 1, r
     assert "../Müzik/Horon/Siir.mp3" in {x[0] for x in eng(lib, "SELECT path FROM Track")}
+    # sade adı aynı iki dosyadan yalnızca birinin boyutu tutuyor: yine 'kesin' DEĞİL (yanlış şarkı çalmasın);
+    # arka plan kendiliğinden bağlamaz, kullanıcı seçer
+    lib = fresh("amb2")
+    h = os.path.join(lib.root, "Müzik", "Horon")
+    make_fixture.write_mp3(os.path.join(h, "Şiir.mp3"), 1201, 20, "Şiir", "A")
+    lib.full_scan()
+    maintain.after_change(lib)
+    con = sqlite3.connect(lib.engine_db()["path"])                                     # Engine boyutu biliyor
+    con.execute("UPDATE Track SET fileBytes=? WHERE path=?", (os.path.getsize(os.path.join(h, "Şiir.mp3")),
+                                                             "../Müzik/Horon/Şiir.mp3"))
+    con.commit()
+    con.close()
+    os.rename(os.path.join(h, "Şiir.mp3"), os.path.join(h, "Siir.mp3"))
+    make_fixture.write_mp3(os.path.join(h, "SİİR.mp3"), 1202, 400, "Başka", "B")        # başka boyut / süre
+    lib.catalog.x("DELETE FROM files WHERE rel LIKE '%Şiir%'")
+    lib.full_scan()
+    it = next(x for x in relink.plan(lib)["items"] if x["old"].endswith("Şiir.mp3"))
+    assert it["status"] == "found" and it["confidence"] != "kesin" and it["new"].endswith("/Siir.mp3"), it
+    lib._maint_sig = None
+    maintain.background(lib)
+    assert "../Müzik/Horon/Şiir.mp3" in {x[0] for x in eng(lib, "SELECT path FROM Track")}
 
 
 def test_relink_reimported_duplicates():
@@ -823,6 +844,32 @@ def test_auto_relink_merge_only_without_user_work():
             assert r["engine_merged"] == 1, r
             rows = eng(lib, "SELECT id, path FROM Track WHERE path LIKE '%Firuze%'")
         assert rows == [(tid_old, "../" + new)], rows           # analizli eski kayıt kaldı, yeni yolu gösteriyor
+
+
+def test_relink_no_second_record_other_spelling():
+    """Bulunan dosyanın Engine'de başka bir yazımla (Mac NFD) kaydı varsa bağlama ikinci bir kayıt bırakmaz:
+    iki kayıt birleşir (bir şarkı Engine'de asla iki kez olmasın)."""
+    lib = fresh("spell")
+    rel = "Müzik/Halay/Sivas Halayı.mp3"
+    new = "Müzik/Halay/Sivas Halayı Gül.mp3"
+    maintain.after_change(lib)
+    tid_old = eng(lib, "SELECT id FROM Track WHERE path=?", ("../" + rel,))[0][0]
+    os.rename(os.path.join(lib.root, *rel.split("/")), os.path.join(lib.root, *new.split("/")))
+    lib.full_scan()
+    con = sqlite3.connect(lib.engine_db()["path"])          # Engine (Mac) dosyayı NFD yazımla yeniden eklemiş
+    con.execute("INSERT INTO Track(path, filename, title, isAnalyzed, fileType, isAvailable, "
+                "isMetadataOfPackedTrackChanged, isPerfomanceDataOfPackedTrackChanged, isMetadataImported, "
+                "pdbImportKey, isBeatGridLocked, streamingFlags, explicitLyrics, albumArtId, dateAdded) "
+                "VALUES(?,?,'x',0,'mp3',1,0,0,1,0,0,0,0,1,1)", (NFD("../" + new), NFD(new.split("/")[-1])))
+    con.commit()
+    con.close()
+    pl = relink.plan(lib)
+    it = next(x for x in pl["items"] if x["src"] == "engine" and x["status"] == "found")
+    assert it["merge"], it
+    r = relink.apply(lib, pl["token"], keys=[it["key"]])
+    rows = eng(lib, "SELECT id, path FROM Track WHERE path LIKE '%Sivas%'")
+    assert len(rows) == 1 and rows[0][0] == tid_old, rows
+    assert r["engine_merged"] == 1, r
 
 
 def test_auto_relink_in_background():

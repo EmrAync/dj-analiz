@@ -227,10 +227,11 @@
       right = `<div class="ttl" title="${esc(nw)}">${diff(oname, nname)[1]}</div><div class="art" title="${esc(nw)}">${nd ? diff(od, nd)[1] : "&nbsp;"}</div>`;
     }
     const conf = pick ? `<span class="tag blue">seçildi</span>` : x.declined && !on ? `<span class="tag" title="Bu bağlamayı geri aldın; kendiliğinden yeniden yapılmaz.">geri alındı</span>` : x.confidence ? `<span class="tag ${x.confidence === "kesin" ? "ok" : x.confidence === "yuksek" ? "blue" : "warn"}" title="${esc(METH[x.method] || "")}">${CONF_TXT[x.confidence]}</span><span class="muted small"> ${esc(METH[x.method] || "")}</span>` : "";
+    const mrg = x.merge && x.status === "found" && !pick ? ` <span class="tag warn" title="Bu şarkının Engine'de ikinci bir kaydı da var; bağlayınca iki kayıt birleşir (analizli olan kalır).">birleşir</span>` : "";
     return `<tr data-rnkey="${esc(x.key)}" class="${on ? "" : "rn-off"}"><td class="c-chk"><input type="checkbox" data-rnlk="${esc(x.key)}" ${on ? "checked" : ""} ${can ? "" : "disabled"}></td>
       <td><span class="tag ${x.src === "engine" ? "blue" : ""}">${x.src === "engine" ? "Engine" : "Serato"}</span></td>
       <td><div class="ttl" title="${esc(x.old)}">${esc(oname)}</div><div class="art" title="${esc(x.old + (sub !== od ? "\n" + sub : ""))}">${esc(sub)}</div></td>
-      <td class="muted">→</td><td>${right}</td><td>${conf}</td></tr>`;
+      <td class="muted">→</td><td>${right}</td><td>${conf}${mrg}</td></tr>`;
   }
 
   function html() { return RN.mode === "links" ? linksHtml() : namesHtml(); }

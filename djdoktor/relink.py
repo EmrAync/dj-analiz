@@ -8,12 +8,13 @@ için diskteki dosyayı şu yollarla arar (her eşleşmenin bir güveni ve gerek
   gecmis     : programın kendi taşıma / ad değiştirme geçmişi                         -> kesin
   ses_imzasi : eski katalog satırının ses imzası tek bir dosyada var                   -> kesin
                (Engine Library kopyaları ve karantina sayılmaz)
-  ad_sade    : Türkçe harf / aksan / büyük-küçük harf / NFD farkı dışında yol aynı     -> kesin (boyut ya da süre
-               tutuyorsa), yuksek (yalnızca ad)
+  ad_sade    : Türkçe harf / aksan / büyük-küçük harf / NFD farkı dışında yol aynı     -> kesin (tek aday ve boyut
+               ya da süre tutuyorsa), yuksek (yalnızca ad ya da sade adı aynı birden çok dosya)
   klasor_adi : bir klasörün adı değişmiş: o klasördeki kayıpların çoğu yeni bir klasörde -> yuksek
   ad_boyut   : başka bir yerde aynı ad ve aynı boyut / süre                             -> orta
 
-Bağlama tek işlemdir: önce yedek, sonra Engine (yol; çakışmada analizli kayıt korunarak birleştirme) ve Serato
+Bağlama tek işlemdir: önce yedek, sonra Engine (yol; dosyanın Engine'de başka bir kaydı varsa analizli kayıt
+korunarak birleştirme — arka planda yalnızca silinecek kayıtta analiz / grid / kullanıcı listesi yoksa) ve Serato
 (database V2 + bütün crate'ler, yazım biçimi korunur), tür / kural kayıtları; 'Geri al' hepsini döndürür.
 Arka planda yalnızca 'kesin' olanlar kendiliğinden bağlanır; diğerleri kullanıcıya sorulur.
 """
@@ -236,9 +237,11 @@ def match(lib, refs, ix=None):
             out[key] = {"fid": c[0]["id"], "method": "ad_sade", "confidence": conf, "status": "found"}
             continue
         if len(c) > 1:
+            # sade adı aynı birden çok dosya: boyut / süre yalnızca birini tutsa da 'kesin' sayılmaz
+            # (yanlış şarkıya bağlanmasın; arka plan kendiliğinden yapmaz, kullanıcı onaylar)
             ev = [x for x in c if _evidence(ref, x, old)]
             if len(ev) == 1:
-                out[key] = {"fid": ev[0]["id"], "method": "ad_sade", "confidence": "kesin", "status": "found"}
+                out[key] = {"fid": ev[0]["id"], "method": "ad_sade", "confidence": "yuksek", "status": "found"}
                 continue
             amb = {"method": "ad_sade", "candidates": c}
         if amb:
@@ -291,18 +294,17 @@ def find_missing(lib, sx=None):
             continue
         mg = maintain.managed_ids(lib, data["uuid"]) if d["key"] == "drive" else set()
         lists_of = defaultdict(list)
-        nl_all = defaultdict(int)
         for p in data["playlists"]:
+            if p["id"] in mg:
+                continue
             for tid in set(x for x in p["entries"] if x):
-                nl_all[tid] += 1
-                if p["id"] not in mg:
-                    lists_of[tid].append(" / ".join(p["path"]))
+                lists_of[tid].append(" / ".join(p["path"]))
         # bu veritabanında zaten kaydı olan dosyalar ve kayıtların 'emeği' (bağlama iki kaydı birleştirecekse
         # hangisinin kalacağı ve silinecek kayıtta analiz / grid / kullanıcı listesi olup olmadığı)
         out["engine_fids"][d["key"]] = {fid: [tid for tid, _m in v] for fid, v in _bf.items()}
         out["engine_trk"][d["key"]] = {
             tid: {"an": bool(t.get("isAnalyzed")), "user": bool(t.get("isAnalyzed") or t.get("has_grid") or
-                                                               lists_of.get(tid)), "nl": nl_all.get(tid, 0)}
+                                                               lists_of.get(tid)), "nl": len(lists_of.get(tid, ()))}
             for tid, t in tracks.items()}
         for tid, rel in miss:
             t = tracks[tid]
@@ -453,13 +455,13 @@ def scan_and_plan(lib, progress=None, cancel=None):
 # ---------------------------------------------------------------------------
 # Bağlama
 # ---------------------------------------------------------------------------
-def _nlists(w, tid):
+def _nlists(w, tid, managed=frozenset()):
+    """Kaydın bulunduğu kullanıcı listeleri (programın tuttuğu Türler / Analiz bekleyenler sayılmaz)."""
     t = w.track(tid)
     if not t:
         return 0
-    r = w.q1("SELECT COUNT(DISTINCT listId) AS n FROM PlaylistEntity WHERE databaseUuid=? AND trackId=?",
-             (t["originDatabaseUuid"], t["originTrackId"]))
-    return r["n"] if r else 0
+    return len({r[0] for r in w.con.execute("SELECT DISTINCT listId FROM PlaylistEntity WHERE databaseUuid=? AND "
+                                             "trackId=?", (t["originDatabaseUuid"], t["originTrackId"]))} - set(managed))
 
 
 def _merge_safe(trk, tid, other):
@@ -484,11 +486,7 @@ def _user_data(w, tid, managed=frozenset()):
               "WHERE trackId=?", (tid,))
     if pd and any(pd[k] for k in ("b", "q", "l")):
         return True
-    for r in w.con.execute("SELECT DISTINCT listId FROM PlaylistEntity WHERE databaseUuid=? AND trackId=?",
-                           (t["originDatabaseUuid"], t["originTrackId"])):
-        if r[0] not in managed:
-            return True
-    return False
+    return _nlists(w, tid, managed) > 0
 
 
 def _merge_into_path(w, tid, newp, other=None, safe=False, managed=frozenset()):
@@ -502,7 +500,7 @@ def _merge_into_path(w, tid, newp, other=None, safe=False, managed=frozenset()):
     if not ex or ex["id"] == tid:
         return None
     a, b = w.track(tid), w.track(ex["id"])
-    score = lambda t: (bool(t["isAnalyzed"]), _nlists(w, t["id"]), -t["id"])  # noqa: E731
+    score = lambda t: (bool(t["isAnalyzed"]), _nlists(w, t["id"], managed), -t["id"])  # noqa: E731
     keep, drop = (a, b) if score(a) >= score(b) else (b, a)
     if safe and _user_data(w, drop["id"], managed):
         return None

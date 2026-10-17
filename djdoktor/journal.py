@@ -93,8 +93,47 @@ def _crate_path(sdir, name):
     return os.path.join(sdir, *name.split("/"))
 
 
+def _remap(rel, dirs):
+    """rel, sonradan (aynı işlemde) adı değişen bir klasörün içindeyse klasörün yeni adıyla."""
+    for old, new in dirs:
+        op_, rp = names.split_rel(old), names.split_rel(rel)
+        if len(rp) > len(op_) and names.loose_key("/".join(rp[:len(op_)])) == names.loose_key(old):
+            rel = "/".join(names.split_rel(new) + rp[len(op_):])
+    return rel
+
+
+def fs_changes(lib, steps):
+    """Dosya / klasör adımlarının bıraktığı şeyler hâlâ yerinde mi? (program dışında, ör. Finder'da değişmiş olabilir)
+    -> (yerinde_olmayan, eski_yeri_dolu): geri alınca o dosya taşınamaz ama Engine / Serato eski yola dönerdi."""
+    gone = taken = 0
+    mvdirs = [(i, s["old"], s["new"]) for i, s in enumerate(steps) if s["k"] == "mvdir"]
+    for i, s in enumerate(steps):
+        k = s["k"]
+        if k == "mv" and s.get("fid"):
+            new, old = s["new"], s["old"]
+        elif k == "mvdir":
+            new, old = s["new"], s["old"]
+        elif k == "q" and s.get("fid"):
+            new, old = s["dst"], s["old"]
+        else:
+            continue
+        later = [(o, n) for j, o, n in mvdirs if j > i]
+        if later:
+            new, old = _remap(new, later), _remap(old, later)
+        if not os.path.exists(lib.rootinfo.os_path(new)):
+            gone += 1
+        elif names.loose_key(old) != names.loose_key(new) and os.path.exists(lib.rootinfo.os_path(old)):
+            taken += 1
+    return gone, taken
+
+
 def precheck(lib, steps):
     """Geri almadan önce: arada başka bir yerde değişiklik olmuş mu? Varsa açıklama döndürür."""
+    gone, taken = fs_changes(lib, steps)
+    if gone or taken:
+        return ("Bu işlemden sonra %d dosya / klasörün adı ya da yeri program dışında (ör. Finder'da) değişmiş. "
+                "Geri alırsanız onlar olduğu gibi kalır; Engine ve Serato'daki yollarını sonra Araçlar > Adlar > "
+                "Kayıp yollar bağlar." % (gone + taken))
     for s in steps:
         k = s["k"]
         if k == "engsnap":
