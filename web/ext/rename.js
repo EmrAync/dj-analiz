@@ -82,7 +82,7 @@
     return RN;
   }
   function lselDefault() {
-    RN.lsel = new Set(((RN.lk && RN.lk.items) || []).filter((x) => x.status === "found" && x.confidence === "kesin").map((x) => x.key));
+    RN.lsel = new Set(((RN.lk && RN.lk.items) || []).filter((x) => x.status === "found" && x.confidence === "kesin" && !x.declined).map((x) => x.key));
     RN.picks = {};
   }
 
@@ -195,9 +195,9 @@
           <button class="btn" id="rnscan" title="Önce SSD'yi tarar, sonra arar">↻ Tara ve bul</button>
           ${L.items.length ? `<button class="btn primary big" id="rnlink" ${!nsel || L.blocked ? "disabled" : ""}>${onlyKesin ? "Kesin olanları bağla" : "Seçilenleri bağla"} (${fmtN(nsel)})</button>` : ""}</div>
         ${folders}
-        ${L.items.length ? `<div class="rn-bar"><div class="chips rn-flt">${f}</div>${nonEng.length ? `<button class="btn sm danger" id="rnrm" title="Dosyası hiçbir yerde bulunamayan Engine kayıtları (yedek alınır, geri alınabilir)">Bulunamayan ${fmtN(nonEng.length)} Engine kaydını kaldır</button>` : ""}</div>
+        ${L.items.length ? `<div class="rn-bar"><div class="chips rn-flt">${f}</div><button class="btn sm" id="rnlhigh" style="display:none" title="Adı aynı, ama boyut / süre kanıtı yok">Yüksek güvenlileri de seç</button>${nonEng.length ? `<button class="btn sm danger" id="rnrm" title="Dosyası hiçbir yerde bulunamayan Engine kayıtları (yedek alınır, geri alınabilir)">Bulunamayan ${fmtN(nonEng.length)} Engine kaydını kaldır</button>` : ""}</div>
         <table class="t v rn-t" id="rnltab"><colgroup><col data-w="2.4em"><col data-w="5.8em" data-min="4.6em"><col data-flex="1" data-min="9em" data-w="18em"><col data-w="1.4em"><col data-flex="1" data-min="9em" data-w="18em"><col data-w="9.5em" data-min="6em" data-pri="2"></colgroup>
-          <thead><tr><th class="c-chk"></th><th></th><th>Kayıtta</th><th></th><th>Diskte</th><th>Güven</th></tr></thead><tbody></tbody></table>` : ""}`;
+          <thead><tr><th class="c-chk"><input type="checkbox" id="rnlall" title="Bulunanların hepsini seç"></th><th></th><th>Kayıtta</th><th></th><th>Diskte</th><th>Güven</th></tr></thead><tbody></tbody></table>` : ""}`;
     }
     return `${headHtml()}<div class="body">${main}</div>`;
   }
@@ -206,6 +206,8 @@
     if (!L) return [];
     return L.items.filter((x) => RN.lflt === "all" || x.status === RN.lflt);
   }
+  const splitRel = (p) => { const i = String(p || "").lastIndexOf("/"); return i < 0 ? ["", String(p || "")] : [p.slice(0, i), p.slice(i + 1)]; };
+  const selectable = (x) => x.status === "found" && !x.declined;
   function lselCount() { return RN.lsel ? RN.lsel.size + Object.keys(RN.picks).filter((k) => !RN.lsel.has(k)).length : 0; }
   function lrowHtml(x) {
     const pick = RN.picks[x.key];
@@ -213,15 +215,21 @@
     const nw = cand ? cand.rel : x.new;
     const on = RN.lsel.has(x.key) || !!pick;
     const can = x.status === "found" || !!pick;
-    const where = (x.where || []).join(" · ");
+    // satır 1: dosya adı (değişen harfler işaretli), satır 2: sol tarafta nerede kullanıldığı, sağda yeni klasör
+    const [od, oname] = splitRel(x.old);
+    const who = x.src === "engine" && x.title ? x.title + (x.artist ? " — " + x.artist : "") : "";
+    const sub = [who, (x.where || []).map((w) => w === "database V2" ? "koleksiyon" : w).join(" · ")].filter(Boolean).join(" · ") || od;
     let right;
     if (x.status === "ambiguous" && !pick) right = `<button class="btn sm" data-rnpick="${esc(x.key)}">${fmtN(x.candidates.length)} aday — seç ▾</button>`;
     else if (!nw) right = `<span class="muted">bulunamadı</span>`;
-    else { const [, n] = diff(x.old, nw); right = `<div class="ttl" title="${esc(nw)}">${n}</div><div class="art">${esc(where)}</div>`; }
-    const conf = pick ? `<span class="tag blue">seçildi</span>` : x.confidence ? `<span class="tag ${x.confidence === "kesin" ? "ok" : x.confidence === "yuksek" ? "blue" : "warn"}" title="${esc(METH[x.method] || "")}">${CONF_TXT[x.confidence]}</span><span class="muted small"> ${esc(METH[x.method] || "")}</span>` : "";
+    else {
+      const [nd, nname] = splitRel(nw);
+      right = `<div class="ttl" title="${esc(nw)}">${diff(oname, nname)[1]}</div><div class="art" title="${esc(nw)}">${nd ? diff(od, nd)[1] : "&nbsp;"}</div>`;
+    }
+    const conf = pick ? `<span class="tag blue">seçildi</span>` : x.declined && !on ? `<span class="tag" title="Bu bağlamayı geri aldın; kendiliğinden yeniden yapılmaz.">geri alındı</span>` : x.confidence ? `<span class="tag ${x.confidence === "kesin" ? "ok" : x.confidence === "yuksek" ? "blue" : "warn"}" title="${esc(METH[x.method] || "")}">${CONF_TXT[x.confidence]}</span><span class="muted small"> ${esc(METH[x.method] || "")}</span>` : "";
     return `<tr data-rnkey="${esc(x.key)}" class="${on ? "" : "rn-off"}"><td class="c-chk"><input type="checkbox" data-rnlk="${esc(x.key)}" ${on ? "checked" : ""} ${can ? "" : "disabled"}></td>
       <td><span class="tag ${x.src === "engine" ? "blue" : ""}">${x.src === "engine" ? "Engine" : "Serato"}</span></td>
-      <td><div class="ttl" title="${esc(x.old)}">${esc(x.old.split("/").pop())}</div><div class="art" title="${esc(x.old)}">${esc(x.title ? x.title + (x.artist ? " — " + x.artist : "") : x.old)}</div></td>
+      <td><div class="ttl" title="${esc(x.old)}">${esc(oname)}</div><div class="art" title="${esc(x.old + (sub !== od ? "\n" + sub : ""))}">${esc(sub)}</div></td>
       <td class="muted">→</td><td>${right}</td><td>${conf}</td></tr>`;
   }
 
@@ -255,6 +263,14 @@
       const kes = [...RN.lsel].every((k) => { const x = RN.lk.items.find((y) => y.key === k); return x && x.confidence === "kesin"; }) && !Object.keys(RN.picks).length;
       b.textContent = `${kes ? "Kesin olanları bağla" : "Seçilenleri bağla"} (${fmtN(n)})`;
       b.disabled = !n || !!RN.lk.blocked;
+    }
+    const all = $("#rnlall");
+    if (all) { const r = lrows().filter(selectable); all.checked = !!r.length && r.every((x) => RN.lsel.has(x.key)); }
+    const hi = $("#rnlhigh");
+    if (hi) {
+      const n2 = RN.lk.items.filter((x) => selectable(x) && x.confidence === "yuksek" && !RN.lsel.has(x.key)).length;
+      hi.style.display = n2 ? "" : "none";
+      hi.textContent = `Yüksek güvenlileri de seç (${fmtN(n2)})`;
     }
     $$("#rnltab tbody tr[data-rnkey]").forEach((tr) => {
       const on = RN.lsel.has(tr.dataset.rnkey) || !!RN.picks[tr.dataset.rnkey];
@@ -366,7 +382,7 @@
       const fl = t.closest("[data-rnflt]");
       if (fl) { RN.flt = fl.dataset.rnflt; $$("[data-rnflt]").forEach((c) => c.classList.toggle("on", c === fl)); redraw(); syncNames(); return; }
       const lf = t.closest("[data-rnlf]");
-      if (lf) { RN.lflt = lf.dataset.rnlf; $$("[data-rnlf]").forEach((c) => c.classList.toggle("on", c === lf)); redraw(); return; }
+      if (lf) { RN.lflt = lf.dataset.rnlf; $$("[data-rnlf]").forEach((c) => c.classList.toggle("on", c === lf)); redraw(); syncLinks(); return; }
       if (t.id === "rnapply") { await applyNames(); return; }
       if (t.id === "rnlink") { await applyLinks(); return; }
       if (t.id === "rnscan") { await scanLinks(); return; }
@@ -380,6 +396,16 @@
       }
       const pk = t.closest("[data-rnpick]");
       if (pk) { pickMenu(e, pk.dataset.rnpick); return; }
+      if (t.id === "rnlall") {
+        lrows().filter(selectable).forEach((x) => { if (t.checked) RN.lsel.add(x.key); else RN.lsel.delete(x.key); });
+        syncLinks();
+        return;
+      }
+      if (t.id === "rnlhigh") {
+        RN.lk.items.filter((x) => selectable(x) && x.confidence === "yuksek").forEach((x) => RN.lsel.add(x.key));
+        syncLinks();
+        return;
+      }
       if (t.id === "rnall") {
         const on = t.checked;
         rows().forEach((x) => { if (x.status !== "conflict") { if (on) RN.excl.delete(x.id); else RN.excl.add(x.id); } });
@@ -451,7 +477,7 @@
         try {
           const r = await api("/api/renamer/one", { kind: "file", id: fid, name: v + ext, dry_run: true });
           if (my !== seq) return;
-          const where = [...new Set((r.serato || []).flatMap((s) => s.where || []))].slice(0, 6);
+          const where = [...new Set((r.serato || []).flatMap((s) => s.where || []))].filter((w) => w !== "database V2").slice(0, 6);
           pv.innerHTML = `<b>${esc(r.new)}</b><br>Engine ${fmtN(r.counts.engine)} · Serato ${fmtN(r.counts.serato)} kayıt güncellenecek${where.length ? `<div class="ell" title="${esc(where.join(", "))}">${esc(where.join(" · "))}</div>` : ""}`;
           ok.disabled = r.unchanged;
         } catch (e) { if (my === seq) { pv.innerHTML = `<span class="rn-bad">${esc(e.message)}</span>`; ok.disabled = true; } }

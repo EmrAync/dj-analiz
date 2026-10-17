@@ -91,6 +91,51 @@ def test_mask():
     assert ai.mask("sk-ant-abcdefghijklmnop") == "sk-ant-…mnop" and ai.mask("") == ""
 
 
+class _H:
+    """server.Handler taklidi (yalnızca _json ve app.settings.prefs)."""
+
+    def __init__(self, prefs):
+        self.out = None
+
+        class _S:
+            def prefs(_s):
+                return dict(prefs)
+
+        class _A:
+            settings = _S()
+        self.app = _A()
+
+    def _json(self, obj, code=200):
+        self.out = obj
+        return True
+
+
+def test_route_status_and_test():
+    h = _H(PREFS)
+    ai._api(h, None, "GET", ["ai", "status"], {}, {})
+    assert h.out["key_set"] is True and h.out["mask"] == "sk-ant-…7890" and PREFS["ai_api_key"] not in json.dumps(h.out)
+    seen = {}
+    orig = ai._post
+
+    def fake_post(body, key, timeout=None, opener=None):
+        seen["key"], seen["effort"] = key, body["output_config"]["effort"]
+        return {"model": "claude-opus-5-5", "stop_reason": "end_turn", "content": [{"type": "text", "text": "{\"ok\": true}"}]}
+    ai._post = fake_post
+    try:
+        h = _H({"ai_api_key": ""})
+        ai._api(h, None, "POST", ["ai", "test"], {}, {})
+        assert h.out == {"ok": False, "error": h.out["error"], "code": "ai_no_key"} and "key" not in seen
+        ai._api(h, None, "POST", ["ai", "test"], {}, {"key": " sk-ant-yeni-anahtar-123456 "})
+        assert h.out == {"ok": True, "model": "claude-opus-5-5"} and seen["key"] == "sk-ant-yeni-anahtar-123456"
+        assert seen["effort"] == "low"                       # deneme isteği ucuz
+        h = _H(PREFS)
+        ai._api(h, None, "POST", ["ai", "test"], {}, {})
+        assert h.out["ok"] is True and seen["key"] == PREFS["ai_api_key"]
+    finally:
+        ai._post = orig
+    assert ai._api(_H(PREFS), None, "GET", ["ai", "nope"], {}, {}) is None
+
+
 if __name__ == "__main__":
     ok = fail = 0
     for k, v in sorted(globals().items()):

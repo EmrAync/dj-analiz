@@ -128,3 +128,27 @@ def test_key(prefs, opener=None):
     out = ask_json("Yanıt olarak yalnızca {\"ok\": true} döndür.", schema, dict(prefs, ai_effort="low"),
                    max_tokens=2000, opener=opener)
     return {"ok": bool(out.get("ok")), "model": out.get("_model")}
+
+
+# ---------------------------------------------------------------------------
+# API: /api/ai/... (kütüphane seçilmeden de çalışır)
+# ---------------------------------------------------------------------------
+from .ext import route  # noqa: E402
+
+
+@route("ai", needs_lib=False)
+def _api(h, lib, method, parts, qs, body):
+    act = parts[1] if len(parts) > 1 else ""
+    prefs = dict(h.app.settings.prefs())
+    if act == "status" and method == "GET":
+        key, model, effort = settings_of(prefs)
+        return h._json({"key_set": bool(key), "mask": mask(key), "model": model, "effort": effort})
+    if act == "test" and method == "POST":
+        k = ((body or {}).get("key") or "").strip()
+        if k:                                   # henüz kaydedilmemiş anahtarı denemek için
+            prefs["ai_api_key"] = k
+        try:
+            return h._json(dict(test_key(prefs)))
+        except AIError as e:
+            return h._json({"ok": False, "error": str(e), "code": e.code})
+    return None

@@ -15,8 +15,8 @@ import traceback
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import (APP_ID, APP_NAME, VERSION, dedupe, engine, events, exporters, ext, health, inbox, journal, lists,
-               maintain, mirror, names, relocate, util)
+from . import (APP_ID, APP_NAME, VERSION, dedupe, desktop, engine, events, exporters, ext, health, inbox, journal,
+               lists, maintain, mirror, names, relocate, util)
 from .config import Settings, app_dir
 from .library import STATE_DIR, Library, UserError
 from .tasks import TaskManager
@@ -37,6 +37,13 @@ class App:
                    "events": []}
         self.sel_tokens = {}      # kütüphane -> son seçimin jetonu (eski iptal edilmiş tarama yeni seçimi silmesin)
         self._stop = False
+        self._wake = threading.Event()     # kapanışta arka plan döngüsünü hemen uyandırır
+        # masaüstü (desktop.py): 'app' = ayrı uygulama penceresi, 'browser' = tarayıcı sekmesi, 'none' = pencere yok
+        self.mode = "none"
+        self.requested_mode = "none"   # başlatırken istenen (uygulama penceresi açılamadıysa mode 'browser' olur)
+        self.browser = None
+        self.watchdog = None
+        self.srv = None
 
     def log(self, text):
         try:
@@ -80,6 +87,28 @@ class App:
                 self._lib.catalog.close()
             self._lib = None
 
+    def close(self, wait=60.0):
+        """Kapanış: kütüphaneye yazan iş (kilit) bitene kadar bekler, sonra kataloğu kapatır."""
+        with self._lib_lock:
+            lib, self._lib = self._lib, None
+        if lib is None:
+            return
+        got = lib.lock.acquire(timeout=wait)
+        try:
+            lib.catalog.close()
+        except Exception:
+            self.log(traceback.format_exc())
+        finally:
+            if got:
+                lib.lock.release()
+
+    def shutdown(self, reason=""):
+        """Sunucuyu başka bir iş parçacığından durdurur; temizlik run() içinde yapılır."""
+        self.log("kapanıyor: %s" % reason)
+        srv = self.srv
+        if srv is not None:
+            threading.Thread(target=srv.shutdown, name="djd-shutdown", daemon=True).start()
+
     def forget_library(self, lib_id, remove_state=False):
         """Seçimden vazgeç: kütüphane kaydını kaldırır. remove_state=True ise sürücüde programın açtığı
         _DJDoktor_ klasörünü de kaldırır — yalnızca içinde kendi katalog dosyamızdan başka bir şey yoksa."""
@@ -109,7 +138,9 @@ class App:
     # ------------------------------------------------------------------
     def background_loop(self):
         while not self._stop:
-            time.sleep(3)
+            self._wake.wait(3)
+            if self._stop:
+                break
             try:
                 self._tick()
             except Exception:
@@ -181,9 +212,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        extra = dict(extra or {})
+        self.send_header("Cache-Control", extra.pop("Cache-Control", "no-store"))
         self.send_header("X-Content-Type-Options", "nosniff")
-        for k, v in (extra or {}).items():
+        for k, v in extra.items():
             self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
@@ -226,9 +258,12 @@ class Handler(BaseHTTPRequestHandler):
         qs = dict(urllib.parse.parse_qsl(u.query))
         try:
             if path == "/api/ping":
-                return self._json({"app": APP_ID, "version": VERSION})
+                if qs.get("hold") and self.app.watchdog is not None:
+                    self.app.watchdog.hold()     # ikinci açılış yeni pencere açıyor: bu arada kapanma
+                return self._json({"app": APP_ID, "version": VERSION, "mode": self.app.mode})
             if path.startswith("/api/"):
-                if path.startswith("/api/audio/") or path.startswith("/api/print/"):
+                # sendBeacon başlık gönderemez: jeton sorguda (yalnızca bu rotalar)
+                if path.startswith("/api/audio/") or path.startswith("/api/print/") or path == "/api/app/bye":
                     if qs.get("t") != self.app.token:
                         return self._err("Yetkisiz", 401)
                 elif self.headers.get("X-DJD-Token") != self.app.token:
@@ -236,6 +271,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._api(method, path[5:], qs)
             if path in ("/", "/index.html"):
                 return self._index()
+            asset = desktop.static_asset(path)
+            if asset is not None:
+                return self._send(200, asset[0], asset[1], {"Cache-Control": "max-age=86400"})
             return self._static(path)
         except UserError as e:
             return self._err(str(e), 400, e.code)
@@ -881,7 +919,15 @@ class _Server(ThreadingHTTPServer):
             self.app.log(traceback.format_exc())
 
 
-def run(port=8770, open_browser=True):
+def run(port=8770, open_browser=True, mode=None, windowless=False):
+    """Sunucuyu çalıştırır; kapanınca döner.
+
+    mode: 'app'     — ayrı uygulama penceresi (Edge/Chrome --app); pencere kapanınca program da kapanır
+          'browser' — varsayılan tarayıcıda sekme; yalnızca 'Programı kapat' ile (ya da konsoldan) kapanır
+          'none'    — pencere açılmaz (testler, --no-browser)
+    mode verilmezse eski davranış: open_browser -> 'browser', değilse 'none'."""
+    if mode is None:
+        mode = "browser" if open_browser else "none"
     util.disable_console_quickedit()
     app = App()
     Handler.app = app
@@ -895,26 +941,68 @@ def run(port=8770, open_browser=True):
             continue
     if srv is None:
         print("Boş port bulunamadı.")
+        app.log("Boş port bulunamadı (%d-%d)" % (port, port + 29))
+        if windowless:
+            desktop.message_box("DJ Doktor açılamadı: boş port bulunamadı.")
         return
     srv.daemon_threads = True
+    app.srv = srv
+    app.requested_mode = mode
     app.port = srv.server_address[1]
     url = "http://127.0.0.1:%d/" % app.port
-    threading.Thread(target=app.background_loop, name="djd-bg", daemon=True).start()
+    bg = threading.Thread(target=app.background_loop, name="djd-bg", daemon=True)
+    bg.start()
+    desktop.write_run_file(app.settings.ws, app.port, mode)
     print("=" * 60)
     print(" %s %s" % (APP_NAME, VERSION))
     print(" Arayüz: %s" % url)
-    print(" Kapatmak için bu pencereyi kapatın veya Ctrl+C'ye basın.")
+    if mode == "app":
+        print(" Program, açılan pencere kapanınca kendiliğinden kapanır.")
+    elif windowless:
+        print(" Kapatmak için: Ayarlar > Programı kapat.")
+    else:
+        print(" Kapatmak için bu pencereyi kapatın veya Ctrl+C'ye basın.")
     print("=" * 60)
-    if open_browser:
-        import webbrowser
-        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    app.log("başladı %s port %d mod %s" % (VERSION, app.port, mode))
+    app.watchdog = desktop.Watchdog("off", busy=lambda: not app.tasks.idle())   # pencere açılmadan hazır olsun
+    policy = "off"
+    if mode in ("app", "browser"):
+        desktop.warm_icons()
+        res = desktop.open_app_window(url, app.settings.ws, use_app=(mode == "app"))
+        app.browser = res.get("browser")
+        if mode == "app" and res["mode"] == "app":
+            policy = "app"
+        elif mode == "app":
+            # uygulama penceresi açılamadı (Chrome/Edge yok): sekme kapanınca kapan, zaman aşımıyla değil
+            # (arka plandaki sekmeyi tarayıcı uyutabilir)
+            policy = "bye"
+        app.mode = res["mode"]
+    app.watchdog.policy = policy
+
+    def watch():
+        while not app._stop:
+            time.sleep(1.0)
+            try:
+                why = app.watchdog.tick()
+            except Exception:
+                app.log(traceback.format_exc())
+                continue
+            if why:
+                app.shutdown(why)
+                return
+    threading.Thread(target=watch, name="djd-watchdog", daemon=True).start()
     try:
-        srv.serve_forever()
+        srv.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
         pass
     finally:
         app._stop = True
+        app._wake.set()
         srv.server_close()
+        bg.join(timeout=30)          # arka plan işi (ara tarama durur) bitsin
+        app.close()
+        desktop.clear_run_file(app.settings.ws, app.port)
+        app.log("kapandı")
 
 
 __all__ = ["run", "App", "Handler", "STATE_DIR"]

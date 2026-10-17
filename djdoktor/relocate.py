@@ -548,6 +548,28 @@ def _compose(d, done):
     return "/".join(out)
 
 
+class _Taken:
+    """Bir klasördeki adların gevşek anahtarları, SAYILI: exFAT'te NFC ve NFD yazımlı iki ad (ikiz) yan yana
+    durabilir; biri yeniden adlandırılınca diğeri o anahtarı hâlâ doldurur."""
+
+    def __init__(self, keys=()):
+        self.n = defaultdict(int)
+        for k in keys:
+            self.n[k] += 1
+
+    def __contains__(self, k):
+        return self.n.get(k, 0) > 0
+
+    def add(self, k):
+        self.n[k] += 1
+
+    def discard(self, k):
+        if self.n.get(k, 0) > 1:
+            self.n[k] -= 1
+        else:
+            self.n.pop(k, None)
+
+
 def _free_name(name, taken, is_file):
     stem, ext = os.path.splitext(name) if is_file else (name, "")
     k = 2
@@ -721,7 +743,7 @@ def batch_rename(lib, file_names, dir_names, title, kind="toplu_ad", progress=No
                         ents = os.listdir(lib.rootinfo.os_path(parent) if parent else lib.root)
                     except OSError:
                         ents = []
-                    occ[parent] = {names.loose_key(lib.rootinfo.canonical(e)) for e in ents}
+                    occ[parent] = _Taken(names.loose_key(lib.rootinfo.canonical(e)) for e in ents)
                 return occ[parent]
             todo = sorted(files.items(), key=lambda kv: kv[1][0]["rel"])
             total = max(1, len(todo))

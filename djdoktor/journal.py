@@ -24,6 +24,7 @@ Adım türleri (k):
   evmeta  : etkinlik bilgisi         {db, pid, old}
   note    : liste satırı notu        {db, pid, ref, old}
   serlink : Serato bağı              {db, pid, old}
+  hist    : yol geçmişi (rel_history) {rows: [[lkey, eski_fid|None, eski_ts|None]]}
 """
 from __future__ import annotations
 
@@ -254,6 +255,14 @@ def apply_inverse(lib, steps, force=False, notes=None, managed=None):
                 o = s["old"]
                 cat.set_serato_link(s["db"], pid, o.get("crate"), o.get("last_hash"), o.get("last_refs"),
                                     o.get("dirty", 0))
+        elif k == "hist":
+            with cat.tx():
+                for lk, fid, ts in s.get("rows") or []:
+                    if fid is None:
+                        cat.x("DELETE FROM rel_history WHERE lkey=?", (lk,))
+                    else:
+                        cat.x("INSERT INTO rel_history(lkey, fid, ts) VALUES(?,?,?) ON CONFLICT(lkey) DO UPDATE SET "
+                              "fid=excluded.fid, ts=excluded.ts", (lk, fid, ts))
         i -= 1
     return notes
 
@@ -347,6 +356,10 @@ def undo_last(lib, force=False, progress=None):
         if progress:
             progress(0.2, "Geri alınıyor…")
         notes = apply_inverse(lib, steps, force=force)
+        keys = (p.get("info") or {}).get("relink_keys")
+        if keys:                                     # geri alınan bağlamayı arka plan yeniden yapmasın
+            from . import relink
+            relink.decline(lib, keys)
         cat.journal_status(j["id"], "geri_alindi")
         cat.journal_add("geri_al", "Geri alındı: %s" % j["title"], {"v": 2, "of": j["id"], "notes": notes},
                         undo_of=j["id"])

@@ -80,16 +80,18 @@ def plan(lib, d, data, resolver=None, relink=True):
     lost = [(tid, rel) for tid, rel, m in orphans if m in ("missing", "nodir") and rel]
     found = {}
     held = set()
+    dec = set()
     if lost:
         from . import relink as RL
         refs = [{"key": tid, "rel": rel, "size": tracks[tid].get("fileBytes"), "dur": tracks[tid].get("length")}
                 for tid, rel in lost]
         found = RL.match(lib, refs)
+        dec = RL.declined(lib)
     for tid, rel in lost:
         x = found.get(tid) or {}
         fid = x.get("fid") if x.get("confidence") == "kesin" else None
         if fid and fid in files and fid not in taken:
-            if relink:
+            if relink and "e:%s:%d" % (d["key"], tid) not in dec:   # kullanıcının geri aldığı bağlama yapılmaz
                 oldp = tracks[tid].get("path") or ""
                 relinks.append((tid, oldp, engine.repath(oldp, None, files[fid]["rel"], d["lib_dir"], lib.root), fid))
             else:

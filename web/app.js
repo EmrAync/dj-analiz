@@ -42,6 +42,8 @@ const S = {
 //   menu(ev, items, {filter})     -> açılır menü; öğe: {label, icon|color, fn, depth, note, title} | "-" | {label, head}
 //   DJD.tab({...})                -> dar pencerede sığmayan sekmeler "⋯" menüsüne iner (etkin sekme hep görünür)
 //   DJD.toolView({..., width})    -> width: "wide" (çok sütunlu tablo, tam genişlik) | "read" (kartlar, okuma genişliği)
+//   table "djd:cols" olayı         -> sütun modeli bir sütunu gizleyince / gösterince (e.detail.hidden = [sütun no])
+//   .split > .side / .picker       -> kenarından sürüklenip genişletilir (kendiliğinden; genişlik sekme başına saklanır)
 // ---------------------------------------------------------------------------
 const DJD = {
   tabs: [], toolViews: [], settingsParts: [], healthActs: {}, trackActs: [], listMenus: [],
@@ -223,6 +225,7 @@ function placePop(el, a, gap = 4) {
 }
 
 function closeMenu() { const r = $("#menu"); if (r && r.innerHTML) r.innerHTML = ""; }
+const MENU = { closed: null, at: 0 };
 
 // Menü: items = [{label, icon | color, fn, depth, note, title} | "-" | {label, head: true}]
 // 14'ten çok öğede üstte bir arama kutusu çıkar (opts.filter ile zorlanabilir). Ekran kayınca / boyut değişince kapanır.
@@ -245,6 +248,8 @@ function menu(ev, items, opts = {}) {
   const m = root.firstElementChild;
   const tg = ev && ev.target && ev.target.closest ? ev.target.closest("button, .folder-chip, .chip, .nav-item, .gchip, [data-anchor]") : null;
   const anchor = tg && tg.isConnected ? tg : null;
+  // aynı düğmeye ikinci tıklama menüyü kapatır (mousedown onu az önce kapattı; yeniden açma)
+  if (anchor && MENU.closed === anchor && Date.now() - MENU.at < 800) { MENU.closed = null; root.innerHTML = ""; return; }
   const r = anchor ? anchor.getBoundingClientRect() : (ev && ev.clientX != null ? { left: ev.clientX, right: ev.clientX, top: ev.clientY, bottom: ev.clientY } : null);
   placePop(m, r);
   m._anchor = anchor;
@@ -271,7 +276,13 @@ function menu(ev, items, opts = {}) {
     f.focus({ preventScroll: true });
   }
 }
-document.addEventListener("mousedown", (e) => { if (!e.target.closest(".menu")) closeMenu(); });
+document.addEventListener("mousedown", (e) => {
+  const m = $("#menu .menu");
+  if (!m || e.target.closest(".menu")) return;
+  MENU.closed = m._anchor && m._anchor.contains(e.target) ? m._anchor : null;
+  MENU.at = Date.now();
+  closeMenu();
+});
 // Sayfanın kendisi asla kaymasın (odak, Ctrl+F, sürükleme); menü, çapası yerinden oynayınca kapanır.
 window.addEventListener("scroll", (e) => {
   const se = document.scrollingElement;
@@ -311,7 +322,7 @@ const HB = [["s", 32], ["m", 46], ["l", Infinity]];
 const LAY = { rem: 15, ro: null, mo: null, wEls: new Set(), hosts: new Map(), pend: new Set(), raf: 0, top: false, all: false, bulk: -1 };
 const LAY_SEL = "#view, #top, #view .main, #view .side, #view .picker, #view .setup, .dialog, .drawer, [data-cw]";
 const LAY_NEW = ".main, .side, .picker, .setup, .dialog, .drawer, [data-cw], colgroup, [data-dock]";
-const COL_SEL = "table > colgroup > col[data-w], table > colgroup > col[data-flex], table > colgroup > col[data-pri], table > colgroup > col[data-min]";
+const COL_SEL = "table > colgroup > col[data-w], table > colgroup > col[data-flex], table > colgroup > col[data-pri], table > colgroup > col[data-min], table > colgroup > col[data-off]";
 const bucket = (px, B) => { const r = px / LAY.rem; for (const [k, lim] of B) if (r < lim) return k; return B[B.length - 1][0]; };
 function remPx() { LAY.rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 15; }
 function setBucket(el, w, h) {
@@ -374,9 +385,82 @@ function layoutScan(now) {
   const tb = $("#taskbar");
   if (tb && !tb._lay) { tb._lay = 1; ro.observe(tb); }
   new Set($$(COL_SEL).map((c) => c.closest("table"))).forEach((t) => { if (t && !t._fit) { fitCols(t); fitWatch(t); } });
+  paneScan();
   if (now) { LAY.top = true; LAY.hosts.forEach((ts) => ts.forEach((t) => LAY.pend.add(t))); layFlush(); }
   dockSync();
 }
+
+// ---------------------------------------------------------------------------
+// Bölme genişliği: kenar listesi (.split > .side) ve ekleme paneli (.split > .picker) kenarından sürüklenerek
+// genişletilir (←/→ tuşları da olur, çift tık varsayılana döner). Genişlik sekme başına rem olarak saklanır,
+// çekmece olduklarında (dar pencere) tutamak gizlidir (CSS: .gut).
+// ---------------------------------------------------------------------------
+const paneKey = (el) => `djd.pane.${S.tab || "x"}.${el.classList.contains("picker") ? "picker" : "side"}`;
+function paneApply(el) {
+  let v = null;
+  try { v = parseFloat(localStorage.getItem(paneKey(el))); } catch (e) { v = null; }
+  if (v > 0) el.style.setProperty("--pane-w", v + "rem"); else el.style.removeProperty("--pane-w");
+}
+function paneScan() {
+  $$("#view .split > .side, #view .split > .picker").forEach((el) => {
+    if (el.querySelector(":scope > .gut")) return;
+    const g = document.createElement("div");
+    g.className = "gut";
+    g.tabIndex = 0;
+    g.setAttribute("role", "separator");
+    g.setAttribute("aria-orientation", "vertical");
+    g.setAttribute("aria-label", "Genişlik");
+    g.title = "Sürükle: genişlik · çift tık: varsayılan";
+    el.appendChild(g);
+    if (!el._pane) { el._pane = 1; paneApply(el); }
+  });
+}
+function paneSet(el, px, save) {
+  const sp = el.parentElement, pk = el.classList.contains("picker");
+  const max = Math.max(12 * LAY.rem, (sp ? sp.clientWidth : innerWidth) * (pk ? .42 : .38));
+  const w = Math.round(Math.max(11 * LAY.rem, Math.min(px, max)));
+  el.style.setProperty("--pane-w", (w / LAY.rem).toFixed(2) + "rem");
+  if (save) { try { localStorage.setItem(paneKey(el), (w / LAY.rem).toFixed(2)); } catch (e) { /* */ } }
+}
+document.addEventListener("pointerdown", (e) => {
+  const g = e.target.closest && e.target.closest(".gut");
+  if (!g || e.button !== 0) return;
+  const el = g.parentElement, pk = el.classList.contains("picker");
+  e.preventDefault();
+  g.setPointerCapture(e.pointerId);
+  document.documentElement.classList.add("resizing");
+  let raf = 0, last = null;
+  const mv = (ev) => {
+    last = ev;
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      const r = el.getBoundingClientRect();
+      paneSet(el, pk ? r.right - last.clientX : last.clientX - r.left, false);
+    });
+  };
+  const up = () => {
+    g.removeEventListener("pointermove", mv);
+    document.documentElement.classList.remove("resizing");
+    paneSet(el, el.getBoundingClientRect().width, true);
+  };
+  g.addEventListener("pointermove", mv);
+  g.addEventListener("pointerup", up, { once: true });
+  g.addEventListener("pointercancel", up, { once: true });
+});
+document.addEventListener("dblclick", (e) => {
+  const g = e.target.closest && e.target.closest(".gut");
+  if (!g) return;
+  try { localStorage.removeItem(paneKey(g.parentElement)); } catch (er) { /* */ }
+  g.parentElement.style.removeProperty("--pane-w");
+});
+document.addEventListener("keydown", (e) => {
+  const g = e.target.closest && e.target.closest(".gut");
+  if (!g || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+  e.preventDefault();
+  const el = g.parentElement, d = (e.key === "ArrowRight" ? 1 : -1) * (el.classList.contains("picker") ? -1 : 1);
+  paneSet(el, el.getBoundingClientRect().width + d * LAY.rem, true);
+});
 
 function relayout() {
   remPx();
@@ -400,8 +484,10 @@ function dockSync() {
 //   data-max="30em"  esnek sütunun en geniş hali (varsayılan sınırsız).
 //   data-flex="2"    esnek sütunların kalan yerden payı.
 //   data-pri="3"     yer yine yetmezse gizlenme sırası: küçük sayı önce gizlenir. Yoksa hiç gizlenmez.
+//   data-off         sütun şimdilik hiç gösterilmez (ör. bu görünümde tamamen boş); sıra numaraları değişmez.
 // Gizlenen sütunun bilgisi başka hücrede gösterilebilir: <span class="vf" data-c="4">…</span> (4 = sütun sırası,
-// 1'den başlar) yalnızca 4. sütun gizliyken görünür. Gizli sütunlar tabloda data-hide="4 5" olarak durur.
+// 1'den başlar) yalnızca 4. sütun gizliyken görünür. Gizli sütunlar tabloda data-hide="4 5" olarak durur; bu küme
+// değişince tablo "djd:cols" olayını yayar (e.detail.hidden = [4, 5]), ör. "2 sütun sığmadı" göstermek için.
 // Gizlenemeyen sütunlar bile sığmazsa tablo min-width alır ve kendi kutusunda yatay kayar (sayfa kaymaz).
 // Kullanım: sanal tablolarda vtSet kendisi uygular; düz tablolarda nitelikleri yazmak yeter (otomatik taranır),
 // ya da DJD.fitCols(table). Satırlar sabit yükseklikte, sarmasız kalır (CLAUDE.md §9).
@@ -420,11 +506,11 @@ function dockSync() {
 
 function colSpec(col) {
   const d = col.dataset;
-  const model = d.w != null || d.min != null || d.max != null || d.flex != null || d.pri != null;
+  const model = d.w != null || d.min != null || d.max != null || d.flex != null || d.pri != null || d.off != null;
   const legacy = col.style.width || null;
   const w = d.w != null ? d.w : legacy;
   const flex = d.flex != null ? (+d.flex || 0) : (w == null ? 1 : 0);
-  return { model, w, min: d.min != null ? d.min : null, max: d.max != null ? d.max : null, flex, pri: d.pri != null ? +d.pri : null };
+  return { model, w, min: d.min != null ? d.min : null, max: d.max != null ? d.max : null, flex, pri: d.pri != null ? +d.pri : null, off: d.off != null };
 }
 function colLen(v, fs, W) {
   if (v == null || v === "") return null;
@@ -461,8 +547,8 @@ function fitCols(table, av) {
     const max = colLen(c.max, fs, W) != null ? colLen(c.max, fs, W) : (c.flex ? Infinity : pref);
     return { min, pref, max: Math.max(max, min), flex: c.flex, pri: c.pri };
   });
-  const vis = C.map(() => true);
-  let need = C.reduce((s, c) => s + c.min, 0);
+  const vis = S0.map((c) => !c.off);
+  let need = C.reduce((s, c, i) => s + (vis[i] ? c.min : 0), 0);
   while (need > W + .5) {                                      // önce en önemsiz sütunlar gizlenir
     let k = -1;
     C.forEach((c, i) => { if (vis[i] && c.pri != null && (k < 0 || c.pri <= C[k].pri)) k = i; });
@@ -495,7 +581,10 @@ function fitCols(table, av) {
     if (!vis[i]) hide.push(i + 1);
   });
   const hs = hide.join(" ");
-  if ((table.dataset.hide || "") !== hs) { if (hs) table.dataset.hide = hs; else delete table.dataset.hide; }
+  if ((table.dataset.hide || "") !== hs) {
+    if (hs) table.dataset.hide = hs; else delete table.dataset.hide;
+    table.dispatchEvent(new CustomEvent("djd:cols", { bubbles: true, detail: { hidden: hide } }));
+  }
   if (!table.dataset.fit) table.dataset.fit = "1";
   const mw = tot > W + 1 ? Math.ceil(tot) + "px" : "";         // gizlenemeyenler bile sığmıyor: kutusunda yatay kayar
   if (table.style.minWidth !== mw) table.style.minWidth = mw;
@@ -671,11 +760,26 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     undo();
   }
-  // Esc yalnızca en üstteki katmanı kapatır: menü → pencere → ayrıntı paneli → liste çekmeceleri
+  // açık menüde ↑ / ↓ öğeler arasında gezer (Enter seçer)
+  const mo = $("#menu .menu");
+  if (mo && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    const bs = $$("button[data-i]", mo).filter((b) => !b.hidden);
+    if (bs.length) {
+      const i = bs.indexOf(document.activeElement), dn = e.key === "ArrowDown";
+      const n = i < 0 ? (dn ? 0 : bs.length - 1) : (i + (dn ? 1 : -1) + bs.length) % bs.length;
+      e.preventDefault();
+      bs[n].focus({ preventScroll: true });
+      bs[n].scrollIntoView({ block: "nearest" });
+    }
+    return;
+  }
+  // Esc yalnızca en üstteki katmanı kapatır: menü → pencere → ayrıntı paneli → çekmeceler
   if (e.key === "Escape" && !e.defaultPrevented) {
-    if ($("#menu").innerHTML) { closeMenu(); return; }
+    if ($("#menu").innerHTML) { const a = mo && mo._anchor; closeMenu(); if (a && a.isConnected && a.focus) a.focus({ preventScroll: true }); return; }
     if ($("#modal").innerHTML) { closeModal(); return; }
     if ($("#drawer").innerHTML) { closeDrawer(); return; }
+    const so = $("#view .split.side-open");
+    if (so) { so.classList.remove("side-open"); return; }
     const sp = $("#view .split.lists");
     if (sp && (S.pickOpen || S.treeOpen)) { S.pickOpen = S.treeOpen = false; sp.classList.remove("pick-open", "tree-open"); }
   }
@@ -1089,9 +1193,12 @@ function trackCols() {
   const dup = !un && !pr && S.rows.some((r) => r.dup && r.dupk !== "song");
   const act = un ? ["21em", "11em"] : pr ? ["17em", "10.5em"] : dup ? ["9em", "6.5em"] : ["3em", "3em"];
   const p = isG ? [3, 2, 1, 0.5] : [3, 2, 1, 4];   // BPM, Ton, Süre, Yer
+  // bu görünümde tamamen boş olan BPM / Ton / Yer sütunu yer kaplamaz (ör. tür klasöründe alt klasör yoksa)
+  const off = (f) => (S.rows.length && !S.rows.some(f) ? " data-off" : "");
+  const g = (r) => (isG ? r.folder : r.folder || r.gid);
   return `<colgroup><col data-w="34px"><col data-w="28px"><col data-flex="3" data-min="9em" data-w="20em">`
-    + `<col data-w="3.9em" data-pri="${p[0]}"><col data-w="3.9em" data-pri="${p[1]}"><col data-w="4.2em" data-pri="${p[2]}">`
-    + `<col data-w="${isG ? "11em" : un ? "15em" : "13em"}" data-min="7.5em" data-max="26em" data-flex=".6" data-pri="${p[3]}">`
+    + `<col data-w="3.9em" data-pri="${p[0]}"${off((r) => r.bpm)}><col data-w="3.9em" data-pri="${p[1]}"${off((r) => r.key)}><col data-w="4.2em" data-pri="${p[2]}">`
+    + `<col data-w="${isG ? "11em" : un ? "15em" : "13em"}" data-min="7.5em" data-max="26em" data-flex=".6" data-pri="${p[3]}"${off(g)}>`
     + `<col data-w="${act[0]}" data-min="${act[1]}"></colgroup>`;
 }
 
@@ -1877,11 +1984,11 @@ function renderInbox() {
     <label class="switch ${ib.auto ? "on" : ""}" id="autotog"><i></i>Otomatik ekle</label></div>
     <div class="body">
     <div class="flow">
-      <div class="st"><b>1 · İndir</b><span title="${esc(ib.inbox)}">${esc(tail(ib.inbox))}${sepName}&lt;Tür&gt;</span></div>
-      <div class="st"><b>2 · Kontrol</b><span>yarım mı? çalar mı? zaten var mı?</span></div>
-      <div class="st"><b>3 · SSD</b><span>${esc(S.st.active.music_root || "Müzik")}/&lt;Tür&gt; (tek ev)</span></div>
-      <div class="st"><b>4 · Engine</b><span>bir kez eklenir · “Analiz bekleyenler”</span></div>
-      <div class="st"><b>5 · Arşiv</b><span title="${esc(ib.archive)}">${esc(tail(ib.archive))} (yedek, Engine'e girmez)</span></div>
+      <div class="st" title="${esc(ib.inbox + sepName)}<Tür>"><b>1 · İndir</b><span title="${esc(ib.inbox)}">${esc(tail(ib.inbox))}${sepName}&lt;Tür&gt;</span></div>
+      <div class="st" title="yarım mı? çalar mı? zaten var mı?"><b>2 · Kontrol</b><span>yarım mı? çalar mı? zaten var mı?</span></div>
+      <div class="st" title="${esc(S.st.active.music_root || "Müzik")}/<Tür> (tek ev)"><b>3 · SSD</b><span>${esc(S.st.active.music_root || "Müzik")}/&lt;Tür&gt; (tek ev)</span></div>
+      <div class="st" title="bir kez eklenir · “Analiz bekleyenler”"><b>4 · Engine</b><span>bir kez eklenir · “Analiz bekleyenler”</span></div>
+      <div class="st" title="${esc(ib.archive)} (yedek, Engine'e girmez)"><b>5 · Arşiv</b><span title="${esc(ib.archive)}">${esc(tail(ib.archive))} (yedek, Engine'e girmez)</span></div>
     </div>
     <div class="ibbar"><button class="btn" id="openin">📂 Gelen klasörünü aç</button><button class="btn" id="openar">🗄 Arşivi aç</button>
       <span class="muted small">Tür klasörleri: ${gs.map((g) => esc(g.name)).join(", ")}</span></div>
@@ -2089,7 +2196,7 @@ function libRows() {
 function libTableHtml() {
   return `<div class="head">${SIDEBTN}<div class="ht"><h2>Kütüphane tablosu</h2><div class="sub ell" id="lcount"></div></div>
     <input class="search" id="lsearch" placeholder="Ara: şarkı, sanatçı, albüm, not, yol…" value="${esc(S.lq || "")}">
-    <div class="hacts"><button class="btn" id="lcolbtn">Sütunlar ▾</button><button class="btn" id="lcsv" title="Excel'de açılır">⇪ CSV</button></div>
+    <div class="hacts"><button class="btn" id="lcolbtn">Sütunlar<span class="lhid muted small"></span> ▾</button><button class="btn" id="lcsv" title="Excel'de açılır">⇪ CSV</button></div>
     <div class="chips" style="width:100%;margin-top:0">${LFILTERS.map(([k, t]) => `<span class="chip ${(S.lflt || "all") === k ? "on" : ""}" data-lf="${k}">${t}</span>`).join("")}</div></div>
     <div class="body">${libTableTable()}</div>`;
 }
@@ -2127,7 +2234,17 @@ function drawLibTable(reset) {
   if (c) c.textContent = `${fmtN(rows.length)} şarkı${rows.length !== libObjs().length ? ` (toplam ${fmtN(libObjs().length)})` : ""} · başlığa tıkla: ayrıntılar · sütun adına tıkla: sırala`;
   if (reset && $("#tmain .body")) $("#tmain .body").scrollTop = 0;
   vtSet("libt", rows, libRowHtml);
+  libHidSync();
 }
+// Dar pencerede sığmayan seçili sütunların sayısı "Sütunlar" düğmesinde görünür
+function libHidSync() {
+  const t = $("#libt"), b = $("#lcolbtn .lhid");
+  if (!t || !b) return;
+  const n = ((t.dataset.hide || "").match(/\d+/g) || []).length;
+  b.textContent = n ? ` · ${n} gizli` : "";
+  $("#lcolbtn").title = n ? `Pencere dar: ${n} sütun sığmadı` : "";
+}
+document.addEventListener("djd:cols", (e) => { if (e.target && e.target.id === "libt") libHidSync(); });
 
 // Sütun seçici: seçim değişince menü açık kalır (aynı düğmeye bağlı), tablo yerinde yenilenir.
 // Dar pencerede sığmayan seçili sütunlar "sığmıyor" notuyla görünür.
@@ -2209,7 +2326,7 @@ function wireTools() {
     if (lf) { S.lflt = lf.dataset.lf; $$(".chip[data-lf]").forEach((c) => c.classList.toggle("on", c === lf)); drawLibTable(true); return; }
     const ls = e.target.closest("[data-ls]");
     if (ls) { const k = ls.dataset.ls; const so = S.lsort || { k: "artist", d: 1 }; S.lsort = { k, d: so.k === k ? -so.d : 1 }; rebuildLibTable(true); return; }
-    if (e.target.id === "lcolbtn") { if ($("#menu").innerHTML) closeMenu(); else colMenu(); return; }
+    if (e.target.closest("#lcolbtn")) { colMenu(); return; }
     if (e.target.id === "lcsv") { runExport("csv", "all"); return; }
     const ex = e.target.closest("[data-exp]");
     if (ex) { const f = ex.dataset.exp; runExport(f, f === "xml" ? $("#xsrc").value : f === "m3u" ? $("#msrc").value : "all", f === "xml" ? $("#xcues").checked : true); return; }
@@ -2354,6 +2471,7 @@ function layInit() {
   LAY.mo = new MutationObserver((recs) => {
     for (const r of recs) {
       if (r.target.nodeName === "TBODY") continue;
+      if (r.target.classList && (r.target.classList.contains("picker") || r.target.classList.contains("side"))) paneScan();   // içi yeniden çizildi: tutamak geri
       for (const n of r.addedNodes) {
         if (n.nodeType === 1 && (n.matches(LAY_NEW) || n.querySelector(LAY_NEW))) { layoutScan(); return; }
       }

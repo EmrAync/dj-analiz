@@ -7,9 +7,11 @@ ve şunları doğrular:
   * görünür hiçbir öğenin kenarı pencerenin dışında değil (kasıtlı yatay kaydırıcı içindeyse sayılmaz);
   * ana kaydırıcı son satıra ulaşıyor (son satır görünür ve üstünü bir şey örtmüyor);
   * her görünür sanal tablonun şarkı / başlık sütunu >= 120px (dar pencerede tablonun >= %30'u);
-  * açık menü pencerenin içinde ve (yer varsa) çapasını örtmüyor; pencere ve ayrıntı paneli içeride, yatay kaymıyor;
+  * açık menü pencerenin içinde ve (yer varsa) çapasını örtmüyor, ↓ ile gezilir, kaydırınca / ikinci tıklamada kapanır;
+    pencere ve ayrıntı paneli içeride, yatay kaymıyor;
   * seçim varken toplu işlem çubuğu görünür; bildirimler, görev kartı ve toplu işlem çubuğu çakışmıyor;
-  * not kutusuna odaklanmak sayfayı yana kaydırmıyor; konsol / sunucu hatası yok.
+  * not kutusuna odaklanmak sayfayı yana kaydırmıyor; liste ağacı sürüklenerek genişliyor, çift tıkla geri dönüyor;
+  * konsol / sunucu hatası yok.
 Hataları okunur bir liste olarak yazar ve hata varsa 1 ile çıkar.
 Ortam: DJD_UI_PORT (varsayılan 8902), DJD_RESP_CFG=800x600,1366x768 (yalnız bu görünümler), DJD_TEST_BASE.
 """
@@ -285,6 +287,15 @@ def run_cfg(b, cfg, ids):
         page.wait_for_selector("#menu .menu")
         page.evaluate("() => { const m = document.querySelector('#menu .menu'); const a = m && m._anchor; if (a) a.id = 'tmpanchor'; }")
         check("menu_tur_sec", anchor="#tmpanchor")
+        # ↓ ile menüde gezinme, sonra liste kayınca menü kapanmalı (çapası yerinden oynadı)
+        page.keyboard.press("ArrowDown")
+        if not page.evaluate("() => !!document.activeElement.closest('#menu .menu')"):
+            fail("menu_tur_sec", ["↓ tuşu menü öğesine geçmedi"])
+        moved = page.evaluate("""() => { const b = document.querySelector('#mmain .body'); const t0 = b.scrollTop;
+          b.scrollTop = t0 > 60 ? t0 - 60 : t0 + 60; return b.scrollTop !== t0; }""")
+        settle()
+        if moved and page.locator("#menu .menu").count():
+            fail("menu_tur_sec", ["liste kayınca menü kapanmadı"])
         page.keyboard.press("Escape")
     else:
         fail("turu_belli_degil", ["'Tür seç ▾' düğmesi görünmüyor"])
@@ -356,6 +367,25 @@ def run_cfg(b, cfg, ids):
             page.wait_for_selector(".split.lists.tree-open")
             check("listeler_agac")
             page.click("#treex")
+    # bölme tutamağı: ağacı sürükleyerek genişlet, tablo yine sığmalı; çift tık varsayılana döner
+    gut = page.locator(".split.lists > .side > .gut")
+    if gut.count() and gut.is_visible():
+        w0 = page.evaluate("() => document.querySelector('.split.lists > .side').getBoundingClientRect().width")
+        bb = gut.bounding_box()
+        page.mouse.move(bb["x"] + bb["width"] / 2, bb["y"] + 200)
+        page.mouse.down()
+        page.mouse.move(bb["x"] + bb["width"] / 2 + 60, bb["y"] + 200, steps=4)
+        page.mouse.move(bb["x"] + bb["width"] / 2 + 120, bb["y"] + 200, steps=4)
+        page.mouse.up()
+        w1 = page.evaluate("() => document.querySelector('.split.lists > .side').getBoundingClientRect().width")
+        if w1 < w0 + 30:
+            fail("bolme", ["ağaç sürüklenerek genişlemedi (%d → %d)" % (w0, w1)])
+        check("bolme_genis")
+        gut.dblclick()
+        settle()
+        w2 = page.evaluate("() => document.querySelector('.split.lists > .side').getBoundingClientRect().width")
+        if abs(w2 - w0) > 2:
+            fail("bolme", ["çift tık varsayılan genişliğe dönmedi (%d → %d)" % (w0, w2)])
     page.click("#lmenu")
     page.wait_for_selector("#menu .menu")
     page.locator("#menu button", has_text="Başka klasöre taşı").click()
@@ -408,6 +438,10 @@ def run_cfg(b, cfg, ids):
     page.click("#lcolbtn")
     page.wait_for_selector("#menu .menu")
     check("menu_sutunlar", anchor="#lcolbtn")
+    page.click("#lcolbtn")   # aynı düğmeye ikinci tıklama menüyü kapatır
+    settle(100)
+    if page.locator("#menu .menu").count():
+        fail("menu_sutunlar", ["düğmeye ikinci tıklama menüyü kapatmadı"])
     page.keyboard.press("Escape")
     page.evaluate("() => { localStorage.setItem('djd.lcols', JSON.stringify(LCOLS.map((c) => c.k))); rebuildLibTable(); }")
     check("tablo_tum_sutunlar", allowTableScroll=True)

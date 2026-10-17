@@ -179,6 +179,11 @@ with sync_playwright() as p:
     page.wait_for_selector("#rnltab tbody tr[data-rnkey]")
     shot(page, "rn07_kayip_yollar")
     assert "Kesin olanları bağla" in page.inner_text("#rnlink"), page.inner_text("#rnlink")
+    # başlıktaki kutu: bulunanların hepsi kapanır / yeniden açılır (tablo yeniden çizilmez)
+    page.click("#rnlall")
+    page.wait_for_function("() => document.querySelector('#rnlink').disabled")
+    page.click("#rnlall")
+    page.wait_for_function("() => !document.querySelector('#rnlink').disabled")
     # birden çok aday: kullanıcı seçer
     page.locator("[data-rnpick]").first.click()
     page.locator(".menu button", has_text="Müzik/Horon/Siir.mp3").click()

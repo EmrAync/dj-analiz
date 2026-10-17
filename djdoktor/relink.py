@@ -31,11 +31,39 @@ OK_MATCH = ("exact", "case", "unicode", "sfm")
 CONF = {"kesin": 0, "yuksek": 1, "orta": 2}
 METHODS = {"gecmis": "Program geçmişi", "ses_imzasi": "Ses imzası", "ad_sade": "Aynı ad (harf farkı)",
            "klasor_adi": "Klasör adı değişmiş", "ad_boyut": "Aynı ad ve boyut"}
+DECLINED = "relink_declined"      # katalog meta: kullanıcının geri aldığı bağlamalar (arka plan yeniden yapmaz)
 
 
 def _err(msg, code=None):
     from .library import UserError
     return UserError(msg, code)
+
+
+def _declined_list(lib):
+    try:
+        v = json.loads(lib.catalog.get_meta(DECLINED) or "[]")
+        return [str(k) for k in v] if isinstance(v, list) else []
+    except (ValueError, TypeError):
+        return []
+
+
+def declined(lib):
+    """Geri alınmış bağlamaların anahtarları ('e:drive:12', 's:ab12…'): arka plan bunları kendiliğinden bağlamaz."""
+    return set(_declined_list(lib))
+
+
+def decline(lib, keys):
+    ks = list(dict.fromkeys(str(k) for k in keys or ()))
+    if ks:
+        cur = [k for k in _declined_list(lib) if k not in set(ks)] + ks
+        lib.catalog.set_meta(DECLINED, json.dumps(cur[-5000:]))
+
+
+def undecline(lib, keys):
+    ks = {str(k) for k in keys or ()}
+    cur = _declined_list(lib)
+    if ks and any(k in ks for k in cur):
+        lib.catalog.set_meta(DECLINED, json.dumps([k for k in cur if k not in ks]))
 
 
 def _usable(rel):
@@ -360,6 +388,7 @@ def plan(lib):
     refs = [{"key": e["key"], "rel": e["rel"], "size": e["size"], "dur": e["dur"]} for e in miss["engine"]]
     refs += [{"key": s["key"], "rel": s["rel"], "dur": s["dur"]} for s in miss["serato"]]
     m = match(lib, refs, ix)
+    dec = declined(lib)
     items = []
     for src, rows in (("engine", miss["engine"]), ("serato", miss["serato"])):
         for r in rows:
@@ -368,7 +397,8 @@ def plan(lib):
                   "new": names.display(x["rel"]) if x.get("rel") else None, "fid": x.get("fid"),
                   "method": x.get("method"), "confidence": x.get("confidence"), "status": x["status"],
                   "candidates": x.get("candidates") or [], "title": r.get("title") or "",
-                  "artist": r.get("artist") or "", "_old": r["rel"], "_new": x.get("rel")}
+                  "artist": r.get("artist") or "", "_old": r["rel"], "_new": x.get("rel"),
+                  "declined": r["key"] in dec}
             if src == "engine":
                 it.update(db=r["db"], tid=r["tid"], where=r["lists"], _path=r["path"])
             else:
@@ -381,7 +411,7 @@ def plan(lib):
                               CONF.get(x.get("confidence"), 3), x["src"], names.fold(x["old"])))
     counts = {"engine": len(miss["engine"]), "serato": len(miss["serato"]),
               "found": sum(1 for x in items if x["status"] == "found"),
-              "kesin": sum(1 for x in items if x.get("confidence") == "kesin"),
+              "kesin": sum(1 for x in items if x.get("confidence") == "kesin" and not x["declined"]),
               "ambiguous": sum(1 for x in items if x["status"] == "ambiguous"),
               "none": sum(1 for x in items if x["status"] == "none"), "folders": len(folders)}
     sig = json.dumps([(x["key"], x["fid"], x["status"], x.get("confidence")) for x in items] +
@@ -467,8 +497,9 @@ def apply(lib, token=None, keys=None, picks=None, include_medium=False, progress
                 continue
             if keys is not None:
                 ok = it["key"] in keys
-            else:
-                ok = it["confidence"] == "kesin" or (include_medium and it["confidence"] == "yuksek")
+            else:                                       # varsayılan: geri alınmış bağlamalar yeniden yapılmaz
+                ok = not it.get("declined") and (it["confidence"] == "kesin" or
+                                                  (include_medium and it["confidence"] == "yuksek"))
             if ok:
                 chosen.append((it, it["fid"], it["_new"]))
         need_e = [c for c in chosen if c[0]["src"] == "engine"]
@@ -490,7 +521,8 @@ def apply(lib, token=None, keys=None, picks=None, include_medium=False, progress
             res["left"] = sum(1 for x in pl["items"] if x["status"] != "none") - len(chosen)
             return res
         n = len(need_e) + len(need_s)
-        op = journal.Op(lib, "bakim", ("Yolu değişen %d kayıt bağlandı" % n) + (" (otomatik)" if auto else ""))
+        title = ("Yolu değişen %d kayıt bağlandı" % n) if n else "Adı değişen klasörler türlere bağlandı"
+        op = journal.Op(lib, "bakim", title + (" (otomatik)" if auto else ""))
         n0 = 0
         try:
             # Engine
@@ -548,11 +580,21 @@ def apply(lib, token=None, keys=None, picks=None, include_medium=False, progress
             # tür / kural / ana klasör kayıtları
             for f in folders:
                 res["folders"] += relocate._retarget_meta(lib, f["_old"], f["_new"], op)
-            # geçmiş: bilgisayardaki (Windows) Engine kütüphanesi de sonradan bağlansın
-            for it, fid, new in need_e + need_s:
-                if fid:
+            # geçmiş: bilgisayardaki (Windows) Engine kütüphanesi de sonradan bağlansın; geri alınınca eski hâline
+            hist, seen = [], set()
+            with cat.tx():
+                for it, fid, new in need_e + need_s:
+                    if not fid:
+                        continue
+                    lk = names.loose_key(it["_old"])
+                    if lk not in seen:
+                        seen.add(lk)
+                        prev = cat.q1("SELECT fid, ts FROM rel_history WHERE lkey=?", (lk,))
+                        hist.append([lk, prev["fid"] if prev else None, prev["ts"] if prev else None])
                     cat.add_history(it["_old"], fid)
                     res["history"] += 1
+            if hist:
+                op.add({"k": "hist", "rows": hist})
         except Exception:
             journal.apply_inverse(lib, op.steps[n0:], force=True)
             lib.bump()
@@ -560,6 +602,10 @@ def apply(lib, token=None, keys=None, picks=None, include_medium=False, progress
         lib.bump()
         if need_s:
             lib.analyze_serato()
+        done = [it["key"] for it, _f, _n in need_e + need_s]
+        op.info["relink_keys"] = done               # geri alınırsa arka plan bunları yeniden bağlamaz
+        if not auto:
+            undecline(lib, done)                    # kullanıcı kendisi seçti: artık 'geri alınmış' sayılmaz
         res["maint"] = maintain.after_change(lib, op)
         res["journal"] = op.commit()
         res["left"] = max(0, sum(1 for x in pl["items"] if x["status"] != "none") - len(need_e) - len(need_s))
@@ -569,7 +615,7 @@ def apply(lib, token=None, keys=None, picks=None, include_medium=False, progress
 def auto(lib):
     """Arka plan: yalnızca 'kesin' eşleşmeleri bağlar (Engine / Serato kapalıysa). Diğerleri kullanıcıya kalır."""
     pl = plan(lib)
-    if not any(x.get("confidence") == "kesin" for x in pl["items"]) and not \
+    if not any(x.get("confidence") == "kesin" and not x["declined"] for x in pl["items"]) and not \
             [f for f in pl["folders"] if f["sure"] and not os.path.isdir(lib.rootinfo.os_path(f["_old"]))]:
         return None
     return apply(lib, auto=True, pl=pl)

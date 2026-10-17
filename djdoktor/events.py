@@ -290,9 +290,14 @@ def gig_check(lib, pid):
 
 
 def compatible(lib, fid, limit=25):
-    """Bu şarkıdan sonra çalınabilecekler: aynı/komşu Camelot ton ve ±%6 BPM (yarım/çift tempo dahil)."""
+    """Bu şarkıdan sonra çalınabilecekler: aynı / komşu (±1) / paralel (A↔B) Camelot ton ve Ayarlar'daki tempo
+    aralığı (varsayılan ±%6; yarım / çift tempo dahil). Daha geniş öneriler için Mix Asistanı (assistant.py)."""
     from .library import STATE_DIR
     st = lib.engine_state()
+    try:
+        rng = max(1.0, min(25.0, float(lib.prefs().get("mix_bpm_range") or 6))) / 100.0
+    except (TypeError, ValueError):
+        rng = 0.06
     tid_of = {f: rows[0][0] for f, rows in st["by_file"].items() if rows}
     files = [f for f in lib.audio_files() if not f["rel"].startswith(STATE_DIR + "/")]
     me = next((f for f in files if f["id"] == int(fid)), None)
@@ -313,13 +318,13 @@ def compatible(lib, fid, limit=25):
             continue
         t = st["tracks"].get(tid_of.get(f["id"]))
         k, b = _key_of(f, t), _bpm_of(f, t)
-        rel = keys.compatible(k0, k) if k0 and k else ""
-        if k0 and rel not in ("ayni", "uyumlu"):
+        rel = keys.relation(k0, k) if k0 and k else None
+        if k0 and (not rel or rel["score"] < 0.8):
             continue
         diff = None
         if b0 and b:
-            diff = min(abs(b - b0), abs(b * 2 - b0), abs(b / 2 - b0)) / b0
-            if diff > 0.06:
+            diff = keys.tempo_diff(b0, b)[0] / 100.0
+            if diff > rng:
                 continue
         elif b0:
             continue
@@ -327,9 +332,9 @@ def compatible(lib, fid, limit=25):
         if kind == "ignore":
             continue
         gg = gens.get(g) if kind == "genre" else None
-        out.append(((0 if rel == "ayni" else 1), diff if diff is not None else 1, {
+        out.append(((0 if rel and rel["code"] == "same" else 1), diff if diff is not None else 1, {
             "id": f["id"], "title": f.get("title") or names.display(f["name"]), "artist": f.get("artist") or "",
             "bpm": round(b) if b else None, "key": k or "", "genre": gg["name"] if gg else None,
-            "color": gg["color"] if gg else None, "match": "aynı ton" if rel == "ayni" else ("uyumlu ton" if rel else "")}))
+            "color": gg["color"] if gg else None, "match": rel["label"].lower() if rel else ""}))
     out.sort(key=lambda x: (x[0], x[1]))
     return [x[2] for x in out[:limit]]

@@ -477,6 +477,51 @@ def test_guards_engine_serato_open():
     assert os.path.isfile(os.path.join(lib.root, "Müzik", "Horon", "Yeni Horon.mp3"))
 
 
+def test_b6_fresh_process_check():
+    """B6: önbellekteki 'kapalı' sonucu yazmadan önce kullanılmaz; Serato az önce açıldıysa taze denetim yakalar."""
+    lib = fresh("b6")
+    pl = renamer.plan(lib, preset="engine_safe")
+    before = snapshot(lib)
+
+    class Ps:
+        stdout = b"serato dj pro\n"
+    real_run = util.subprocess.run
+    try:
+        util.subprocess.run = lambda *a, **k: Ps()
+        util._PROC.update(t=time.time() - 1.0, text="")             # 1 sn önceki sonuç: 'hiçbiri açık değil'
+        assert not lib.serato_open() and lib.serato_open(fresh=True)
+        util._PROC.update(t=time.time() - 1.0, text="")
+        try:
+            renamer.apply(lib, preset="engine_safe", token=pl["token"])
+            raise AssertionError("Serato açıkken yazdı")
+        except UserError as e:
+            assert e.code == "serato_open", e.code
+    finally:
+        util.subprocess.run = real_run
+        util._PROC.update(t=0.0, text=None)
+    assert snapshot(lib) == before
+
+
+def test_twin_names_keep_occupancy():
+    """exFAT / Linux: NFC ve NFD yazımlı iki ad yan yana durabilir. Biri yeniden adlandırılınca diğeri o adı hâlâ
+    tutar; başka bir dosya o ada adlandırılırsa ikinci bir ikiz oluşmaz ('exists' ile atlanır)."""
+    lib = fresh("twin", setup=False)
+    d = os.path.join(lib.root, "İkiz")
+    make_fixture.write_mp3(os.path.join(d, "Gül.mp3"), 1401, 20, "Gül", "A")              # NFC
+    make_fixture.write_mp3(os.path.join(d, "Başka.mp3"), 1402, 20, "Başka", "B")
+    lib.full_scan()
+    make_fixture.write_mp3(os.path.join(d, NFD("Gül.mp3")), 1403, 20, "Gül", "C")         # NFD ikiz (taranmamış)
+    if len([e for e in os.listdir(d) if unicodedata.normalize("NFC", e) == "Gül.mp3"]) < 2:
+        return                                   # bu dosya sistemi ikizlere izin vermiyor (macOS APFS gibi)
+    a, b = fid_of(lib, "İkiz/Gül.mp3"), fid_of(lib, "İkiz/Başka.mp3")
+    res = relocate.batch_rename(lib, {a: "Gul.mp3", b: "Gül.mp3"}, {}, "ikiz")
+    assert res["files"] == 1 and [s["id"] for s in res["skipped"]] == ["f:%d" % b], res
+    left = sorted(unicodedata.normalize("NFC", e) for e in os.listdir(d))
+    assert left == ["Başka.mp3", "Gul.mp3", "Gül.mp3"], left
+    journal.undo_last(lib)
+    assert sorted(unicodedata.normalize("NFC", e) for e in os.listdir(d)) == ["Başka.mp3", "Gül.mp3", "Gül.mp3"]
+
+
 def test_b7_engine_clash_reported():
     lib = fresh("clash")
     con = sqlite3.connect(lib.engine_db()["path"])
@@ -615,6 +660,18 @@ def test_relink_outside_turkish_rename():
         assert before[1] == after[1], ("geri alma Engine'i döndürmedi", set(before[1][0]) ^ set(after[1][0]))
         # geri alınan bağlama hemen yeniden yapılmaz ve dosyalar Engine'e İKİNCİ kez eklenmez
         assert len(eng(lib, "SELECT id FROM Track WHERE path LIKE '%Turku%'")) == 0
+        assert lib.catalog.history_fid(rels[0]) is None                       # yol geçmişi de geri alındı
+        # arka plan geri alınan bağlamayı sonra da kendiliğinden yapmaz; kullanıcı isterse yeniden bağlar
+        lib._maint_sig = None
+        r = maintain.background(lib)
+        assert not (r or {}).get("auto_linked"), r
+        assert [len(x) for x in broken(lib)] == [3, 2, 2], broken(lib)
+        assert len(eng(lib, "SELECT id FROM Track WHERE path LIKE '%Turku%'")) == 0
+        pl = relink.plan(lib)
+        assert all(x["declined"] for x in pl["items"] if x["status"] == "found"), pl["items"]
+        assert relink.apply(lib, pl["token"])["engine"] == 0                  # varsayılan seçim: geri alınanlar yok
+        r = relink.apply(lib, pl["token"], keys=[x["key"] for x in pl["items"] if x["status"] == "found"])
+        assert r["engine"] == 2 and r["serato"] == 5 and not relink.declined(lib), r
 
 
 def test_relink_folder_vote_and_genres():

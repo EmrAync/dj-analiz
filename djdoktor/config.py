@@ -34,6 +34,8 @@ DEFAULT_PREFS = {
     "ai_effort": "medium",
     "mix_bpm_range": 6,                  # geçişte izin verilen tempo farkı (%)
     "app_window": True,                  # arayüzü ayrı uygulama penceresinde aç (Edge/Chrome)
+    "shortcut_offered": False,           # "Masaüstüne kısayol" önerisi bir kez gösterildi
+    "shortcut": {},                      # oluşturulan kısayol: {path, dir, target, ts} (klasör taşınınca "yenile")
 }
 
 BUILTIN_EXCLUDES = {
