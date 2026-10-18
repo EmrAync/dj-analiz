@@ -11,7 +11,7 @@ import threading
 import time
 import traceback
 
-CANCELLABLE = {"scan"}   # yarıda durdurulması güvenli görevler (yalnızca okuyan işler)
+CANCELLABLE = {"scan", "export_target"}   # yarıda durdurulması güvenli görevler (yalnızca okuyan işler)
 READ_LANE = {"scan"}     # ayrı şeritte çalışan (okuyan) görevler
 
 

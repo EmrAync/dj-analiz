@@ -23,6 +23,7 @@ DEFAULT_PREFS = {
     "lowbitrate_kbps": 192,
     "long_path_limit": 240,
     # v2
+    "export_targets": [],                # aktarım hedefleri: [{lib, path, label, last}] (bu bilgisayara özgü yollar)
     "inbox_loc": "pc",                   # pc: bu bilgisayarın Müzik klasöründe; ssd: SSD kökünde "DJ Gelen" / "DJ Arşiv"
     "inbox_dir": "",                     # boşsa: Müzik/DJ Gelen (bu bilgisayarda)
     "archive_dir": "",                   # boşsa: Müzik/DJ Arşiv (bu bilgisayarda)
