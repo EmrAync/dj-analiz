@@ -51,6 +51,7 @@ python baslat.py [--app|--browser|--no-browser] [--console] [--port 8770]   # ht
 python3 -B tests/test_v2.py [test_name ...]       # 14 end-to-end backend tests on a synthetic SSD (no pytest)
 python3 -B tests/test_rename.py [test_name ...]   # 35 tests: bulk rename, conflicts, undo, relink after outside renames
 python3 -B tests/test_assistant.py                # 14 tests: Camelot, transitions, sort, set builder, AI (fake opener), save
+python3 -B tests/test_targets.py                 # 5 tests: export to a drive root, incremental, conflicts, foreign library, resume
 python3 -B tests/test_ai.py; python3 -B tests/test_desktop.py   # AI client (no network) / app window, icons, shortcuts, watchdog
 python3 -B tests/ui_smoke.py /tmp/shots           # Playwright + Chromium click-through, screenshots, fails on JS/HTTP errors
 python3 -B tests/ui_responsive.py /tmp/r          # responsive gate: 14 configs (360x640 … 2560x1440, zoom, large text, dark)
@@ -182,6 +183,18 @@ UI tests take `DJD_UI_PORT` (default 8899/8902/…) so several can run at once.
   copy, SSD path, Engine path with found/not found, Serato crate count), why the dot is red/orange, BPM/key come from
   file tags (not Engine analysis). Gelen folder: "Başka klasör seç…" (`inbox_loc=custom`, `inbox.check_custom_dir`:
   not inside the music root; on the SSD → added to `extra_excludes`; archive = sibling "DJ Arşiv").
+- **2.3.0** (his feedback: he copied the desktop working folder onto a memory card *with* its parent folder, so the card
+  had `Kart:/melis_dj_muzik/Engine Library` and Engine DJ saw nothing): **Çalışma yeri + Hedefler** (`djdoktor/targets.py`,
+  route `hedef`, UI `web/ext/targets.js` = Araçlar > "Sürücüye aktar"). `check_location` (drive root? Engine/Serato at
+  root? nested Engine Library in a subfolder? fs exFAT/FAT32/NTFS/APFS, free space, writable, target == / inside / contains
+  the source, system drive, foreign library on the target), `plan` + `export` (task `export_target`, cancellable):
+  copies the library to the target ROOT, only new/changed files (manifest `<target>/_DJDoktor_/hedef.json` keyed by
+  library id, resumable), databases via the SQLite backup API under `lib.lock` + quick_check, temp names + replace,
+  never overwrites a file we did not put there (conflict), files gone from the source are moved to the target's
+  `_DJDoktor_/Karantina` (never deleted), a foreign Engine Library / _Serato_ is only set aside by renaming (with
+  consent), refuses while Engine DJ / Serato run. Skips quarantine, backups, DJ Gelen/Arşiv, `._*`, .DS_Store.
+  Targets are saved per computer in prefs `export_targets`. State carries `active.loc` → a "Bu kütüphane bir klasörde"
+  banner in Müzikler; the folder picker warns about a nested Engine Library. Tests: `tests/test_targets.py` (5).
 - **Not yet verified with the real apps (2.2):** Windows .bat + pythonw start, the PowerShell .lnk, the macOS .app bundle
   (Gatekeeper, python3 from Finder's minimal PATH), Edge/Chrome `--app` windows, real Engine `hm.db` / Serato
   `History/Sessions` parsing (check `assistant.learned(lib)["info"]["history_sessions"] > 0` on his Mac), and renames

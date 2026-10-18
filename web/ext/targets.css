@@ -1,0 +1,17 @@
+/* Sürücüye aktar (web/ext/targets.js) */
+.tg-p { display: flex; gap: .5rem; align-items: flex-start; padding: .45rem .6rem; margin-top: .45rem; border-radius: 8px;
+  font-size: .9em; background: var(--bg); border: 1px solid var(--line); min-width: 0; }
+.tg-p > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.tg-p.block { border-color: var(--bad); background: var(--bad-soft); }
+.tg-p.warn { border-color: var(--warn); background: var(--warn-soft); }
+.tg-p.ok { border-color: var(--ok); background: var(--ok-soft); }
+.tg-row { display: flex; align-items: center; gap: .6rem; padding: .55rem 0; border-top: 1px solid var(--line); min-width: 0; }
+.tg-row:first-of-type { border-top: 0; }
+.tg-acts { display: flex; gap: .35rem; flex: none; }
+.tg-add { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-top: .7rem; }
+.tg-rules { margin: .3rem 0 0; padding-left: 1.1rem; }
+.tg-rules li { margin: .25rem 0; }
+.tg-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: .5rem; margin-bottom: .4rem; }
+.tg-sum > div { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: .5rem .6rem; }
+.tg-sum b { display: block; font-size: 1.15em; }
+.tg-sum span { font-size: .8em; color: var(--muted); }

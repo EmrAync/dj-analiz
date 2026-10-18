@@ -990,6 +990,7 @@ async function browseDialog(relocateId, path = "", onPick = null) {
   const marks = d.path ? `${d.serato ? '<span class="tag blue">Serato</span>' : ""}${d.engine ? '<span class="tag blue">Engine</span>' : ""}${d.djd ? '<span class="tag ok">DJ Doktor</span>' : ""}` : "";
   const m = modal(`<div class="dh">Klasör seç</div><div class="db"><div class="muted small wrap-any">${esc(d.path || "Konumlar")} ${marks}</div>
     ${d.system ? '<div class="muted small" style="margin-top:6px">Bu, bilgisayarın sistem diski: tamamı seçilemez. İçinden müziklerinin olduğu klasörü aç.</div>' : ""}
+    ${d.nested && d.nested.length ? `<div class="hint" style="margin:8px 0 0"><span class="ic">⚠</span><div>Bu sürücüde Engine kütüphanesi bir <b>alt klasörde</b> kalmış: <b>${esc(d.nested[0])}</b>. Engine DJ ve Prime 4 onu görmez. Doğrusu: o klasörün içindekiler sürücünün kökünde olmalı — program bunu <b>Araçlar → Sürücüye aktar</b> ile doğru yapar.</div></div>` : ""}
     <div style="margin-top:8px">${d.parent !== null && d.path ? `<div class="nav-item" data-p="${esc(d.parent)}"><span class="tic">⬆</span><span class="name">Üst klasör</span></div>` : ""}
     ${d.dirs.map((x) => `<div class="nav-item" data-p="${esc(x.path)}" title="${esc(x.path)}"><span class="tic">📁</span><span class="name">${esc(x.label)}</span></div>`).join("")}</div></div>
     <div class="df"><button class="btn" data-x="no">Vazgeç</button>${d.path && !d.system ? `<button class="btn primary" data-x="yes">Bu klasör</button>` : ""}</div>`, "wide");
@@ -1277,6 +1278,10 @@ function tracksHtml() {
       <div class="steps"><span>Ctrl+A (Mac: ⌘A)</span><i>→</i><span>sağ tık</span><i>→</i><span>Analyze / Re-analyze tracks</span></div>Bitince burada yeşil görünür, listeden de kendiliğinden düşer.
       <div class="small muted" style="margin-top:6px">Klasör klasör gitmek istersen: “Analiz bekleyenler”in altında her tür ayrı liste (ör. <b>Halay</b>) olarak durur.</div></div></details>`;
   }
+  // çalışma yeri bir klasörse Engine DJ / Prime 4 onu görmez: her müzik görünümünde kısa uyarı + düğme
+  const loc = S.st.active && S.st.active.loc;
+  const locHint = loc && loc.warn === "not_root" ? `<div class="hint warn"><span class="ic">💾</span><div><b>Bu kütüphane bir klasörde</b> — Engine DJ ve Prime 4 onu görmez.
+    <button class="btn sm primary" id="gotarget">Sürücüye aktar</button></div></div>` : "";
   if (S.view === "problems" && ov.orphans) {
     // Engine'de kaydı olup dosyası diskte olmayan parçalar: dosya değil, bu yüzden tabloda satır olarak görünmezler
     hint = `<div class="hint"><span class="ic">🔗</span><div><b>${fmtN(ov.orphans)} Engine kaydının dosyası diskte yok</b> (taşınmış, adı değişmiş ya da silinmiş).
@@ -1290,7 +1295,7 @@ function tracksHtml() {
   const gActs = isG ? `<button class="icon-btn" id="grename" title="Adını değiştir">✎</button><button class="icon-btn" id="gmenu" title="Diğer">⋯</button>` : "";
   return `<div class="head">${SIDEBTN}<div class="ht"><h2><span class="ell" title="${esc(title)}">${esc(title)}</span>${gActs}</h2><div class="sub" title="${esc(sub)}">${esc(sub)}</div></div>
       <input class="search" id="msearch" placeholder="Ara: şarkı, sanatçı, klasör…" value="${esc(S.q)}"></div>
-    <div class="body">${hint}
+    <div class="body">${locHint}${hint}
     <table class="t v" id="ttab" ${rows.length ? "" : "hidden"}>${trackCols()}<thead><tr><th class="c-chk"><input type="checkbox" id="chkall" aria-label="Hepsini seç"></th><th></th><th>Şarkı <span class="muted" id="tcount"></span></th><th title="Dosyanın etiketinden (Serato / Mixed In Key / indirilen yer yazmış olabilir). Engine analiziyle ilgisi yok.">BPM</th><th title="Dosyanın etiketinden (Serato / Mixed In Key / indirilen yer yazmış olabilir). Engine analiziyle ilgisi yok.">Ton</th><th>Süre</th><th>${isG ? "Alt klasör" : "Yer"}</th><th></th></tr></thead><tbody></tbody></table>
     <div id="tempty" ${rows.length ? "hidden" : ""}>${emptyTracksHtml()}</div></div>
     <div id="bulkbar" class="foot" data-dock></div>`;
@@ -1413,6 +1418,7 @@ function wireMusic() {
     const q = e.target.closest("[data-quar]");
     if (q) { await quarantine([+q.dataset.quar]); return; }
     if (e.target.id === "applyall") { await applyAllSuggestions(); return; }
+    if (e.target.id === "gotarget") { if (window.DJDTargets) await window.DJDTargets.open(); return; }
     if (e.target.id === "gomissing") { if (window.DJDRename) await window.DJDRename.go("links"); return; }
     if (e.target.id === "dropcopies") {
       const groups = Array.from(new Set(S.rows.filter((r) => r.copy_of).map((r) => r.group)));

@@ -75,7 +75,7 @@ def test_export_structure_incremental_and_stale():
     pl2 = targets.plan(lib, dst)
     assert pl2["summary"]["files"] == 0, pl2["summary"]
     # kaynakta bir dosya karantinaya gitti (ör. kopya birleştirme) -> hedefte silinmez, karantinaya taşınır
-    gone = next(k for k in tree(lib.root) if k.startswith("Müzik/Halay/"))
+    gone = next(k for k in tree(lib.root) if k.startswith("Müzik/Halay/") and "/._" not in k)
     os.makedirs(os.path.join(TMP, "exp", "ayri"), exist_ok=True)
     shutil.move(os.path.join(lib.root, *gone.split("/")), os.path.join(TMP, "exp", "ayri", "x.mp3"))
     r2 = targets.export(lib, dst)
@@ -106,7 +106,7 @@ def test_foreign_library_blocks_then_set_aside():
 def test_conflict_not_overwritten_and_guards():
     lib = fresh("conf")
     dst = os.path.join(TMP, "conf", "KART")
-    rel = next(k for k in tree(lib.root) if k.startswith("Müzik/Horon/"))
+    rel = next(k for k in tree(lib.root) if k.startswith("Müzik/Horon/") and "/._" not in k)
     os.makedirs(os.path.dirname(os.path.join(dst, *rel.split("/"))))
     with open(os.path.join(dst, *rel.split("/")), "wb") as f:
         f.write(b"kullanicinin baska dosyasi")

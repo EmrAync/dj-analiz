@@ -402,6 +402,11 @@ class Handler(BaseHTTPRequestHandler):
                 out["missing_root"] = rec
             return out
         info = lib.info()
+        try:
+            from . import targets as _tg
+            info["loc"] = _tg.library_location(lib)       # kütüphane bir klasördeyse Engine görmez: uyarı şeridi
+        except Exception:
+            info["loc"] = None
         top = lib.catalog.journal_top()
         db = lib.engine_db()
         estamp = engine.db_stamp(db["path"]) if db else None
@@ -908,7 +913,15 @@ def _browse(path):
     parent = os.path.dirname(p.rstrip("\\/"))
     if parent == p or not parent:
         parent = ""
-    return {"path": p, "parent": parent, "dirs": dirs, "system": util.is_system_root(p), **_marks(p)}
+    nested = []
+    if not util.is_system_root(p):
+        try:
+            from . import targets as _tg
+            if _tg.is_drive_root(p) and not _tg._has_engine(p):
+                nested = [names.display(os.path.relpath(x, p)) for x in _tg.find_nested(p, depth=2, limit=3)]
+        except Exception:
+            nested = []
+    return {"path": p, "parent": parent, "dirs": dirs, "system": util.is_system_root(p), "nested": nested, **_marks(p)}
 
 
 def _print_list(lib, pid):
