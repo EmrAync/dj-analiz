@@ -2288,17 +2288,25 @@ async function loadTools() {
   S.tview = S.tview || localStorage.getItem("djd.tview") || "health";
   if (!toolViewsAll().some((x) => x.key === S.tview)) S.tview = "health";
   if (!S.ov) { try { S.ov = await api("/api/overview"); } catch (e) { /* */ } }
-  const xv = extView();
-  if (xv) S.tdata = xv.load ? await xv.load() : null;
-  else if (S.tview === "health") S.tdata = await api("/api/health");
-  else if (S.tview === "table") S.tdata = await api("/api/libtable");
-  else if (S.tview === "export") S.tdata = await api("/api/lists").catch(() => ({ lists: [] }));
-  else S.tdata = { journal: await api("/api/journal"), backups: await api("/api/backups") };
+  const xv = extView(), tv = S.tview;
+  let d;
+  if (xv) d = xv.load ? await xv.load() : null;
+  else if (tv === "health") d = await api("/api/health");
+  else if (tv === "table") d = await api("/api/libtable");
+  else if (tv === "export") d = await api("/api/lists").catch(() => ({ lists: [] }));
+  else d = { journal: await api("/api/journal"), backups: await api("/api/backups") };
+  if (S.tview !== tv || S.tab !== "tools") return;          // bu arada başka görünüme geçildi: eski veriyi çizme
+  S.tdata = d; S.tdataFor = tv;
   renderTools();
 }
 
 function renderTools() {
   const v = $("#view");
+  if (S.tdataFor !== S.tview) {                         // veri başka görünüme ait (hızlı geçiş): önce yükle
+    if (!$("#tmain")) v.innerHTML = `<div class="empty">Yükleniyor…</div>`;
+    loadTools().catch((e) => toast(e.message, "err"));
+    return;
+  }
   const prev = $("#tmain .body");
   const keep = prev && S._lastT === S.tview ? prev.scrollTop : 0;
   const side = `<aside class="side"><div class="scroll">
@@ -2327,6 +2335,7 @@ const HACT = { quarantine: "Karantinaya al", missing: "Engine'den kaldır", repa
   rename_emoji: "Emojileri temizle", junk: "Karantinaya taşı", dupes: "Kopyalara git" };
 
 function healthHtml(h) {
+  if (!h || !h.stats || !h.categories) return `<div class="body"><div class="empty">Yükleniyor…</div></div>`;
   const st = h.stats;
   const cats = h.categories.filter((c) => c.count);
   S.hopen = S.hopen || new Set();

@@ -254,7 +254,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             try:
                 self.wfile.write(body)
-            except (BrokenPipeError, ConnectionResetError):
+            except ConnectionError:              # pencere kapandı / yenilendi (WinError 10053 dahil): önemsiz
                 pass
 
     def _json(self, obj, code=200):

@@ -201,7 +201,13 @@ UI tests take `DJD_UI_PORT` (default 8899/8902/…) so several can run at once.
   all thread stacks (`dump_threads`, max once a minute); export copies in 4 MB chunks with live progress (n / total,
   bytes, speed, ETA; `targets.REPORT_EVERY`), a per-file stall watcher (20 s → on-screen "Bekleniyor …", 60 s → stack
   dump), cancel inside a file removes our own `.djdtmp`; `/api/ping` returns running tasks (lock-free) and the boot screen
-  shows "Program meşgul: …" instead of a blank page. **Next: read his djdoktor.log "TAKILMA" block.**
+  shows "Program meşgul: …" instead of a blank page.
+- **2.3.2** (his log: startup ~1 min, "TAKILMA /api/state 22 sn"): Windows `tasklist` took 20+ s on his PC and every
+  Engine/Serato-open check waited behind `_PROC_LOCK`. Now `util._win_process_names` lists processes via ctypes
+  (`CreateToolhelp32Snapshot`, ms; `tasklist` only as fallback) and non-fresh checks never wait: if another thread is
+  reading, the last result is returned (`_process_text(wait=False)`); fresh pre-write checks still wait. Also: Araçlar
+  view switching race (`S.tdataFor`; JS error in `healthHtml`), WinError 10053 tracebacks silenced. The 78 % export
+  "hang" was probably the same lock — check the next log.
 - **Not yet verified with the real apps (2.2):** Windows .bat + pythonw start, the PowerShell .lnk, the macOS .app bundle
   (Gatekeeper, python3 from Finder's minimal PATH), Edge/Chrome `--app` windows, real Engine `hm.db` / Serato
   `History/Sessions` parsing (check `assistant.learned(lib)["info"]["history_sessions"] > 0` on his Mac), and renames

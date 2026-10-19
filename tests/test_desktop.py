@@ -648,6 +648,34 @@ def test_ui_app_window():
 # ---------------------------------------------------------------------------
 # baslat.py
 # ---------------------------------------------------------------------------
+def test_process_check_never_blocks_ui():
+    """Süreç listesi yavaşsa (Windows 'tasklist' 20+ sn) arayüz denetimi beklemez, son sonucu kullanır;
+    yazmadan önceki taze denetim ise yeni sonucu bekler."""
+    from djdoktor import util
+    old = util._read_processes
+    util._PROC["t"], util._PROC["text"] = 0.0, "engine dj.exe"
+    gate = threading.Event()
+
+    def slow(prev):
+        gate.wait(5)
+        return "serato dj pro.exe"
+    util._read_processes = slow
+    try:
+        th = threading.Thread(target=lambda: util.process_running(["Serato DJ Pro"], fresh=True))
+        th.start()
+        time.sleep(0.2)                                   # taze denetim şu an okuyor (kilit dolu)
+        t0 = time.time()
+        assert util.process_running(["Engine DJ.exe"]) == ["Engine DJ.exe"]       # eski sonuç, beklemeden
+        assert time.time() - t0 < 0.5
+        gate.set()
+        th.join(5)
+        assert util.process_running(["Serato DJ Pro"]) == ["Serato DJ Pro"]
+    finally:
+        gate.set()
+        util._read_processes = old
+        util._PROC["t"], util._PROC["text"] = 0.0, None
+
+
 def test_baslat_args():
     a = baslat.parse_args([])
     assert a.port == 8770 and not (a.app or a.browser or a.no_browser or a.console or a.detach)
