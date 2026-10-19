@@ -39,8 +39,12 @@ class Library:
         self.lock = threading.RLock()
         self._estate = None
         self._estate_key = None
+        self._estate_seq = 0
+        self._estate_lock = threading.Lock()   # aynı anda gelen istekler Engine'i bir kez okusun
         self._dupes = None
         self._dupes_ver = None
+        self._cache = {}                        # ad -> (anahtar, değer): ekranların ağır hesapları
+        self._cache_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Yollar
@@ -74,17 +78,50 @@ class Library:
         self.catalog.set_meta("files_ver", self.ver() + 1)
         self._dupes = None
 
+    def data_key(self):
+        """Katalog içeriğinin anahtarı: dosya, tür ya da kural değişince değişir."""
+        return (self.catalog.gen, self.ver())
+
+    def view_key(self):
+        """Ekran önbelleklerinin anahtarı: katalog + Engine kütüphanesinin o anki hâli."""
+        st = self.engine_state()
+        return self.data_key() + (self._estate_seq if st.get("db") else 0,)
+
+    def cached(self, name, key, fn):
+        """Ağır bir hesabı anahtarı değişene kadar saklar (aynı veriyle her istekte yeniden hesaplanmasın)."""
+        with self._cache_lock:
+            hit = self._cache.get(name)
+            if hit is not None and hit[0] == key:
+                return hit[1]
+        val = fn()
+        with self._cache_lock:
+            self._cache[name] = (key, val)
+            if len(self._cache) > 64:
+                for k in list(self._cache)[:16]:
+                    self._cache.pop(k, None)
+        return val
+
     # ------------------------------------------------------------------
     # Engine / Serato
     # ------------------------------------------------------------------
     def engine_db(self):
         return engine.drive_db(self.root)
 
-    def engine_open(self):
-        return engine.is_running()
+    def engine_open(self, fresh=False):
+        """fresh=True: yazmadan hemen önce (önbellekteki birkaç saniyelik sonuç kullanılmaz)."""
+        return engine.is_running(fresh=True) if fresh else engine.is_running()
 
-    def serato_open(self):
-        return bool(util.process_running(serato.SERATO_PROCS))
+    def serato_open(self, fresh=False):
+        return bool(util.process_running(serato.SERATO_PROCS, fresh=True) if fresh
+                    else util.process_running(serato.SERATO_PROCS))
+
+    def serato_index(self):
+        """Serato'daki tüm yollar (database V2 + bütün crate'ler), diskteki dosyalar değişene kadar önbellekte.
+        Yazmadan önce bunu DEĞİL serato.index(...)'i kullanın (taze okuma). Dönen sözlüğü değiştirmeyin."""
+        sdir = self.serato_dir()
+        if not sdir:
+            return serato.index(None)
+        return self.cached("serato_index", (sdir, self._serato_sig(deep=True)), lambda: serato.index(sdir))
 
     def serato_dir(self):
         return serato.serato_dir(self.root)
@@ -102,9 +139,15 @@ class Library:
         if not db:
             return {"db": None, "uuid": None, "schema": None, "tracks": {}, "by_file": {}, "orphans": [],
                     "status": {}, "playlists": [], "lists_of": {}, "ref_of": {}, "tid_of_ref": {}, "warning": ""}
-        key = (engine.db_stamp(db["path"]), self.ver())
+        key = (engine.db_stamp(db["path"]),) + self.data_key()
         if not force and self._estate is not None and self._estate_key == key:
             return self._estate
+        with self._estate_lock:
+            if not force and self._estate is not None and self._estate_key == key:
+                return self._estate             # başka bir istek az önce okudu
+            return self._read_engine_state(db, key)
+
+    def _read_engine_state(self, db, key):
         data = engine.read(db["path"])
         tracks, by_file, orphans, ref_of, tid_of_ref = self.engine_map(db, data)
         status = {}
@@ -134,6 +177,8 @@ class Library:
         st = {"db": db, "uuid": data["uuid"], "schema": data["schema"], "tracks": tracks, "by_file": dict(by_file),
               "orphans": orphans, "status": status, "playlists": data["playlists"], "lists_of": dict(lists_of),
               "ref_of": ref_of, "tid_of_ref": tid_of_ref, "fid_of_tid": fid_of_tid, "warning": data["warning"]}
+        self._estate_seq += 1
+        st["seq"] = self._estate_seq
         self._estate, self._estate_key = st, key
         return st
 
@@ -207,8 +252,11 @@ class Library:
         return place
 
     def audio_files(self, present=True):
+        """Ses dosyaları. present=True sonucu önbellekten gelir: satırları DEĞİŞTİRMEYİN (paylaşılır)."""
         sql = "SELECT * FROM files WHERE kind='audio'" + (" AND present=1" if present else "")
-        return self.catalog.q(sql)
+        if not present:
+            return self.catalog.q(sql)
+        return self.cached("audio_files", self.data_key(), lambda: self.catalog.q(sql))
 
     def memberships(self):
         """{file_id: [liste yolu]} — Serato crate'leri + Engine listeleri (tür önerileri için)."""
@@ -228,32 +276,35 @@ class Library:
     # Tarama
     # ------------------------------------------------------------------
     def full_scan(self, progress=None, cancel=None):
+        """Tarama. Klasörleri gezmek ve etiket okumak kilitsizdir; program bu sırada bekletilmez
+        (taşıma, liste düzenleme vb. kütüphane kilidini yalnızca kısa süre paylaşır)."""
         def sub(lo, hi):
             return (lambda r, m: progress(lo + (hi - lo) * r, m)) if progress else None
-        with self.lock:
-            res = scan(self.catalog, self.rootinfo, self.prefs(), sub(0.0, 0.85), cancel)
-            if res.get("cancelled"):
-                return res
-            if progress:
-                progress(0.88, "Serato listeleri okunuyor…")
-            ssig = self._serato_sig()
-            changed = bool(res.get("read") or res.get("gone")) or ssig != self.catalog.get_meta("serato_sig")
-            if changed or not self.catalog.get_meta("last_scan"):
+        res = scan(self.catalog, self.rootinfo, self.prefs(), sub(0.0, 0.85), cancel, lock=self.lock)
+        if res.get("cancelled"):
+            return res
+        if progress:
+            progress(0.88, "Serato listeleri okunuyor…")
+        ssig = self._serato_sig()
+        changed = bool(res.get("read") or res.get("gone")) or ssig != self.catalog.get_meta("serato_sig")
+        if changed or not self.catalog.get_meta("last_scan_done"):
+            with self.lock:
                 res["serato"] = self.analyze_serato()
                 self.catalog.set_meta("serato_sig", ssig)
                 self.compute_flags()
                 self.bump()
-            res["changed"] = changed
-            if progress:
-                progress(0.95, "Engine durumu okunuyor…")
-            self.engine_state(force=True)
-            self.catalog.set_meta("last_scan", util.now())
-            if progress:
-                progress(1.0, "Tamamlandı")
-            return res
+            self.catalog.set_meta("last_scan_done", util.now())
+        res["changed"] = changed
+        if progress:
+            progress(0.95, "Engine durumu okunuyor…")
+        self.engine_state()
+        self.catalog.set_meta("last_scan", util.now())
+        if progress:
+            progress(1.0, "Tamamlandı")
+        return res
 
-    def _serato_sig(self):
-        """Serato dosyalarının ucuz imzası (değiştiler mi?)."""
+    def _serato_sig(self, deep=False):
+        """Serato dosyalarının ucuz imzası (değiştiler mi?). deep=True: alt klasörlerdeki crate'ler de."""
         sdir = self.serato_dir()
         if not sdir:
             return ""
@@ -266,10 +317,15 @@ class Library:
                 parts.append("-")
         sc = serato._subcrates_dir(sdir)
         try:
-            for e in sorted(os.scandir(sc), key=lambda e: e.name):
-                if e.name.endswith(".crate"):
-                    st = e.stat()
-                    parts.append("%s:%d:%d" % (e.name, st.st_size, st.st_mtime_ns))
+            if deep:
+                for member, full in serato.iter_crate_files(sdir):
+                    st = os.stat(full)
+                    parts.append("%s:%d:%d" % (member, st.st_size, st.st_mtime_ns))
+            else:
+                for e in sorted(os.scandir(sc), key=lambda e: e.name):
+                    if e.name.endswith(".crate"):
+                        st = e.stat()
+                        parts.append("%s:%d:%d" % (e.name, st.st_size, st.st_mtime_ns))
         except OSError:
             pass
         import hashlib
@@ -281,6 +337,7 @@ class Library:
             s = serato.analyze(self.root, resolver)
         except Exception as e:
             return {"error": str(e)}
+        self.catalog.touch_gen()      # Serato listeleri değişti: ekran önbellekleri yenilensin
         if s:
             self.catalog.ext_replace("serato", s["tracks"], s["lists"], s["items"])
             self.catalog.set_meta("serato_info", json.dumps({"dir": s["dir"], "version": s["version"],
@@ -297,7 +354,8 @@ class Library:
         for f in self.catalog.files():
             codes = [c for c in analysis.file_issues(f, prefs)
                      if c in ("audio_error", "audio_empty", "fmt_engine", "junk_appledouble", "junk_other",
-                              "name_badchar", "name_trailing", "name_reserved", "name_long", "audio_lowbr")]
+                              "name_badchar", "name_trailing", "name_reserved", "name_long", "audio_lowbr",
+                              "name_nfd", "name_emoji", "tag_none", "engine_copy")]
             if codes:
                 flags[f["id"]] = codes
         self.catalog.set_flags(flags)
@@ -315,7 +373,10 @@ class Library:
                 "setup_done": bool(self.catalog.genres())}
 
     def file_states(self):
-        """Her mevcut ses dosyası için: yer, tür, Engine durumu, sorun ve çift bilgisi."""
+        """Her mevcut ses dosyası için: yer, tür, Engine durumu, sorun ve çift bilgisi (önbellekli)."""
+        return self.cached("file_states", self.view_key(), self._file_states)
+
+    def _file_states(self):
         from . import dedupe
         st = self.engine_state()
         place = self.placer()
@@ -343,6 +404,14 @@ class Library:
         return {"ready": "ready", "pending": "pending"}.get(s["es"], "none")
 
     def overview(self):
+        """Müzikler ekranının özeti. Ağır kısım önbellekte; Engine/Serato açık mı ve 'Geri al' her seferinde."""
+        ov = dict(self.cached("overview", self.view_key(), self._overview))
+        top = self.catalog.journal_top()
+        ov.update({"lib": self.info(), "engine_open": self.engine_open(), "serato_open": self.serato_open(),
+                   "undo": {"id": top["id"], "title": top["title"]} if top else None})
+        return ov
+
+    def _overview(self):
         states = self.file_states()
         gens = self.genre_rows()
         by_g = {g["id"]: Counter() for g in gens}
@@ -376,14 +445,11 @@ class Library:
             gl.append({"id": g["id"], "name": g["name"], "rel": g["rel"], "color": g["color"], "engine": g["engine"],
                        "count": c["count"], "ready": c["ready"], "pending": c["pending"], "none": c["none"],
                        "problem": c["problem"]})
-        top = self.catalog.journal_top()
-        return {"lib": self.info(), "genres": gl, "unsorted": unsorted["count"], "ignored": ignored,
+        return {"genres": gl, "unsorted": unsorted["count"], "ignored": ignored,
                 "dupes": len([g for g in groups if g["kind"] in ("exact", "audio", "engine")]), "dupe_extra": extra,
                 "similar": len([g for g in groups if g["kind"] == "song"]), "problems": problems + len(orphans),
                 "orphans": len(orphans), "pending": pending_total,
                 "total": sum(c["count"] for c in by_g.values()) + unsorted["count"],
-                "engine_open": self.engine_open(), "serato_open": self.serato_open(),
-                "undo": {"id": top["id"], "title": top["title"]} if top else None,
                 "engine_tracks": len(st["tracks"]), "engine_warning": st.get("warning") or ""}
 
     def row(self, s, gnames, suggest=None):
@@ -405,7 +471,10 @@ class Library:
                 "why": suggest[1] if suggest else None, "flags": fl, "search": f.get("search") or ""}
 
     def tracks(self, view: str):
-        """view: 'all' | 'g:<id>' | 'unsorted' | 'problems' | 'pending' | 'none'"""
+        """view: 'all' | 'g:<id>' | 'unsorted' | 'problems' | 'pending' | 'none' (önbellekli)"""
+        return self.cached("tracks:" + view, self.view_key(), lambda: self._tracks(view))
+
+    def _tracks(self, view: str):
         states = self.file_states()
         gens = {g["id"]: g for g in self.genre_rows()}
         rows = []
@@ -453,6 +522,9 @@ class Library:
         return rows
 
     def track_detail(self, fid):
+        """Parça ayrıntısı: tüm etiketler, cue'lar, Engine kaydı, hangi liste / crate'lerde olduğu, kopyaları,
+        sorunları ve tona / tempoya göre uyumlu şarkılar."""
+        from . import dedupe, events, health
         f = self.catalog.file(fid)
         if not f:
             raise UserError("Parça bulunamadı")
@@ -460,7 +532,6 @@ class Library:
         place = self.placer()
         kind, gid = place(f["rel"])
         gens = {g["id"]: g for g in self.genre_rows()}
-        from . import dedupe
         dup = dedupe.dup_index(self).get(fid)
         group = None
         if dup:
@@ -468,16 +539,58 @@ class Library:
                 if any(m["id"] == fid for m in g["members"]):
                     group = g
                     break
-        serato_lists = [r["path"] for r in self.catalog.q(
+        serato_lists = [r["path"].replace("%%", " / ") for r in self.catalog.q(
             "SELECT DISTINCT l.path FROM ext_items e JOIN ext_lists l ON l.src=e.src AND l.list_key=e.list_key "
-            "WHERE e.src='serato' AND e.file_id=?", (fid,))]
+            "WHERE e.src='serato' AND e.file_id=? ORDER BY l.path", (fid,))]
         rows = st["by_file"].get(fid) or []
         etr = st["tracks"].get(rows[0][0]) if rows else None
         markers = json.loads(f["cues_json"]) if f.get("cues_json") else None
+        flags = json.loads(f["flags"]) if f.get("flags") else []
         f.pop("search", None)
+        f.pop("cues_json", None)
+        g = gens.get(gid) if kind == "genre" else None
+        from . import keys as K
         return {"file": f, "disp": names.display(f["rel"]), "abs": self.rootinfo.os_path(f["rel"], f.get("os_rel")),
-                "genre": gens[gid]["name"] if gid in gens else None, "place": kind, "es": st["status"].get(fid, "none"),
+                "genre": g["name"] if g else None, "color": g["color"] if g else None, "gid": g["id"] if g else None,
+                "place": kind, "es": st["status"].get(fid, "none"),
                 "engine": {"id": etr["id"], "analyzed": bool(etr.get("isAnalyzed")), "path": etr.get("path"),
-                           "bpm": etr.get("bpmAnalyzed"), "key": etr.get("key")} if etr else None,
-                "engine_lists": st["lists_of"].get(fid, []), "serato_lists": serato_lists, "dupe_group": group,
-                "markers": markers}
+                           "bpm": etr.get("bpmAnalyzed"), "key": K.engine_key_to_camelot(etr.get("key")),
+                           "grid": bool(etr.get("has_grid")), "copies": len(rows)} if etr else None,
+                "engine_lists": sorted(set(st["lists_of"].get(fid, []))), "serato_lists": serato_lists,
+                "dupe_group": group, "markers": markers, "issues": health.explain(flags),
+                "compatible": events.compatible(self, fid)}
+
+    def library_table(self):
+        """Araçlar > Kütüphane: tüm şarkılar, tüm sütunlar (sıralanabilir, aranabilir tablo için)."""
+        return self.cached("libtable", self.view_key(), self._library_table)
+
+    def _library_table(self):
+        from . import dedupe, keys as K
+        states = self.file_states()
+        gens = {g["id"]: g for g in self.genre_rows()}
+        st = self.engine_state()
+        dup = dedupe.dup_index(self)
+        nser = {r["file_id"]: r["n"] for r in self.catalog.q(
+            "SELECT file_id, COUNT(DISTINCT list_key) AS n FROM ext_items WHERE src='serato' AND file_id IS NOT NULL "
+            "GROUP BY file_id")}
+        cols = ["id", "dot", "title", "artist", "album", "genre", "tag_genre", "bpm", "key", "energy", "dur", "kbps",
+                "ext", "size", "note", "cues", "year", "label", "engine", "dup", "serato", "lists", "rel", "added",
+                "flags", "search"]
+        out = []
+        for s in states.values():
+            f = s["f"]
+            rows = st["by_file"].get(f["id"]) or []
+            t = st["tracks"].get(rows[0][0]) if rows else {}
+            g = gens.get(s["gid"]) if s["place"] == "genre" else None
+            bpm = f.get("bpm") or (t or {}).get("bpmAnalyzed")
+            d = dup.get(f["id"])
+            out.append([f["id"], self.dot(s), f.get("title") or os.path.splitext(names.display(f["name"]))[0],
+                        f.get("artist") or "", f.get("album") or "", g["name"] if g else "", f.get("genre") or "",
+                        round(bpm, 1) if bpm else None, f.get("camelot") or K.engine_key_to_camelot((t or {}).get("key")),
+                        f.get("mik_energy"), round(f["duration"]) if f.get("duration") else None, f.get("bitrate"),
+                        (f.get("ext") or "").lstrip("."), f.get("size"), f.get("note") or "", f.get("cues") or 0,
+                        f.get("year"), f.get("label") or "", s["es"],
+                        d["n"] if d and d["kind"] != "song" else 0, nser.get(f["id"], 0),
+                        len(set(st["lists_of"].get(f["id"], []))), names.display(f["rel"]), f.get("first_seen"),
+                        json.loads(f["flags"]) if f.get("flags") else [], f.get("search") or ""])
+        return {"cols": cols, "rows": out}

@@ -154,7 +154,8 @@ def safe_crate_part(title: str) -> str:
 # ---------------------------------------------------------------------------
 # Yol lehçesi: Serato Mac'te ayrık (NFD) + ':' ; Windows'ta disk biçimi
 # ---------------------------------------------------------------------------
-def detect_dialect(db_tracks) -> str:
+def detect_dialect(db_tracks, default: str = "mac") -> str:
+    """database V2'deki yazımlara bakarak lehçeyi bulur. Kanıt yoksa (yalnızca ASCII yollar) default döner."""
     mac = win = 0
     for t in db_tracks or []:
         p = t.get("pfil") or ""
@@ -166,7 +167,94 @@ def detect_dialect(db_tracks) -> str:
             win += 1
         elif any(c in p for c in ':?*"|<>'):
             mac += 1
+    if not mac and not win:
+        return default
     return "mac" if mac >= win else "windows"
+
+
+def raw_for(raw_old: str, old_rel: str, new_rel: str, dialect: str = None) -> str:
+    """Serato'daki eski yazımın lehçesini koruyarak yeni yolu yazar.
+
+    Eski yazım ayrık harfliyse (NFD) ya da diskteki özel karakter yerine ':' taşıyorsa Mac biçimi yazılır;
+    birleşik Türkçe harf veya özel karakter taşıyorsa disk biçimi. Eski yol yalnızca ASCII ise yazımdan
+    anlaşılmaz: o zaman kütüphanenin lehçesi (dialect: 'mac' | 'windows') belirler."""
+    if names.nfc(raw_old) != raw_old or (names.has_sfm(old_rel) and not names.has_sfm(raw_old)):
+        return names.to_mac_form(new_rel)
+    if names.has_sfm(raw_old) or (any(ord(c) > 127 for c in raw_old) and names.nfd(raw_old) != raw_old):
+        return new_rel
+    if dialect == "mac":
+        return names.to_mac_form(new_rel)
+    return new_rel
+
+
+def parse_len(tlen) -> float:
+    """Serato'nun süre yazısı ('03:45.25', '1:02:03') -> saniye; okunamazsa None."""
+    if not tlen:
+        return None
+    try:
+        parts = [float(x) for x in str(tlen).strip().split(":")]
+    except ValueError:
+        return None
+    sec = 0.0
+    for x in parts:
+        sec = sec * 60 + x
+    return sec
+
+
+def iter_crate_files(sdir: str):
+    """(yedekteki adı 'Subcrates/x.crate', mutlak yol) — alt klasörlerdekiler dahil."""
+    sc = _subcrates_dir(sdir)
+    if not os.path.isdir(sc):
+        return
+    for root, _d, files in os.walk(sc):
+        for f in sorted(files):
+            if f.lower().endswith(".crate") and not f.startswith("._"):
+                full = os.path.join(root, f)
+                yield os.path.relpath(full, sdir).replace(os.sep, "/"), full
+
+
+def crate_title(member: str) -> str:
+    """'Subcrates/Melis Program%%Halaylar.crate' -> 'Melis Program / Halaylar'"""
+    stem = member.split("/", 1)[-1]
+    if stem.lower().endswith(".crate"):
+        stem = stem[:-6]
+    return stem.replace("%%", " / ")
+
+
+def index(sdir: str) -> dict:
+    """Serato'daki TÜM yolların diskten taze dizini (database V2 + alt klasörler dahil bütün crate'ler).
+
+    {'raws': {ham_yol: [nerede, ...]}, 'db': {ham_yol: {'title','artist','dur'}}, 'db_by_mkey': {anahtar: ham},
+     'by_mkey': {anahtar: {ham}}, 'by_lkey': {gevşek_anahtar: {ham}}, 'dialect': 'mac'|'windows'|None}"""
+    out = {"raws": {}, "db": {}, "db_by_mkey": {}, "by_mkey": {}, "by_lkey": {}, "dialect": None, "dir": sdir}
+    if not sdir:
+        return out
+    db = read_database(sdir) or {"tracks": []}
+    raws = out["raws"]
+    for t in db["tracks"]:
+        p = t.get("pfil")
+        if not p:
+            continue
+        raws.setdefault(p, []).append("database V2")
+        out["db"].setdefault(p, {"title": t.get("tsng") or "", "artist": t.get("tart") or "",
+                                 "dur": parse_len(t.get("tlen"))})
+        out["db_by_mkey"].setdefault(names.match_key(p), p)
+    for member, full in iter_crate_files(sdir):
+        try:
+            tracks, _cols = read_crate_file(full)
+        except Exception:           # okunamayan / bozuk crate: atlanır
+            continue
+        title = crate_title(member)
+        for p in tracks:
+            if p:
+                w = raws.setdefault(p, [])
+                if not w or w[-1] != title:
+                    w.append(title)
+    for p in raws:
+        out["by_mkey"].setdefault(names.match_key(p), set()).add(p)
+        out["by_lkey"].setdefault(names.loose_key(p), set()).add(p)
+    out["dialect"] = detect_dialect(db["tracks"], default=None)
+    return out
 
 
 def path_for(rel: str, dialect: str, db_by_mkey=None) -> str:
@@ -269,7 +357,7 @@ def rewrite_paths(sdir: str, mapping: dict, drop_db_paths=frozenset(), dedupe: b
             False (taşıma / geri alma) -> hiçbir kayıt silinmez; işlem birebir geri alınabilir.
     Dönüş: istatistik sözlüğü.
     """
-    stats = {"crates_changed": 0, "crate_entries": 0, "db_changed": 0, "db_removed": 0}
+    stats = {"crates_changed": 0, "crate_entries": 0, "db_changed": 0, "db_removed": 0, "files": []}
     sc = _subcrates_dir(sdir)
     if os.path.isdir(sc):
         for root, _d, files in os.walk(sc):
@@ -311,6 +399,7 @@ def rewrite_paths(sdir: str, mapping: dict, drop_db_paths=frozenset(), dedupe: b
                 if changed:
                     util.atomic_write_bytes(p, serialize(new_items, tail))
                     stats["crates_changed"] += 1
+                    stats["files"].append(os.path.relpath(p, sdir).replace(os.sep, "/"))
     dbp = os.path.join(sdir, "database V2")
     if os.path.exists(dbp):
         data = open(dbp, "rb").read()
@@ -350,6 +439,7 @@ def rewrite_paths(sdir: str, mapping: dict, drop_db_paths=frozenset(), dedupe: b
             new_items.append((tag, serialize(sub, stail)))
         if changed:
             util.atomic_write_bytes(dbp, serialize(new_items, tail))
+            stats["files"].append("database V2")
     return stats
 
 

@@ -79,6 +79,43 @@ def unique_path(path: str) -> str:
     return "%s_%d%s" % (base, k, ext)
 
 
+class FileInUseError(PermissionError):
+    """Dosya başka bir program tarafından açık (Windows WinError 32): kullanıcıya anlaşılır mesaj."""
+
+
+def _in_use(e):
+    return getattr(e, "winerror", None) in (32, 33) or (IS_WIN and isinstance(e, PermissionError))
+
+
+def _rename(src, dst):
+    """os.rename; Windows'ta dosya bir an kilitliyse (virüs tarayıcı, dizinleyici, oynatıcı) ~3 sn yeniden dener."""
+    for i in range(12):
+        try:
+            os.rename(src, dst)
+            return
+        except OSError as e:
+            if not _in_use(e):
+                raise
+            if i == 11:
+                raise FileInUseError(
+                    e.errno, "Dosya başka bir program tarafından kullanılıyor (çalıyor olabilir: Engine DJ, Serato ya da "
+                    "bir oynatıcı). Onu kapatıp tekrar dene: %s" % os.path.basename(src)) from None
+            time.sleep(0.25)
+
+
+def friendly_os_error(e):
+    """Kullanıcıya gösterilecek kısa Türkçe mesaj (kilitli dosya, izin, disk dolu) ya da None."""
+    if isinstance(e, FileInUseError):
+        return e.strerror
+    if isinstance(e, OSError) and _in_use(e):
+        name = os.path.basename(getattr(e, "filename", "") or "")
+        return ("Dosya başka bir program tarafından kullanılıyor (çalıyor olabilir: Engine DJ, Serato ya da bir "
+                "oynatıcı). Onu kapatıp tekrar dene%s" % (": " + name if name else "."))
+    if isinstance(e, OSError) and e.errno == 28:
+        return "Diskte yer kalmadı."
+    return None
+
+
 def safe_rename(src: str, dst: str) -> None:
     """Yeniden adlandırır/taşır ama var olan BAŞKA bir dosyanın üstüne asla yazmaz.
 
@@ -103,16 +140,16 @@ def safe_rename(src: str, dst: str) -> None:
         while os.path.lexists(tmp):
             k += 1
             tmp = "%s.djdtmp%d" % (src, k)
-        os.rename(src, tmp)
+        _rename(src, tmp)
         try:
-            os.rename(tmp, dst)
+            _rename(tmp, dst)
         except OSError:
-            os.rename(tmp, src)
+            _rename(tmp, src)
             raise
         return
     if os.path.lexists(dst):
         raise FileExistsError("Hedef zaten var: %s" % dst)
-    os.rename(src, dst)
+    _rename(src, dst)
 
 
 QDIR = "_DJDoktor_Karantina"
@@ -136,7 +173,7 @@ def move_file(src: str, dst: str) -> str:
         dst = "%s (%d)%s" % (base, k, ext)
     os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
     try:
-        os.rename(src, dst)
+        _rename(src, dst)
     except OSError:
         if not os.path.exists(src) or os.path.exists(dst):
             raise
@@ -191,32 +228,84 @@ _PROC = {"t": 0.0, "text": None}
 _PROC_LOCK = __import__("threading").Lock()
 
 
-def _process_text(max_age: float) -> str:
-    """Çalışan süreç adlarının küçük harfli listesi. Windows'ta her sorgu 'tasklist' başlatır (yavaş);
-    arayüz birkaç saniyede bir sorduğu için sonuç kısa süre önbellekte tutulur."""
-    with _PROC_LOCK:
+def _win_process_names():
+    """Windows: çalışan süreç adları ctypes ile (CreateToolhelp32Snapshot) — milisaniyeler sürer.
+    'tasklist' bazı bilgisayarlarda 10-20 sn sürüyordu (açılış ~1 dk). Olmazsa None (tasklist'e düşülür)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class PE32(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD),
+                    ("cntThreads", wintypes.DWORD), ("th32ParentProcessID", wintypes.DWORD),
+                    ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD),
+                    ("szExeFile", ctypes.c_wchar * 260)]
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PE32)]
+    k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PE32)]
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    snap = k32.CreateToolhelp32Snapshot(0x2, 0)                 # TH32CS_SNAPPROCESS
+    if not snap or snap == wintypes.HANDLE(-1).value:
+        return None
+    out = []
+    try:
+        e = PE32()
+        e.dwSize = ctypes.sizeof(PE32)
+        ok = k32.Process32FirstW(snap, ctypes.byref(e))
+        while ok:
+            out.append(e.szExeFile)
+            ok = k32.Process32NextW(snap, ctypes.byref(e))
+    finally:
+        k32.CloseHandle(snap)
+    return out or None
+
+
+def _read_processes(old: str) -> str:
+    try:
+        if IS_WIN:
+            try:
+                lst = _win_process_names()
+            except Exception:
+                lst = None
+            if lst:
+                return "\n".join(lst).lower()
+            out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, timeout=8,
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            return out.stdout.decode("mbcs", "replace").lower()
+        out = subprocess.run(["ps", "-axo", "comm"], capture_output=True, timeout=8)
+        return out.stdout.decode("utf-8", "replace").lower()
+    except Exception:
+        return old or ""
+
+
+def _process_text(max_age: float, wait: bool = True) -> str:
+    """Çalışan süreç adlarının küçük harfli listesi, kısa süre önbellekte.
+    wait=False (arayüz / arka plan): başka bir iş parçacığı şu an süreçleri okuyorsa beklemeden son sonuç
+    döner — eskiden bir istek yavaş 'tasklist'in arkasında 20+ sn bekliyordu. Yazmadan önceki taze denetim bekler."""
+    now = time.time()
+    hit = _PROC["text"]
+    if hit is not None and now - _PROC["t"] < max_age:
+        return hit
+    if not _PROC_LOCK.acquire(blocking=wait or hit is None):
+        return hit
+    try:
         now = time.time()
         if _PROC["text"] is not None and now - _PROC["t"] < max_age:
             return _PROC["text"]
-        text = ""
-        try:
-            if IS_WIN:
-                out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, timeout=8,
-                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-                text = out.stdout.decode("mbcs", "replace").lower()
-            else:
-                out = subprocess.run(["ps", "-axo", "comm"], capture_output=True, timeout=8)
-                text = out.stdout.decode("utf-8", "replace").lower()
-        except Exception:
-            text = _PROC["text"] or ""
-        _PROC["t"], _PROC["text"] = now, text
+        text = _read_processes(_PROC["text"])
+        _PROC["t"], _PROC["text"] = time.time(), text
         return text
+    finally:
+        _PROC_LOCK.release()
 
 
 def process_running(names, fresh: bool = False) -> list:
     """Verilen adlardan çalışan süreçleri döndürür (Engine DJ / Serato açık mı?).
-    fresh=True: önbelleği kullanma (yazmadan hemen önceki güvenlik denetimleri için)."""
-    text = _process_text(0.0 if fresh else 2.5)
+    fresh=True: yazmadan hemen önceki güvenlik denetimi — en fazla yarım saniyelik sonuç kullanılır
+    (aynı işlem içinde art arda yapılan denetimler Windows'ta 'tasklist'i defalarca başlatmasın)."""
+    text = _process_text(0.5, wait=True) if fresh else _process_text(3.0, wait=False)
     return [n for n in names if n.lower() in text]
 
 

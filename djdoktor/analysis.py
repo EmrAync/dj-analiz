@@ -53,7 +53,7 @@ ISSUES = {
     "fmt_aac": (
         "bilgi", "Ham .aac dosyası",
         "'.aac' uzantılı ham AAC dosyaları bazı yazılımlarda (ör. Windows'ta Serato) sorun çıkarır.",
-        "M4A olarak yeniden kaydedin."),
+        "M4A olarak yeniden kaydet."),
     "fmt_video": (
         "bilgi", "Video dosyası",
         "Müzik klasöründe video var.",
@@ -61,12 +61,12 @@ ISSUES = {
     "audio_error": (
         "kritik", "Dosya okunamıyor / bozuk olabilir",
         "Etiket ya da ses bilgisi okunamadı. Dosya yarım inmiş veya bozuk olabilir.",
-        "Dosyayı bir oynatıcıda kontrol edin, gerekirse yeniden indirin."),
+        "Dosyayı bir oynatıcıda kontrol et, gerekirse yeniden indir."),
     "audio_empty": (
         "kritik", "Boş dosya / içinde ses yok",
         "Dosya ya birkaç KB ya da yalnızca etiket (isim, kapak) içeriyor; ses verisi yok. "
         "Genellikle yarım kalmış bir indirmedir. Çalınamaz.",
-        "Dosyayı yeniden indirin / kopyalayın."),
+        "Dosyayı yeniden indir / kopyalayın."),
     "audio_lowbr": (
         "bilgi", "Düşük kalite (192 kbps altı)",
         "Büyük ses sistemlerinde kalite farkı duyulabilir (YouTube kaynaklı dosyalarda yaygın).",
@@ -99,7 +99,7 @@ ISSUES = {
     "missing": (
         "uyari", "Dosya artık yok",
         "Önceki taramada vardı, şimdi bulunamadı (taşınmış, adı değişmiş veya silinmiş).",
-        "Listelerdeki kayıtları kontrol edin."),
+        "Listelerdeki kayıtları kontrol et."),
 }
 
 SEV_ORDER = {"kritik": 0, "uyari": 1, "bilgi": 2}

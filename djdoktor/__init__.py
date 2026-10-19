@@ -2,4 +2,4 @@
 
 APP_NAME = "DJ Doktor"
 APP_ID = "djdoktor"
-VERSION = "2.0.2"
+VERSION = "2.3.2"

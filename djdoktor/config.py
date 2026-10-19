@@ -23,17 +23,28 @@ DEFAULT_PREFS = {
     "lowbitrate_kbps": 192,
     "long_path_limit": 240,
     # v2
+    "export_targets": [],                # aktarım hedefleri: [{lib, path, label, last}] (bu bilgisayara özgü yollar)
+    "inbox_loc": "pc",                   # pc: bu bilgisayarın Müzik klasöründe; ssd: SSD kökünde "DJ Gelen" / "DJ Arşiv"
     "inbox_dir": "",                     # boşsa: Müzik/DJ Gelen (bu bilgisayarda)
     "archive_dir": "",                   # boşsa: Müzik/DJ Arşiv (bu bilgisayarda)
     "auto_inbox": True,                  # gelen kutusunu kendiliğinden işle
     "watch_downloads": True,             # İndirilenler'deki unutulan şarkıları göster
     "genre_lists": True,                 # Engine'de 'Türler' listelerini tut
+    # 2.2: Mix Asistanı / yapay zekâ (isteğe bağlı; anahtar yalnızca bu bilgisayarda durur)
+    "ai_api_key": "",
+    "ai_model": "claude-opus-5-5",
+    "ai_effort": "medium",
+    "mix_bpm_range": 6,                  # geçişte izin verilen tempo farkı (%)
+    "app_window": True,                  # arayüzü ayrı uygulama penceresinde aç (Edge/Chrome)
+    "shortcut_offered": False,           # "Masaüstüne kısayol" önerisi bir kez gösterildi
+    "shortcut": {},                      # oluşturulan kısayol: {path, dir, target, ts} (klasör taşınınca "yenile")
 }
 
 BUILTIN_EXCLUDES = {
     "_serato_", "_serato_backup", "$recycle.bin", "system volume information", ".trashes",
     ".spotlight-v100", ".fseventsd", ".temporaryitems", ".documentrevisions-v100",
     "_djdoktor_", "_djdoktor_karantina", ".trash", "recycler",
+    "dj gelen", "dj arşiv",          # Gelen / Arşiv SSD'de olabilir: kütüphane taraması onlara girmez
 }
 # Engine Library içinden yalnızca Music (Engine'in kendi kopyaları) taranır
 ENGINE_LIB_DIR = "engine library"
@@ -85,6 +96,11 @@ class Settings:
     def save(self):
         with self.lock:
             util.write_json(self.path, self.data)
+            if not util.IS_WIN:
+                try:
+                    os.chmod(self.path, 0o600)   # ayarlarda API anahtarı olabilir: yalnızca kullanıcı okusun
+                except OSError:
+                    pass
 
     # --- kütüphaneler ---------------------------------------------------
     def libraries(self):

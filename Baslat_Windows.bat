@@ -7,8 +7,10 @@ set PYTHONIOENCODING=utf-8
 
 rem ---------------------------------------------------------------
 rem  DJ Doktor 2 - Windows baslatici
-rem  Cift tiklayin. Program tarayicida acilir.
-rem  Kapatmak icin bu siyah pencereyi kapatin.
+rem  Cift tiklayin. Program kendi penceresinde acilir; bu siyah
+rem  pencere hemen kapanir. Program penceresi kapaninca program da
+rem  kapanir.
+rem  Siyah pencerede calistirmak icin:  Baslat_Windows.bat konsol
 rem ---------------------------------------------------------------
 
 call :findpy
@@ -41,9 +43,13 @@ pause
 exit /b 1
 
 :run
+rem --detach: program konsolsuz (pythonw) yeniden baslar, bu pencere kapanir.
+rem pythonw yoksa ya da "konsol" yazildiysa bu pencerede calisir.
 echo  Python: %PY%
-%PY% baslat.py %*
-if errorlevel 1 pause
+echo  DJ Doktor aciliyor...
+%PY% baslat.py --detach %*
+rem 1 = Python hatasi (ekranda kalsin); 2 = hata zaten gosterildi
+if "%ERRORLEVEL%"=="1" pause
 exit /b
 
 rem --- Python'u PATH'te ve bilinen kurulum yerlerinde ara ---

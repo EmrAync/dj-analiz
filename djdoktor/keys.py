@@ -124,3 +124,114 @@ def parse_mik_comment(comment: str):
     if not m:
         return "", None
     return f"{int(m.group(1))}{m.group(2).upper()}", int(m.group(3))
+
+
+# ---------------------------------------------------------------------------
+# Camelot ilişkileri (Mix Asistanı): iki ton arasında hangi geçiş türü, ne kadar uyumlu
+# ---------------------------------------------------------------------------
+# kod -> (kısa Türkçe ad, uyum puanı 0..1). Puanlar DJ pratiği: aynı ton en güvenli; komşu (±1) ve paralel
+# (A↔B) neredeyse her zaman temiz; çapraz (+1 ile A→B / −1 ile B→A) ve +2 enerji yükseltme bilerek yapılır;
+# +7 (yarım ton yukarı) dikkatle; geri kalan "çatışma".
+CAM_REL = {
+    "same": ("Aynı ton", 1.0),
+    "up1": ("Komşu ton (+1)", 0.9),
+    "down1": ("Komşu ton (−1)", 0.88),
+    "relative": ("Paralel (A↔B)", 0.84),
+    "diagonal": ("Çapraz geçiş", 0.72),
+    "diagonal2": ("Çapraz geçiş (zayıf)", 0.56),
+    "boost2": ("Enerji yükseltme +2", 0.62),
+    "drop2": ("Enerji düşürme −2", 0.5),
+    "semi_up": ("Yarım ton yukarı (+7)", 0.46),
+    "semi_down": ("Yarım ton aşağı (−7)", 0.34),
+    "near_clash": ("Ton uyumsuz", 0.14),
+    "clash": ("Ton çatışması", 0.04),
+}
+# geçişin müzikal "yönü": +1 yükseltir, −1 indirir, 0 nötr (enerji eğrisiyle birlikte kullanılır)
+CAM_LIFT = {"same": 0, "up1": 1, "down1": -1, "relative": 0, "diagonal": 1, "diagonal2": 0, "boost2": 1,
+            "drop2": -1, "semi_up": 1, "semi_down": -1, "near_clash": 0, "clash": 0}
+
+
+def parse_cam(cam):
+    """'8A' -> (8, 'A'); anlaşılamazsa None."""
+    m = _CAM_RE.match(cam or "")
+    if not m:
+        return None
+    return int(m.group(1)), m.group(2).upper()
+
+
+def cam_index(cam):
+    """Camelot -> 0..23 (dizi indeksi: 1A=0, 1B=1, 2A=2 ...); yoksa -1."""
+    p = parse_cam(cam)
+    return (p[0] - 1) * 2 + (1 if p[1] == "B" else 0) if p else -1
+
+
+def cam_of_index(i):
+    return "%d%s" % (i // 2 + 1, "B" if i % 2 else "A")
+
+
+def relation_code(a, b):
+    """İki Camelot ton arasındaki geçişin kodu (CAM_REL anahtarı) ya da ton bilinmiyorsa ''."""
+    pa, pb = parse_cam(a), parse_cam(b)
+    if not pa or not pb:
+        return ""
+    (na, la), (nb, lb) = pa, pb
+    d = (nb - na) % 12            # saat yönünde adım (0..11)
+    if la == lb:
+        return {0: "same", 1: "up1", 11: "down1", 2: "boost2", 10: "drop2", 7: "semi_up", 5: "semi_down",
+                3: "near_clash", 9: "near_clash"}.get(d, "clash")
+    if d == 0:
+        return "relative"
+    if (la == "A" and d == 1) or (la == "B" and d == 11):
+        return "diagonal"         # 8A→9B, 8B→7A: altı ortak nota, akıcı
+    if d in (1, 11):
+        return "diagonal2"        # 8A→7B, 8B→9A
+    return "near_clash" if d in (2, 10) else "clash"
+
+
+def relation(a, b):
+    """{'code', 'label', 'score', 'lift'} ya da ton bilinmiyorsa None."""
+    c = relation_code(a, b)
+    if not c:
+        return None
+    label, score = CAM_REL[c]
+    return {"code": c, "label": label, "score": score, "lift": _lift(c, a)}
+
+
+def _lift(code, a):
+    if code == "diagonal":        # A→B (+1) açar, B→A (−1) duyguyu yumuşatır
+        p = parse_cam(a)
+        return 1 if p and p[1] == "A" else -1
+    return CAM_LIFT[code]
+
+
+# 24×24 hızlı tablo: REL_SCORE[i][j] (i, j = cam_index); ilişki kodları REL_CODE[i][j]
+REL_CODE = [[relation_code(cam_of_index(i), cam_of_index(j)) for j in range(24)] for i in range(24)]
+REL_SCORE = [[CAM_REL[c][1] for c in row] for row in REL_CODE]
+REL_LIFT = [[_lift(REL_CODE[i][j], cam_of_index(i)) for j in range(24)] for i in range(24)]
+
+
+def compatible_keys(cam, min_score=0.5):
+    """Bu tondan sonra iyi gidecek tonlar: [(camelot, kod, puan)] puana göre."""
+    i = cam_index(cam)
+    if i < 0:
+        return []
+    out = [(cam_of_index(j), REL_CODE[i][j], REL_SCORE[i][j]) for j in range(24) if REL_SCORE[i][j] >= min_score]
+    out.sort(key=lambda x: -x[2])
+    return out
+
+
+def tempo_diff(a, b):
+    """İki BPM arasındaki fark (%), yarım / çift tempo dahil: (yüzde, oran). Oran b'ye uygulanan çarpandır:
+    1 = düz, 0.5 = b çift tempoda (70 → 140), 2 = b yarım tempoda (140 → 70). BPM yoksa (None, None)."""
+    try:
+        a, b = float(a or 0), float(b or 0)
+    except (TypeError, ValueError):
+        return None, None
+    if a <= 0 or b <= 0:
+        return None, None
+    best = None
+    for r in (1.0, 2.0, 0.5):
+        d = abs(b * r - a) / a * 100.0
+        if best is None or d < best[0] - 1e-9:
+            best = (d, r)
+    return best

@@ -2,6 +2,10 @@
 
 Read this first. It is the hand-off from the sessions that built v1 and v2. The user (a Turkish mobile DJ in
 Germany) wants Claude Code to keep developing the program. UI language is **Turkish**; code comments are mostly Turkish.
+**Always answer the user in Turkish** (his own request, 17.10.2026). His "continue" messages after a usage-limit reset are
+auto-generated in German — still answer in Turkish. His plan's usage limit fills quickly: multi-agent workflows (4–5
+parallel agents, ~1–1.6 M tokens each run) exhausted it three times in 2.2; the container has 4 CPUs, so a workflow runs
+only 2 agents at a time anyway. Prefer working directly; commit + push after every milestone so a limit stop loses nothing.
 
 ## 1. The user and the problem
 
@@ -15,8 +19,14 @@ Germany) wants Claude Code to keep developing the program. UI language is **Turk
   - he must always see which songs are **analyzed** and whose path **Engine has confirmed**;
   - a song must **never be added to Engine twice**;
   - calm, eye-friendly UI, little reading, **no reports to read**, light theme.
-- Latest feedback (16.10.2026): *"v1'de çok şey mümkündü, v2'de onların hiçbiri yok"* — v1 had many more capabilities
-  that v2 dropped — and *"takılıyor, program çok sıkıntılı çalışıyor"* — it hangs / feels sluggish. See §7 and §8.
+- Feedback (16.10.2026, second message): responsive layout everywhere ("scrollbars disappear / content runs off to the
+  right"), a "professional program, not just HTML", bulk renaming of Turkish characters (Engine DJ) **without losing
+  paths** (his example: a song ending in "Türkü" used in Serato crates, renamed to "Turku" → path lost), Camelot work,
+  AI-supported list building ("which song can come after which"), and a folder on the desktop. Done in 2.2.0 (§6, §10).
+- Feedback (16.10.2026): *"v1'de çok şey mümkündü, v2'de onların hiçbiri yok"* — v1 had many more capabilities
+  that v2 dropped — and *"takılıyor, program çok sıkıntılı çalışıyor"* — it hangs / feels sluggish. Addressed in 2.1.0
+  (§7, §8). His wish: the **simple use stays as it is** (Müzikler / Listeler / Gelen); professional v1 features live in
+  a separate place (tab **Araçlar**); "world-class" breadth where it helps, without making the simple path busier.
 
 ## 2. Hard rules (never break these)
 
@@ -37,11 +47,19 @@ Germany) wants Claude Code to keep developing the program. UI language is **Turk
 ## 3. Run, test, package
 
 ```bash
-python baslat.py [--port 8770] [--no-browser]     # opens http://127.0.0.1:8770 (v1 used 8765)
-python3 -B tests/test_v2.py [test_name ...]       # 9 end-to-end backend tests on a synthetic SSD (no pytest)
+python baslat.py [--app|--browser|--no-browser] [--console] [--port 8770]   # http://127.0.0.1:8770 (v1 used 8765)
+python3 -B tests/test_v2.py [test_name ...]       # 14 end-to-end backend tests on a synthetic SSD (no pytest)
+python3 -B tests/test_rename.py [test_name ...]   # 35 tests: bulk rename, conflicts, undo, relink after outside renames
+python3 -B tests/test_assistant.py                # 14 tests: Camelot, transitions, sort, set builder, AI (fake opener), save
+python3 -B tests/test_targets.py                 # 5 tests: export to a drive root, incremental, conflicts, foreign library, resume
+python3 -B tests/test_ai.py; python3 -B tests/test_desktop.py   # AI client (no network) / app window, icons, shortcuts, watchdog
 python3 -B tests/ui_smoke.py /tmp/shots           # Playwright + Chromium click-through, screenshots, fails on JS/HTTP errors
-python3 tools/package.py [dist_dir]               # user zip (keeps CRLF .bat, chmod 755 .command)
+python3 -B tests/ui_responsive.py /tmp/r          # responsive gate: 14 configs (360x640 … 2560x1440, zoom, large text, dark)
+python3 -B tests/ui_rename.py /tmp/a; python3 -B tests/ui_assistant.py /tmp/b
+python3 -B tests/bench_big.py [dir] [n_files]     # speed check: ~5k files, ~4k Engine tracks, big lists, 160 crates
+python3 tools/package.py [dist_dir]               # user zip, top folder "DJ Doktor" (keeps CRLF .bat, chmod 755 .command)
 ```
+UI tests take `DJD_UI_PORT` (default 8899/8902/…) so several can run at once.
 
 - Use `-B` so no `__pycache__` lands in folders you don't own.
 - **exFAT matters** (case-insensitive names, 1–2 s timestamps). Run the suite on a real exFAT mount before releasing:
@@ -53,6 +71,7 @@ python3 tools/package.py [dist_dir]               # user zip (keeps CRLF .bat, c
   ```
   (Do not point Playwright's TMPDIR at exFAT — Chromium needs symlinks.)
 - Old Pythons: `uv python install 3.8 3.9` and run the suite with them.
+- `ui_smoke.py` needs `pip install playwright` (Chromium is pre-installed under `/opt/pw-browsers`).
 - Real-data sandbox (on the user's machine, never on the real SSD):
   `python -B tests/sbx_build.py <copy_READ_ONLY> <sandbox>` then `python -B tests/sbx_phase.py <sandbox> <work> 1|2|3|4`.
   Phase 4 undoes everything; `geri_alma.dosyalar_ayni / serato_ayni / engine_ayni` must all be `true`.
@@ -64,12 +83,12 @@ python3 tools/package.py [dist_dir]               # user zip (keeps CRLF .bat, c
 | Module | Role |
 |---|---|
 | `baslat.py` | launcher; waits if an older instance is still running on the port |
-| `djdoktor/server.py` | stdlib `ThreadingHTTPServer`, JSON API under `/api/*` (token header), `App` (active library, background loop `_tick`: inbox every 4 s, Serato mirror every 30 s, full scan every 240 s, maintenance/mirror when Engine/Serato close) |
-| `tasks.py` | single-worker task queue; only `scan` is cancellable (✕ in UI) |
+| `djdoktor/server.py` | stdlib `ThreadingHTTPServer`, JSON API under `/api/*` (token header), `App` (active library, background loop `_tick`: quick jobs only when `lib.lock` is free — inbox every 4 s, Serato mirror every 30 s, maintenance/mirror when Engine/Serato close; interval scan every 240 s **without** the lock, cancelled as soon as a task starts) |
+| `tasks.py` | task queue with two lanes: `scan` runs in the read lane, every writing task runs one after another in the main lane; only `scan` is cancellable (✕ in UI) |
 | `config.py` | `Documents/DJ Doktor/ayarlar.json`: libraries, prefs |
-| `library.py` | `Library`: catalog, `engine_state()` cache, `full_scan`, views (`overview`, `tracks`, `file_states`), flags |
+| `library.py` | `Library`: catalog, `engine_state()` (single-flight, `seq`), `full_scan`, view caches (`cached(name, key, fn)` keyed by `view_key()` = catalog `gen` + `files_ver` + Engine state seq), views (`overview`, `tracks`, `file_states`, `library_table`, `track_detail`), flags |
 | `catalog.py` | SQLite catalog **on the SSD** (`_DJDoktor_/katalog.db`, journal_mode=DELETE): files, genres, folder rules, journal, notes, Serato links, aliases, rel history, inbox |
-| `scanner.py` `tags.py` `audiosig.py` `keys.py` | walk, tag read (mutagen), audio signature `qsig` (dupe detection), key → Camelot |
+| `scanner.py` `tags.py` `audiosig.py` `keys.py` | lock-free walk + tag read (one parser thread + readahead threads), short locked commits checked against `catalog.gen` (re-walk under lock if files moved meanwhile), audio signature `qsig` (dupe detection), key → Camelot |
 | `names.py` `resolver.py` | NFC/NFD/SFM normalization, canonical names, path → file resolution (exact/case/unicode/sfm) |
 | `engine.py` | Engine DJ `m.db` (schema 3.x) reader + `Writer` recording inverse steps; backup/restore; hot-journal recovery; `db_stamp` |
 | `serato.py` | `database V2` + `Subcrates/*.crate` read/write, path rewrite, backups |
@@ -81,9 +100,19 @@ python3 tools/package.py [dist_dir]               # user zip (keeps CRLF .bat, c
 | `mirror.py` | per-list two-way Serato crate mirror |
 | `inbox.py` | `Müzik/DJ Gelen/<Tür>` → verify → SSD → Engine → `Müzik/DJ Arşiv/<ay>/<tür>`; Downloads watch |
 | `journal.py` | `Op` (steps, Engine snapshots), `apply_inverse`, `undo_last` (prechecks → `UndoNeedsForce`) |
-| `analysis.py` | v1 issue codes; v2 uses it for flags (bad audio, Prime 4 format, junk, bad names, low bitrate) |
+| `analysis.py` | v1 issue codes; v2 uses it for flags (bad audio, Prime 4 format, junk, names, low bitrate, missing tags, Engine copies) |
+| `health.py` | Araçlar > Sağlık: problem categories (live, cached) + fixes: junk → quarantine, safe rename (files + folders via `relocate`), Engine path repair, remove Engine records without a file (snapshot undo) |
+| `events.py` | section suggestions, pre-gig check (`gig_check`), harmonic/tempo compatible tracks |
+| `exporters.py` | rekordbox XML (with Serato cues), M3U8, library CSV → `Documents/DJ Doktor/Dışa Aktarım` |
+| `ext.py` | route registry for feature modules: `@route(name, needs_lib)` → `/api/<name>/…`; modules listed in `ext.MODULES` |
+| `renamer.py` | **Adlar** (2.2): rules (turkish_ascii via `names.ascii_tr`, fix_illegal/SFM, emoji, spaces, tr_case, safe regex…), presets `engine_safe` / `only_illegal` / `tidy`, scope all/genre/folder/files, `plan` (token + conflicts exists/twin/empty/genre_twin/too_long/same_audio/**ref_taken**), `apply`, `rename_one`; route `renamer` |
+| `relocate.batch_rename` | many file + folder renames as ONE op, one backup per DB; Engine paths, Serato `database V2` + all crates (also mirrored) and genre rules follow; exFAT-safe (temp names, NFC/NFD twins via `_Taken`); refuses targets where another song's Engine/Serato record sits (`stale_ref_keys` / `ref_taken`) |
+| `relink.py` | **Kayıp yollar** (2.2): Engine/Serato records whose file is gone → find the file (history `gecmis`, audio signature, simplified name + size/duration, folder-rename voting, name+size) with confidence kesin/yuksek/orta; `apply` = one op; background `auto()` applies only `kesin` and merges Engine records only when the dropped one has no user work (`merge_safe`); an undone relink is remembered (`relink_declined` meta) |
+| `assistant.py` | **Asistan** (2.2): track model (cached by `view_key`), energy (Mixed In Key tag or genre+BPM estimate), `transition()` score 0–100 (key 40, tempo 30, energy 15, genre 15, learned pairs +15, same artist −12; weights in `WEIGHTS`), learned pairs from Engine lists, Serato crates, Engine `hm.db` and Serato history (read-only), `next_tracks`, `harmonic_sort` (greedy + 2-opt, ≤400), `build_set` (beam search, curves), AI set via `ai.ask_json` (≤250 candidates, metadata only, never paths), save via `lists` (journaled); route `assistant` |
+| `ai.py` | Claude Messages API over urllib (no SDK: zero deps + Py 3.8): structured JSON output, server-side fallback, error codes → Turkish messages; key in prefs (`ai_api_key`, never returned to the UI); route `ai` (status/test) |
+| `desktop.py` | app window (Edge/Chrome/Brave `--app`, own profile outside Documents), `Watchdog` (quit after window closed: heartbeat + `bye` beacon, never while a task runs), desktop shortcut (Windows .lnk via PowerShell, macOS `DJ Doktor.app`, Linux .desktop), icons drawn without deps (PNG/ICO/ICNS), run file `calisiyor.json`; route `app` (needs no library) |
 | `util.py` | `safe_rename`, process detection (cached), drives, misc |
-| `web/` | `index.html`, `app.js` (one file SPA: tabs **Müzikler / Listeler / Gelen**), `style.css` (light default) |
+| `web/` | `index.html`, `app.js` (one file SPA: tabs **Müzikler / Listeler / Gelen** + **Araçlar**; virtual tables via `vtSet`; track detail drawer `openTrack`; `window.DJD` extension hooks), `style.css` (light default; responsive contract documented at the top), `ext/rename.*` (Araçlar > Adlar), `ext/assistant.*` (tab Asistan), `ext/desktop.*` (heartbeat, Ayarlar > Uygulama, "kapandı" overlay) |
 
 ## 5. Formats and gotchas
 
@@ -104,6 +133,10 @@ python3 tools/package.py [dist_dir]               # user zip (keeps CRLF .bat, c
   - Characters that are illegal on exFAT become SFM private-use chars when the Mac writes them: `" * : < > ? \ |` map
     to U+F020–F027, and a trailing space or dot becomes U+F028 / U+F029 (Finder shows `/` for U+F022).
   - The canonical "disk form" is NFC + SFM; `names.loose_key` = case-insensitive match key.
+- **Journal step kinds** (see `journal.py` header): `mv`, `mvdir`, `eng`, `engsnap`, `ser`, `sersnap`, `crate`, `serlink`,
+  `hist` (rel_history rows), …  Undo prechecks: `journal.fs_changes` → changed outside since → `needs_force`; the old
+  place now holds another file → `undo_blocked` (even with force). After a move use `journal.set_rel` (marks a stale
+  catalog row at the target absent) instead of `catalog.update_rel`.
 - **Change detection**: exFAT mtime can be 1–2 s coarse and list renames don't change the file size. `engine.db_stamp`
   therefore includes the SQLite header plus an in-process write counter. Keep it that way.
 
@@ -112,9 +145,73 @@ python3 tools/package.py [dist_dir]               # user zip (keeps CRLF .bat, c
 - Built and passing: setup wizard (genre folders), unsorted triage, duplicates (with tag preservation), problems,
   genre management, Engine-native lists/events, Serato mirror and crate import, inbox pipeline, undo, wrong-drive guard
   (2.0.1), process-check cache and Windows console fixes (2.0.2).
+- **2.1.0**: speed (§7) and the v1 features (§8): Araçlar tab (Sağlık with fixes, full library table, rekordbox XML /
+  M3U8 / CSV export, history + backups), track detail drawer with compatible tracks, section suggestions, gig check,
+  visible print button. Tested: `test_v2.py` 12/12 on ext4 and exFAT, Python 3.8 / 3.9 / 3.13; `ui_smoke.py` clean.
 - **Not yet verified with the real apps**: that program-inserted Engine tracks and the managed lists show up correctly
   in Engine DJ desktop and on the Prime 4, and that analysis then turns them "ready". Verify on the user's machine with
   a copy first (backups are automatic).
+
+- **2.2.0** (17.10.2026):
+  - Responsive layout everywhere (§10), Araçlar > **Adlar** (bulk + single rename, Engine/Serato/crates follow, one undo),
+    **Kayıp yollar** (relink after outside renames), tab **Asistan** (Camelot wheel, next track, set builder, harmonic
+    sort, optional AI set with the user's own Anthropic key), app window + desktop shortcut + auto-quit, launchers
+    without a console window (`baslat.py --detach`, pythonw on Windows).
+  - Tested: test_v2 12/12 and test_rename 35/35 (ext4 + exFAT), test_assistant 14/14, test_ai 4/4, test_desktop 20/20
+    (Py 3.13 + 3.8), every file compiles on 3.8/3.9; ui_smoke, ui_responsive (14 configs), ui_rename, ui_assistant clean.
+  - Reviewed adversarially (rename + integration); found and fixed: renaming onto a path that another song's stale
+    Engine/Serato record still holds, background merge dropping analyzed Engine records, undo after outside changes,
+    genre folders merged in Finder, ambiguous outside renames re-added to Engine, background relink with a stale plan.
+- **2.2.1** (17.10.2026): on his Windows PC the app window's heartbeat never reached the server, so the watchdog quit
+  with `nostart` 180 s after every start (during a move at 85 % → "Failed to fetch", UI dead). Now every authenticated
+  UI request counts as a heartbeat (`wd.hb("ui")`), START/TIMEOUT are 600 s, the shutdown log line includes the
+  watchdog status, page JS errors are logged (`/api/app/log` → "arayüz: …"), the process waits for running tasks
+  before exiting, and .js/.css MIME types are pinned (Windows registry). Root cause of the missing heartbeat is still
+  unknown — check `djdoktor.log` for "arayüz:" lines on his machine.
+- **2.2.2** (17.10.2026, his feedback): bottom player bar `#player` (stays across tabs, play/pause, ±10 s, seek,
+  "Türe taşı", ✕; playing row marked via the `#playmark` style); before every write task the player releases the file
+  (`playerRelease` / `playerResume`) because Windows locks a playing file (WinError 32); audio ranges are served in
+  2 MB chunks (file closed before sending); `util._rename` retries locked renames ~3 s, then `FileInUseError` with a
+  Turkish message (`util.friendly_os_error` in tasks + API). "Sorunlar" view explains Engine records without a file
+  (count includes orphans) with a button to Kayıp yollar. Gelen folder location pref `inbox_loc` = pc | ssd (`<SSD>/DJ
+  Gelen`, `<SSD>/DJ Arşiv`, never scanned: BUILTIN_EXCLUDES); new inbox songs without a genre get a suggestion
+  (`sugg`). Engine: "Analiz bekleyenler" gets one child list per genre (managed meta `analysis_g`).
+- **2.2.3** (his feedback): Listeler sidebar in sections — "Engine listelerim", "Programın listeleri (otomatik)"
+  (collapsed), "Serato crate'leri", "Klasörler (SSD)" (folder tree incl. folders without music, counts direct / total);
+  crates and folders open read-only (`djdoktor/browse.py`, route **`gozat`** — `browse` is taken by the core folder
+  picker!; `S.cur` = number or "crate:…"/"folder:…"), crate → "Engine'e liste olarak al". Drawer: "Yollar" (disk path +
+  copy, SSD path, Engine path with found/not found, Serato crate count), why the dot is red/orange, BPM/key come from
+  file tags (not Engine analysis). Gelen folder: "Başka klasör seç…" (`inbox_loc=custom`, `inbox.check_custom_dir`:
+  not inside the music root; on the SSD → added to `extra_excludes`; archive = sibling "DJ Arşiv").
+- **2.3.0** (his feedback: he copied the desktop working folder onto a memory card *with* its parent folder, so the card
+  had `Kart:/melis_dj_muzik/Engine Library` and Engine DJ saw nothing): **Çalışma yeri + Hedefler** (`djdoktor/targets.py`,
+  route `hedef`, UI `web/ext/targets.js` = Araçlar > "Sürücüye aktar"). `check_location` (drive root? Engine/Serato at
+  root? nested Engine Library in a subfolder? fs exFAT/FAT32/NTFS/APFS, free space, writable, target == / inside / contains
+  the source, system drive, foreign library on the target), `plan` + `export` (task `export_target`, cancellable):
+  copies the library to the target ROOT, only new/changed files (manifest `<target>/_DJDoktor_/hedef.json` keyed by
+  library id, resumable), databases via the SQLite backup API under `lib.lock` + quick_check, temp names + replace,
+  never overwrites a file we did not put there (conflict), files gone from the source are moved to the target's
+  `_DJDoktor_/Karantina` (never deleted), a foreign Engine Library / _Serato_ is only set aside by renaming (with
+  consent), refuses while Engine DJ / Serato run. Skips quarantine, backups, DJ Gelen/Arşiv, `._*`, .DS_Store.
+  Targets are saved per computer in prefs `export_targets`. State carries `active.loc` → a "Bu kütüphane bir klasörde"
+  banner in Müzikler; the folder picker warns about a nested Engine Library. Tests: `tests/test_targets.py` (5).
+- **2.3.1** (his report: export to D:\ stuck at 78 % on a 4 MB potpori for a long time, and the window showed only
+  "Yükleniyor…"): root cause unknown (suspects: OneDrive-placeholder Desktop files, antivirus, card reader, or a request
+  blocked on a lock). Added diagnostics: `App.inflight` + `stall_monitor` thread → any request > 20 s logs "TAKILMA" with
+  all thread stacks (`dump_threads`, max once a minute); export copies in 4 MB chunks with live progress (n / total,
+  bytes, speed, ETA; `targets.REPORT_EVERY`), a per-file stall watcher (20 s → on-screen "Bekleniyor …", 60 s → stack
+  dump), cancel inside a file removes our own `.djdtmp`; `/api/ping` returns running tasks (lock-free) and the boot screen
+  shows "Program meşgul: …" instead of a blank page.
+- **2.3.2** (his log: startup ~1 min, "TAKILMA /api/state 22 sn"): Windows `tasklist` took 20+ s on his PC and every
+  Engine/Serato-open check waited behind `_PROC_LOCK`. Now `util._win_process_names` lists processes via ctypes
+  (`CreateToolhelp32Snapshot`, ms; `tasklist` only as fallback) and non-fresh checks never wait: if another thread is
+  reading, the last result is returned (`_process_text(wait=False)`); fresh pre-write checks still wait. Also: Araçlar
+  view switching race (`S.tdataFor`; JS error in `healthHtml`), WinError 10053 tracebacks silenced. The 78 % export
+  "hang" was probably the same lock — check the next log.
+- **Not yet verified with the real apps (2.2):** Windows .bat + pythonw start, the PowerShell .lnk, the macOS .app bundle
+  (Gatekeeper, python3 from Finder's minimal PATH), Edge/Chrome `--app` windows, real Engine `hm.db` / Serato
+  `History/Sessions` parsing (check `assistant.learned(lib)["info"]["history_sessions"] > 0` on his Mac), and renames
+  seen by the real Engine DJ / Prime 4 / Serato. Test on his machine with a copy first.
 
 ## 7. Known issues — "takılıyor" (hangs / sluggish)
 
@@ -126,36 +223,55 @@ Fixed:
   several calls per request). Results are now cached for 2.5 s, with a fresh check right before writes.
 - **2.0.2:** Windows console QuickEdit could pause the process. Connection-abort tracebacks no longer go to the console.
 
-Open (in priority order):
-1. **Background `full_scan` holds `lib.lock` for the whole scan** (`App._tick`, every 240 s). Any action that needs the
-   lock (list edits, moves, setup) waits, so the UI looks frozen on a large SSD. Do a lock-free stat walk and a short
-   locked commit, or run it through `TaskManager` and let user tasks pre-empt it.
-2. **One worker for all tasks**: a long task blocks the next one ("Sırada bekliyor…").
-3. **Heavy re-renders**: views render up to 1,500 rows and `refresh()` refetches everything after every action
-   (e.g. "Dans - Club" has 1,679 tracks). Needs virtualized lists and incremental updates.
-4. **First scan of a big SSD** reads tags and an audio signature for every file over USB (minutes). Consider computing
-   `qsig` lazily (only for dupe candidates).
-5. Profile `engine_state()` / `dedupe.groups()` with ~5k files / ~4k Engine tracks.
-6. Ask the user for `Documents/DJ Doktor/gunluk/djdoktor.log` and exact steps when he reports a hang.
+- **2.1.0** (measured with `tests/bench_big.py`: 5,000 files, 4,000 Engine tracks, a 1,700-track genre):
+  - The interval scan no longer holds `lib.lock`: walk and tag reading are lock-free, catalog writes are short locked
+    batches checked against `Catalog.gen`; if a file was moved meanwhile the final step re-walks under the lock and reuses
+    the tags it already read (`test_scan_while_moving`). The tick only does its quick jobs when the lock is free.
+  - Two task lanes: a long scan no longer leaves user actions in "Sırada bekliyor…".
+  - Tag parsing: 4 parser threads were ~3× slower than one (GIL convoy). Now one parser + 2 readahead threads
+    (cold-cache USB benefit; on a warm local disk readahead costs ~0.2 ms/file).
+  - UI: one checkbox click in a 1,700-row genre re-rendered the whole table (1.4–2.3 s); now virtual tables draw only
+    the visible rows (~20 ms), search filters without rebuilding the view, scroll position survives refreshes.
+  - Server: `audio_files`, `file_states`, overview, track views, dup index, health and library table are cached by
+    `view_key()`; Engine state is read once for concurrent requests. Overview 0.3 s → 0.06 s cold / 0 s warm.
+  - Engine writes without changes no longer touch `m.db` (no cache invalidation, no UI refresh); `maintain.run` skips
+    when nothing changed since its last run (1.4 s → 0 s); list edits no longer re-read Engine when no Serato link exists;
+    "fresh" process checks reuse a <0.5 s result (Windows spawned `tasklist` twice per edit).
 
-## 8. Backlog — v1 capabilities to bring back (calm UI, actionable, no "reports")
+Open:
+1. Lazy `qsig` was **not** done: `qsig` is ~0.06 ms/file vs ~0.5 ms for tags locally, and maintain relinks and the inbox
+   rely on it. Revisit only if a real USB profile shows signatures dominate.
+2. `compute_flags` and `analyze_serato` still run over everything (under the lock) after a scan that found changes.
+3. Readahead thread count is a guess for USB drives; measure on the user's SSD (Mac exFAT and Windows) if scans feel slow.
+4. Ask the user for `Documents/DJ Doktor/gunluk/djdoktor.log` and exact steps when he reports a hang.
 
-v1 is commit **`d908bb4`** "v1.0 (kullanıcıya teslim edilen sürüm)" (tag `v1.0` if present):
-`git show d908bb4:djdoktor/ops.py` etc. v2 removed `service`, `sync`, `ops`, `report`,
-`events`, `exporters`. Bring the useful parts back as one-click actions inside the three tabs:
+Open (2.2, low): a double fault during rollback (SSD unplugged mid-batch) cannot be journaled — recovery relies on
+Kayıp yollar after reconnect; `/api/ping?hold=1` is unauthenticated (only delays auto-quit by 30 s); Engine history /
+Serato sessions / .cue sheets keep old names after a rename; "İptal" of an AI request only abandons it (the server
+finishes the call); the assistant chain in "Sonra ne çalınır?" lives only in the open page; the API key sits in
+`Documents/DJ Doktor/ayarlar.json` (chmod 600; Documents may be cloud-synced on his Mac).
 
-- **Health / Sağlık**: the flags are already computed (`library.compute_flags`) but only bad / unplayable / broken-path
-  are shown. Also surface low bitrate (<192 kbps), missing tags, problem names (illegal chars, trailing dot/space, long
-  paths, emoji), junk files (`._*`, `.DS_Store`), and Engine-made copies, each with a fix button
-  (v1: `ops.plan_junk/apply_junk`, `ops.plan_rename/apply_rename`).
-- **Event helpers**:
-  - section **suggestions** (v1 `events.suggest`, by section keywords / genre / BPM);
-  - **gig check** before an event: every track present, analyzed, Prime-4-playable, no duplicates; duration per section
-    (v1 `service.gig_check`);
-  - printable list (v2 has `/api/print/<id>`; link it in the UI).
-- **Exports**: rekordbox XML with cues and M3U8 (v1 `exporters.py`).
-- **Track detail** panel (all tags, cues, which lists/crates contain it) — v1 `service.track_detail`.
-- Keep v2's principles: Turkish, light theme, short sentences, direct editing, everything undoable, Engine gets a song once.
+## 8. v1 capabilities (brought back in 2.1.0)
+
+v1 is commit **`d908bb4`** "v1.0 (kullanıcıya teslim edilen sürüm)": `git show d908bb4:djdoktor/ops.py` etc.
+Placement rule: the three simple tabs stay as they were; event helpers sit where events are edited (Listeler);
+everything else is in **Araçlar**.
+
+- **Sağlık** (`health.py`): bad / partial files (quarantine), Engine records without a file (remove, snapshot undo),
+  broken Engine paths (repair now), problem names incl. NFD and Mac SFM chars (safe rename of files and folders; Engine and
+  Serato paths follow), junk files (quarantine), unplayable format, Engine-made copies (→ Kopyalar), long paths, emoji
+  (optional cleanup), low bitrate, missing tags. Codes are computed live (stored flags go stale after moves).
+- **Events** (`events.py`, Listeler tab): `✨ Öneri` chip = suggestions for the selected section (genre folder matching
+  the section name, keyword map, crate/list names, folder names, tags, tempo of the section); `✓ Kontrol et` = gig check
+  with per-section durations and a "Şimdi onar" for broken paths; `🖨 Yazdır` button.
+- **Exports** (`exporters.py`): rekordbox XML with cues/loops, M3U8 per list, CSV for Excel (`;`, UTF-8 BOM). Sources:
+  one list/event, all Engine lists, or genre folders.
+- **Track detail** (`Library.track_detail`, drawer): tags, Serato cues, Engine data, lists/crates, duplicates, issues,
+  compatible tracks (same/adjacent Camelot, ±6 % BPM incl. half/double time).
+- **Full library table** (`Library.library_table`): sortable, column chooser, quick filters, virtualized.
+
+Ideas not done (ask the user first): writing tags into files (touches originals — rule 1), smart crates, set-time
+planning per section, sharing an event list as PDF.
 
 ## 9. Conventions
 
@@ -168,3 +284,25 @@ v1 is commit **`d908bb4`** "v1.0 (kullanıcıya teslim edilen sürüm)" (tag `v1
   4. `maintain.after_change(lib, op)` before `op.commit()`.
   5. Test, including undo and the "changed in between" precheck.
 - UI text: Turkish, friendly, at most one short sentence per hint; prefer a button over an explanation.
+- Caches: every change to the `files` table must go through `Catalog` methods (they bump `Catalog.gen`); genre / rule
+  changes call `lib.bump()`. Views cached with `lib.cached(...)` must not mutate shared rows (`audio_files()` is shared).
+- Long tables in the UI use `vtSet(tableId, rows, rowHtml)` with `table.t.v` + a `<colgroup>`: rows have a fixed
+  height and never wrap. Selection changes call `syncSel()`, not a re-render.
+
+## 10. 2.2 notes for developers
+
+- **Responsive contract** (top of `style.css`): `.ell` / `.ell2` / `.wrap-any` / `.minw0`; containers get
+  `data-w="xs|s|m|l|xl|xxl"` (30/45/60/75/100 rem) and `#view` `data-h`; columns `<col data-w data-min data-max data-flex
+  data-pri data-off>` (vtSet tables fit automatically, plain tables via `DJD.fitCols`); `DJD.popover`, `menu(ev, items)`
+  (flips/clamps, closes on scroll/Esc), `DJD.restoreScroll`, `DJD.genreStyle(color)` + `.gtx/.gfill` (genre colours
+  ≥ 4.5:1 in both themes), `--accent-fill` / `--bad-fill` behind white text, `data-dock` bottom bars lift toasts.
+  `tests/ui_responsive.py` is the gate — add new screens to it.
+- **Rename safety**: never rename a file onto a path where Engine/Serato still has another song's record (conflict
+  `ref_taken`, UI "Bu adla başka şarkı kayıtlı", optional " (2)"); app-open checks are fresh right before writing,
+  also re-checked after the long file-system phase; any failure rolls back files, catalog, Engine and Serato.
+- **Desktop**: `Baslat_Windows.bat` / `Baslat_Mac.command` call `baslat.py --detach` (Windows: pythonw, no console; add
+  "konsol" to keep the console). The app window's browser profile lives in `%LOCALAPPDATA%\DJ Doktor\Pencere`,
+  `~/Library/Application Support/DJ Doktor/Pencere` or `~/.config/djdoktor/Pencere`. The server quits after the window
+  closes (grace for reloads, never during a task); never in `--no-browser` mode or in tests.
+- **AI**: only metadata is sent (index, title, artist, genre, BPM, Camelot, energy, duration, played-together hints) —
+  a test asserts no paths in the request. Without a key everything works offline.
