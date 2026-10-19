@@ -40,6 +40,7 @@ SKIP_DIRS = {"_djdoktor_karantina", "$recycle.bin", "system volume information",
 SKIP_FILES = {".ds_store", "thumbs.db", "desktop.ini"}
 DB_EXT = (".db",)
 FAT32_MAX = 4 * 1024 ** 3 - 1
+REPORT_EVERY = 0.5          # ilerleme mesajı en sık bu kadar saniyede bir
 
 
 def _err(msg, code=None):
@@ -286,13 +287,34 @@ def _public(pl):
 # ---------------------------------------------------------------------------
 # Aktarım
 # ---------------------------------------------------------------------------
-def _copy_file(src, dst):
+class Stopped(Exception):
+    pass
+
+
+def _copy_file(src, dst, on_chunk=None, cancel=None):
+    """Geçici adla 4 MB'lık parçalar hâlinde kopyalar; her parçada on_chunk(bayt) (büyük potporilerde ilerleme akar).
+    cancel() doğru dönerse yarım geçici dosya silinir (kendi dosyamız) ve Stopped yükselir."""
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     tmp = dst + ".djdtmp"
-    with open(src, "rb") as fi, open(tmp, "wb") as fo:
-        shutil.copyfileobj(fi, fo, 1024 * 1024)
-        fo.flush()
-        os.fsync(fo.fileno())
+    try:
+        with open(src, "rb") as fi, open(tmp, "wb") as fo:
+            while True:
+                b = fi.read(4 * 1024 * 1024)
+                if not b:
+                    break
+                fo.write(b)
+                if on_chunk:
+                    on_chunk(len(b))
+                if cancel and cancel():
+                    raise Stopped()
+            fo.flush()
+            os.fsync(fo.fileno())
+    except BaseException:
+        try:
+            os.remove(tmp)                     # yalnızca kendi yarım geçici dosyamız
+        except OSError:
+            pass
+        raise
     try:
         shutil.copystat(src, tmp)
     except OSError:
@@ -334,7 +356,15 @@ def set_aside(target, what=("Engine Library", "_Serato_")):
     return moved
 
 
-def export(lib, target, progress=None, cancel=None):
+def export(lib, target, progress=None, cancel=None, stall=None):
+    box = {}
+    try:
+        return _export(lib, target, progress, cancel, stall, box)
+    finally:
+        box["on"] = False          # hata olsa da takılma bekçisi dursun
+
+
+def _export(lib, target, progress, cancel, stall, box):
     target = os.path.abspath(target)
     if engine.is_running(fresh=True):
         raise _err("Engine DJ açık. Aktarmadan önce Engine DJ'yi kapat (açıkken veritabanı yarım kopyalanabilir).",
@@ -353,18 +383,68 @@ def export(lib, target, progress=None, cancel=None):
     stopped = False
     files = [c for c in pl["copy"] if c[4] is not True]
     dbs = [c for c in pl["copy"] if c[4] is True]
+    t0 = time.time()
+    n_all = sum(1 for c in files if c[4] != "adopt")
+    cur = box
+    cur.update({"b": 0, "name": "", "last": 0.0})
+
+    def report(force=False):
+        now = time.time()
+        if not progress or (not force and now - cur["last"] < REPORT_EVERY):
+            return
+        cur["last"] = now
+        got = done_b + cur["b"]
+        el = max(0.001, now - t0)
+        speed = got / el
+        eta = (pl["need"] - got) / speed if speed > 1024 else None
+        msg = "%d / %d · %s / %s · %s/sn%s · %s" % (
+            n_files + 1, max(1, n_all), util.human_size(got), util.human_size(pl["need"]), util.human_size(speed),
+            (" · ~%s kaldı" % util.fmt_dur(eta)) if eta is not None and el > 3 else "", cur["name"])
+        progress(min(0.95, got / total), msg)
+
+    def on_chunk(n):
+        cur["b"] += n
+        cur["t"] = time.time()
+        report()
+
+    # takılma bekçisi: bir dosyada 20 sn'den uzun ilerleme yoksa ekranda söyle, 60 sn'de günlüğe teşhis yaz
+    cur["t"] = time.time()
+    cur["on"] = True
+
+    def watch():
+        told = False
+        while cur["on"]:
+            time.sleep(2)
+            idle = time.time() - cur["t"]
+            if cur["name"] and idle > 20 and progress:
+                progress(min(0.95, (done_b + cur["b"]) / total), "Bekleniyor (%d sn): %s — dosya ya da sürücü yanıt "
+                         "vermiyor (OneDrive / virüs tarayıcısı / kart?)" % (idle, cur["name"]))
+            if cur["name"] and idle > 60 and not told and stall:
+                told = True
+                try:
+                    stall("aktarım %d sn bekliyor: %s -> %s" % (idle, cur.get("src", ""), target))
+                except Exception:
+                    pass
+    import threading as _th
+    _th.Thread(target=watch, name="djd-export-watch", daemon=True).start()
+
     for rel, ap, size, mtime, kind in files:
         if cancel and cancel():
             stopped = True
             break
         dst = os.path.join(target, *rel.split("/"))
         if kind != "adopt":
-            _copy_file(ap, dst)
+            cur["b"], cur["name"], cur["src"], cur["t"] = 0, names.display(rel.split("/")[-1]), ap, time.time()
+            report(True)
+            try:
+                _copy_file(ap, dst, on_chunk, cancel)
+            except Stopped:
+                stopped = True
+                break
             done_b += size
             n_files += 1
+            cur["b"] = 0
         man["files"][rel] = [size, mtime]
-        if progress:
-            progress(min(0.95, done_b / total), "Kopyalanıyor: %s" % names.display(rel.split("/")[-1]))
         if time.time() - last_save > 5:        # yarıda kalırsa sonraki aktarım buradan sürer
             util.write_json(mpath, man)
             last_save = time.time()
@@ -395,6 +475,8 @@ def export(lib, target, progress=None, cancel=None):
                         continue
                 man["files"].pop(rel, None)
         man["finished"] = util.now()
+    cur["on"] = False
+    cur["name"] = ""
     util.write_json(mpath, man)
     _remember(lib, target, stopped)
     return {"files": n_files, "dbs": n_db, "bytes": done_b, "stale_moved": 0 if stopped else moved,
@@ -464,5 +546,5 @@ def _api(h, lib, method, parts, qs, body):
     if act == "aktar" and method == "POST":
         p = body.get("path") or ""
         title = "Aktarılıyor: %s" % (os.path.basename(p.rstrip("\\/")) or p)
-        return h._task("export_target", title, lambda pr, c: export(lib, p, pr, c))
+        return h._task("export_target", title, lambda pr, c: export(lib, p, pr, c, stall=h.app.dump_threads))
     return None

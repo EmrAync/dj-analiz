@@ -178,7 +178,7 @@ a { color: var(--accent-ink); }
 /* ---------- yerleşim ---------- */
 #view { flex: 1; min-height: 0; min-width: 0; display: flex; position: relative; overflow: hidden; overflow: clip; }
 #view > * { min-width: 0; min-height: 0; }
-.boot { margin: auto; color: var(--muted); }
+.boot { margin: auto; color: var(--muted); text-align: center; max-width: min(36rem, calc(100vw - 32px)); padding: 0 16px; }
 .split { display: flex; flex: 1; min-width: 0; min-height: 0; position: relative; overflow: hidden; overflow: clip; }
 .side { width: min(var(--pane-w, var(--side-w)), 40%); flex: none; min-width: 0; background: var(--panel); border-right: 1px solid var(--line); display: flex;
   flex-direction: column; min-height: 0; position: relative; }

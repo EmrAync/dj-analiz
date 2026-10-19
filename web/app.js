@@ -2734,5 +2734,28 @@ function layInit() {
   });
   LAY.mo.observe(document.body, { childList: true, subtree: true });
 }
-function boot() { layInit(); refresh(true).then(poll); }
+// Açılış: durum 2,5 sn'de gelmezse boş "Yükleniyor…" yerine programın ne yaptığını göster (/api/ping kilitsizdir)
+function boot() {
+  layInit();
+  let done = false;
+  refresh(true).then(() => { done = true; poll(); });
+  const t0 = Date.now();
+  const wait = async () => {
+    if (done) return;
+    const el = document.querySelector("#view .boot");
+    if (el) {
+      let txt = "";
+      try {
+        const r = await fetch("/api/ping", { cache: "no-store" }).then((x) => x.json());
+        const b = (r.busy || [])[0];
+        txt = b ? `Program meşgul: <b>${esc(b.title || "")}</b> · %${Math.round((b.progress || 0) * 100)}<div class="small muted wrap-any">${esc(b.message || "")}</div>`
+          : "Program yanıt bekliyor…";
+      } catch (e) { txt = "Program yanıt vermiyor."; }
+      const sec = Math.round((Date.now() - t0) / 1000);
+      el.innerHTML = `${txt}<div class="small muted" style="margin-top:8px">${sec} sn${sec > 40 ? " — çok uzun sürerse programı kapatıp aç ve <b>Belgeler/DJ Doktor/gunluk/djdoktor.log</b> dosyasını gönder." : ""}</div>`;
+    }
+    setTimeout(wait, 2000);
+  };
+  setTimeout(wait, 2500);
+}
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();

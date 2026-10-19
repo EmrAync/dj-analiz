@@ -35,6 +35,8 @@ class App:
         self.settings = Settings()
         self.token = secrets.token_urlsafe(24)
         self.log_path = os.path.join(self.settings.ws, "gunluk", "djdoktor.log")
+        self.inflight = {}          # iş parçacığı -> (istek yolu, başlangıç): takılan istekleri günlüğe yazmak için
+        self._stall_dump = 0.0
         self.tasks = TaskManager(log=self.log)
         self._lib = None
         self._lib_lock = threading.RLock()
@@ -107,6 +109,30 @@ class App:
         finally:
             if got:
                 lib.lock.release()
+
+    def dump_threads(self, why):
+        """Takılma teşhisi: tüm iş parçacıklarının o anki yığınını günlüğe yazar (en çok dakikada bir)."""
+        now = time.time()
+        if now - self._stall_dump < 60:
+            return
+        self._stall_dump = now
+        names_ = {t.ident: t.name for t in threading.enumerate()}
+        parts = ["TAKILMA: %s" % why]
+        for ident, frame in sys._current_frames().items():
+            parts.append("--- %s\n%s" % (names_.get(ident, ident), "".join(traceback.format_stack(frame, limit=12))))
+        self.log("\n".join(parts))
+
+    def stall_monitor(self):
+        while not self._stop:
+            time.sleep(5)
+            try:
+                now = time.time()
+                slow = [(p, now - t0) for p, t0 in list(self.inflight.values())
+                        if now - t0 > 20 and not p.startswith("/api/audio")]
+                if slow:
+                    self.dump_threads("yavaş istek: " + ", ".join("%s %.0f sn" % x for x in slow))
+            except Exception:
+                pass
 
     def shutdown(self, reason=""):
         """Sunucuyu başka bir iş parçacığından durdurur; temizlik run() içinde yapılır."""
@@ -257,6 +283,14 @@ class Handler(BaseHTTPRequestHandler):
         self._dispatch("POST")
 
     def _dispatch(self, method):
+        key = threading.get_ident()
+        self.app.inflight[key] = (self.path.split("?")[0], time.time())
+        try:
+            return self._dispatch2(method)
+        finally:
+            self.app.inflight.pop(key, None)
+
+    def _dispatch2(self, method):
         self._sent = False
         if not self._host_ok():
             return self._err("Erişim reddedildi", 403)
@@ -267,7 +301,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/ping":
                 if qs.get("hold") and self.app.watchdog is not None:
                     self.app.watchdog.hold()     # ikinci açılış yeni pencere açıyor: bu arada kapanma
-                return self._json({"app": APP_ID, "version": VERSION, "mode": self.app.mode})
+                # kilitsiz: açılış ekranı program meşgulken ne yapıldığını buradan gösterir
+                busy = [{"title": t.get("title"), "progress": t.get("progress"), "message": t.get("message")}
+                        for t in self.app.tasks.active()]
+                return self._json({"app": APP_ID, "version": VERSION, "mode": self.app.mode, "busy": busy})
             if path.startswith("/api/"):
                 # sendBeacon başlık gönderemez: jeton sorguda (yalnızca bu rotalar)
                 if path.startswith("/api/audio/") or path.startswith("/api/print/") or path == "/api/app/bye":
@@ -1014,6 +1051,7 @@ def run(port=8770, open_browser=True, mode=None, windowless=False):
     url = "http://127.0.0.1:%d/" % app.port
     bg = threading.Thread(target=app.background_loop, name="djd-bg", daemon=True)
     bg.start()
+    threading.Thread(target=app.stall_monitor, name="djd-stall", daemon=True).start()
     desktop.write_run_file(app.settings.ws, app.port, mode)
     print("=" * 60)
     print(" %s %s" % (APP_NAME, VERSION))

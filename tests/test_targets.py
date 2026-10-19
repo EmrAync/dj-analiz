@@ -130,6 +130,24 @@ def test_conflict_not_overwritten_and_guards():
         engine.is_running = orig
 
 
+def test_progress_moves_inside_big_file():
+    """Büyük dosya (potpori) kopyalanırken ilerleme dosya bitmeden de ilerler (takılmış görünmesin)."""
+    lib = fresh("big")
+    big = os.path.join(lib.root, "Müzik", "Halay", "Uzun Potpori.mp3")
+    with open(big, "wb") as f:
+        f.write(os.urandom(1024) * (20 * 1024))         # 20 MB
+    dst = os.path.join(TMP, "big", "KART")
+    os.makedirs(dst)
+    seen = []
+    old, targets.REPORT_EVERY = targets.REPORT_EVERY, 0
+    try:
+        targets.export(lib, dst, progress=lambda r, m=None: seen.append((r, m)))
+    finally:
+        targets.REPORT_EVERY = old
+    mid = [m for r, m in seen if m and "Uzun Potpori" in m]
+    assert len(mid) >= 2 and any("/sn" in m for m in mid), mid[:5]
+
+
 def test_resume_after_cancel():
     lib = fresh("resume")
     dst = os.path.join(TMP, "resume", "KART")
@@ -140,10 +158,11 @@ def test_resume_after_cancel():
         n[0] += 1
         return n[0] > 3
     r = targets.export(lib, dst, cancel=cancel)
-    assert r["stopped"] and r["files"] == 3, r
-    assert not os.path.exists(os.path.join(dst, "Engine Library", "Database2", "m.db")) or True
+    k = r["files"]
+    assert r["stopped"] and k >= 1, r
+    assert not [x for x in tree(dst) if x.endswith(".djdtmp")], "yarım geçici dosya kalmamalı"
     pl = targets.plan(lib, dst)
-    assert pl["summary"]["files"] == pl["summary"]["total"] - pl["summary"]["dbs"] - 3 - pl["summary"]["adopt"], pl["summary"]
+    assert pl["summary"]["files"] == pl["summary"]["total"] - pl["summary"]["dbs"] - k - pl["summary"]["adopt"], pl["summary"]
     r2 = targets.export(lib, dst)
     assert not r2["stopped"] and r2["dbs"] >= 1
 

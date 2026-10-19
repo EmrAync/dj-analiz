@@ -195,6 +195,13 @@ UI tests take `DJD_UI_PORT` (default 8899/8902/…) so several can run at once.
   consent), refuses while Engine DJ / Serato run. Skips quarantine, backups, DJ Gelen/Arşiv, `._*`, .DS_Store.
   Targets are saved per computer in prefs `export_targets`. State carries `active.loc` → a "Bu kütüphane bir klasörde"
   banner in Müzikler; the folder picker warns about a nested Engine Library. Tests: `tests/test_targets.py` (5).
+- **2.3.1** (his report: export to D:\ stuck at 78 % on a 4 MB potpori for a long time, and the window showed only
+  "Yükleniyor…"): root cause unknown (suspects: OneDrive-placeholder Desktop files, antivirus, card reader, or a request
+  blocked on a lock). Added diagnostics: `App.inflight` + `stall_monitor` thread → any request > 20 s logs "TAKILMA" with
+  all thread stacks (`dump_threads`, max once a minute); export copies in 4 MB chunks with live progress (n / total,
+  bytes, speed, ETA; `targets.REPORT_EVERY`), a per-file stall watcher (20 s → on-screen "Bekleniyor …", 60 s → stack
+  dump), cancel inside a file removes our own `.djdtmp`; `/api/ping` returns running tasks (lock-free) and the boot screen
+  shows "Program meşgul: …" instead of a blank page. **Next: read his djdoktor.log "TAKILMA" block.**
 - **Not yet verified with the real apps (2.2):** Windows .bat + pythonw start, the PowerShell .lnk, the macOS .app bundle
   (Gatekeeper, python3 from Finder's minimal PATH), Edge/Chrome `--app` windows, real Engine `hm.db` / Serato
   `History/Sessions` parsing (check `assistant.learned(lib)["info"]["history_sessions"] > 0` on his Mac), and renames
