@@ -21,6 +21,8 @@ import { reverbEnergy } from '../src/engine/acoustics';
 import { aWeight, calAt, cWeight, demoCurve, octaveBands, parseCal } from '../src/audio/dsp';
 import { EQ_DEFAULT, peqDb, suggestEq } from '../src/engine/eq';
 import { buildPlan } from '../src/engine/activities';
+import { designWeight, limitsOf, Meter, weightDb } from '../src/audio/meter';
+import { alignSubTop, analyzeIR, convolve, extractIRs, sweepSequence, SWEEP_DEFAULT } from '../src/audio/sweep';
 
 const t = makeT('tr');
 const zn = { stage: 'Sahne', audience: 'Seyirci', dance: 'Dans', tables: 'Masalar', foh: 'FOH', walkway: 'Yol', backstage: 'Kulis', bar: 'Bar', nogo: 'Yasak', custom: 'Alan' } as WizardParams['zoneNames'];
@@ -250,4 +252,79 @@ test('kurulum planı: bağımlılık sırası ve kritik yol', () => {
   const crit = plan.acts.filter((a) => a.critical).map((a) => a.id);
   assert.ok(crit.includes('prep') && crit.includes('test'));
   assert.equal(plan.start, 19 * 60 + 30 - plan.total - plan.buffer);
+});
+
+// —— Ses seviyesi ölçer ——
+test('dB ölçer: A/C ağırlıkları ve Leq', () => {
+  const fs = 48000;
+  const A = designWeight('A', fs);
+  const C = designWeight('C', fs);
+  assert.ok(Math.abs(weightDb(A, 1000, fs)) < 0.01);
+  assert.ok(Math.abs(weightDb(A, 100, fs) + 19.1) < 0.3);
+  assert.ok(Math.abs(weightDb(A, 31.5, fs) + 39.4) < 0.5);
+  assert.ok(Math.abs(weightDb(C, 31.5, fs) + 3.0) < 0.3);
+  for (const [f, exp] of [
+    [1000, -6.02],
+    [100, -6.02 - 19.1],
+  ]) {
+    const m = new Meter(fs);
+    const x = new Float32Array(fs * 3);
+    for (let i = 0; i < x.length; i++) x[i] = 0.5 * Math.sin((2 * Math.PI * f * i) / fs);
+    m.process(x);
+    const r = m.read();
+    assert.ok(Math.abs(10 * Math.log10(r.leqA) - exp) < 0.3, `LAeq ${f} Hz`);
+    assert.ok(Math.abs(10 * Math.log10(r.cpk) - 10 * Math.log10(r.leqC) - 3.01) < 0.3, 'tepe = rms + 3 dB');
+    assert.equal(m.hist.length, 2);
+  }
+  assert.deepEqual(limitsOf(newProject('t')), { on: true, preset: 'din15905', laeq: 99, minutes: 30, lcpeak: 135 });
+});
+
+// —— Gecikme ölçümü ——
+test('tarama: iki varış, yankı süresi, kayıt içinde bulma', () => {
+  const fs = 48000;
+  const spec = { ...SWEEP_DEFAULT, fs };
+  const seq = sweepSequence(spec);
+  const room = new Float64Array(Math.round(fs * 1.4));
+  room[Math.round(0.01 * fs)] = 1;
+  room[Math.round(0.041 * fs)] = 0.6;
+  let s = 5;
+  const rnd = () => ((s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) * 2 - 1;
+  for (let i = Math.round(0.02 * fs); i < room.length; i++) room[i] += 0.05 * rnd() * Math.exp((-6.91 * (i / fs)) / 1.0);
+  const y = convolve(seq.data, room);
+  const rec = new Float32Array(y.length + fs);
+  const off = Math.round(0.2 * fs);
+  for (let i = 0; i < y.length; i++) rec[i + off] = y[i];
+  const known = extractIRs(rec, spec, seq.starts.map((x) => x + off))!;
+  const an = analyzeIR(known.ir, fs, known.pre);
+  assert.ok(Math.abs(an.arrivals[1].ms - 31) < 0.1, 'ikinci varış ' + an.arrivals[1].ms);
+  assert.ok(Math.abs((known.peaks[0] - known.starts[0]) / fs - 0.01) < 0.0002, 'mutlak varış');
+  assert.ok(Math.abs(an.rt.find((b) => b.f === 0)!.t20! - 1.0) < 0.05, 'RT');
+  const blind = extractIRs(rec, spec)!;
+  assert.equal(blind.found, 3);
+  assert.ok(Math.abs(analyzeIR(blind.ir, fs, blind.pre).arrivals[1].ms - 31) < 0.1);
+});
+
+test('sub–tepe hizalama: geç gelen tarafa göre gecikme önerisi', () => {
+  const fs = 48000;
+  const lpImp = (at: number) => {
+    const ir = new Float64Array(fs / 2);
+    const al = Math.exp((-2 * Math.PI * 100) / fs);
+    let y1 = 0;
+    let y2 = 0;
+    for (let i = 0; i < ir.length; i++) {
+      const x = i === Math.round(at * fs) ? 1 : 0;
+      y1 = (1 - al) * x + al * y1;
+      y2 = (1 - al) * y1 + al * y2;
+      ir[i] = y2;
+    }
+    return ir;
+  };
+  const r = alignSubTop(lpImp(0.01), lpImp(0.015), fs, 100);
+  assert.ok(Math.abs(r.delayMs + 5) < 0.1, 'sub 5 ms gecikmeli olmalı: ' + r.delayMs);
+  assert.ok(!r.invert && r.gainDb > 0 && r.coherence > 0.98);
+});
+
+test('tarama: sessiz kayıtta sonuç yok', () => {
+  const spec = { ...SWEEP_DEFAULT, fs: 48000 };
+  assert.equal(extractIRs(new Float32Array(48000 * 12), spec), null);
 });

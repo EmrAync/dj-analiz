@@ -7,6 +7,7 @@ import { applyCoverage, moveDanceGap, updateZone } from '../../store/actions';
 import { st, useStore, useT } from '../../store/store';
 import { Check, Icon, Num } from '../../ui/kit';
 import { ZONE_STYLE } from '../common';
+import { limitsOf } from '../../audio/meter';
 import { PlanDrawing } from '../plan/PlanDrawing';
 import type { TFn } from '../../i18n';
 
@@ -63,6 +64,16 @@ export function CoveragePanel({ area }: { area: Area }) {
           </div>
         ) : null}
 
+        {(() => {
+          const lim = limitsOf(p);
+          const hi = Math.max(...plan.now.map((e) => e.target));
+          return lim.on && hi > lim.laeq ? (
+            <div className="cov-adv">
+              <Icon name="warning" size={16} />
+              <span>{t('cov.overLimit', { t: hi, l: lim.laeq })}</span>
+            </div>
+          ) : null;
+        })()}
         {plan.advice.map((a, i) => (
           <div key={i} className="cov-adv">
             <Icon name={a.code === 'reverb' ? 'house' : 'info'} size={16} />

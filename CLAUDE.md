@@ -27,7 +27,7 @@ npx vite preview --port 4173 --strictPort &
 node tests/ui_smoke.mjs http://127.0.0.1:4173/ shots   # every view, fails on JS errors
 node tests/ui_flows.mjs http://127.0.0.1:4173/ shots   # cable tool, undo, drag, zone, schema drag-connect,
                                                        # exports (DXF/SVG/PNG/JSON), installer mode, DE setup, mobile
-npm run release             # tek/index.html → SahneCAD.html (single file, works from file://)
+npm run release             # SahneCAD.html (single file, file://) + docs/ (GitHub Pages, iPhone PWA)
 node tests/docs_shots.mjs http://127.0.0.1:4173/ docs  # README screenshots
 ```
 
@@ -64,8 +64,14 @@ src/
     eq.ts               target curves, RBJ peaking response, suggestEq (cuts first, GEQ 31, advice), feedbackPeaks
     activities.ts       setup steps → team activities, durations, dependencies, CPM (critical path), latest start
   audio/dsp.ts          fractional-octave bands, A/C weighting, UMIK-1 cal file parser, smoothing, demo curve
+  audio/meter.ts        sound level meter: A/C weighting (first-order sections, bilinear + prewarp), LAF/LAS,
+                        Leq, LCpeak, per-second history, rollingLeq, limit presets (DIN 15905-5, WHO), limitsOf
+  audio/sweep.ts        radix-2 FFT, convolution, ESS sweep + inverse filter, sweepSequence, extractIRs (known
+                        starts or blind matched-filter search), analyzeIR (arrivals, LF/HF arrival, Schroeder
+                        T20/T30 per octave), alignSubTop (crossover phase-sum search), WAV writer, pink noise
   audio/engine.ts       Web Audio RTA (getUserMedia raw, AnalyserNode 16k FFT, scale self-check vs time domain),
-                        calibration per device (localStorage), averaging, SPL A/C/Z/Leq/Max, generator, feedback
+                        calibration per device (localStorage), averaging, generator, feedback; ScriptProcessor
+                        feeds Meter + 20 s ring buffer; measureSweep('self'|'external'); latency ref; wake lock
   store/store.ts        zustand: project + undo history (immer snapshots), UI state, prefs (localStorage)
   store/actions.ts      every user operation (add/move/rotate/duplicate/mirror/delete, connect, zones, areas, images, custom defs)
   store/persist.ts      IndexedDB (projects + personal library), file import/export, image downscaling
@@ -93,7 +99,25 @@ pitch `rotation.x = -tilt`. Item `z` is the bottom edge above the local floor (s
 - Approximate brand data: keep the "values are approximate" hint; never claim manufacturer accuracy.
 - Safety hints stay: 400 V by an electrician, rigging by a qualified rigger, keep escape routes clear.
 
-## 5. Status (v0.2.0)
+## 5. Status (v0.3.0)
+
+v0.3.0 (user: "legal limits optional, not fixed; measure delays between sub and satellite / main and delay;
+make it usable on iPhone because the UMIK works there; not only RTA, also SPL dB"):
+- Measure view tabs: dB meter (SplTab), RTA, Delay (DelayTab), EQ, Points. Calibration/generator behind the
+  "Mikrofon ve kalibrasyon" button. `settings.limits` (on/off, preset, laeq/minutes/lcpeak).
+- iPhone: mic needs https → GitHub Pages from `docs/` on branch `sahne-cad` (user enables it once in repo
+  Settings → Pages). `npm run release` writes SahneCAD.html AND docs/index.html + public/ PWA files
+  (manifest, sw.js network-first offline cache, icons). main.tsx injects manifest/apple-touch-icon and registers
+  the service worker only on https/localhost (never file:// or claude.ai). Hash routes: #plan #3d #sema
+  #listeler #analiz #olcum #kurulum. Artifact preview has NO microphone capability.
+- Tests: `tests/make_sweep_fixture.ts` writes a room recording (two arrivals 0/+23 ms, RT 0.9 s);
+  ui_flows/docs_shots pass it to Chromium via `--use-file-for-fake-audio-capture=<absolute path>`.
+  Headless Chromium runs the AudioContext at 44.1 kHz; capture shortens RT slightly (node on the same WAV
+  gives the exact 0.90 s), arrivals are exact.
+- iOS Safari may ignore `autoGainControl:false`; `dsp` state shows a warning when the browser reports
+  processing on. Ask the user to set Control Centre → Mic Mode: Standard.
+
+v0.2.0:
 
 v0.2.0 (user request: "as the venue gets longer, where to add speakers; dance floor loud, tables pleasant;
 dance-floor distance; UMIK-1 / ECM8000 live RTA with cut suggestions; setup as an activity diagram"):

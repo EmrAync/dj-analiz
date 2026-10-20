@@ -9,6 +9,22 @@ import './styles/app.css';
 (window as unknown as { __sahnecad: typeof useStore }).__sahnecad = useStore;
 (window as unknown as { __sahnecadRta: typeof useRta }).__sahnecadRta = useRta;
 
+// Web'den (https) açıldığında: ana ekrana eklenebilir uygulama + çevrimdışı önbellek.
+// Tek dosya (file://) ve önizleme sayfalarında atlanır.
+if (location.protocol === 'https:' || location.hostname === 'localhost') {
+  const link = (rel: string, href: string) => {
+    const l = document.createElement('link');
+    l.rel = rel;
+    l.href = href;
+    document.head.appendChild(l);
+  };
+  if (!/claude\.ai|claudeusercontent/.test(location.hostname)) {
+    link('manifest', 'manifest.webmanifest');
+    link('apple-touch-icon', 'icon-180.png');
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => undefined);
+  }
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

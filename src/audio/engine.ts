@@ -1,8 +1,10 @@
 // Web Audio ile canlı ölçüm: mikrofon (UMIK-1 USB, ECM8000 + ses kartı…), FFT, 1/24 oktav bantlar,
 // kalibrasyon, ortalama, SPL (A/C/Z, Leq, Max), geri besleme tespiti ve sinyal üreteci (pembe/beyaz gürültü, sinüs).
 import { create } from 'zustand';
-import { binsToBands, calAt, dB, octaveBands, weighted, type Bands, type CalFile } from './dsp';
+import { binsToBands, calAt, dB, octaveBands, type Bands, type CalFile } from './dsp';
 import { feedbackPeaks } from '../engine/eq';
+import { Meter, type SecondRec } from './meter';
+import { analyzeIR, extractIRs, sweepSequence, SWEEP_DEFAULT, type IRAnalysis, type SweepSpec } from './sweep';
 
 export type MicPreset = 'umik1' | 'ecm8000' | 'other';
 export type AvgMode = 'fast' | 'slow' | 'inf';
@@ -40,6 +42,41 @@ export interface GenState {
   out: 'both' | 'L' | 'R';
 }
 
+// Ses seviyesi ölçer okumaları (dB SPL, kalibrasyon dahil)
+export interface Levels {
+  af: number; // LAF
+  as: number; // LAS
+  cs: number; // LCS
+  zs: number; // LZS
+  leqA: number; // LAeq (sıfırlamadan beri)
+  leqC: number;
+  maxAF: number;
+  minAF: number;
+  cpk: number; // LCpeak
+  secs: number;
+}
+
+export interface SweepRun {
+  id: string;
+  at: number;
+  source: 'self' | 'external';
+  label: string;
+  ir: Float64Array;
+  pre: number;
+  fs: number;
+  an: IRAnalysis;
+  absMs: number | null; // kendi çaldığımızda: tarama başlangıcından ilk varışa (sistem gecikmesi dahil)
+  peakMs: number | null; // aynı zaman tabanında ir'deki ana tepe (ir[pre]) zamanı
+  snr: number;
+  found: number;
+}
+
+export interface SweepState {
+  phase: 'idle' | 'play' | 'listen' | 'analyze';
+  until: number; // performance.now() bitiş
+  error: string | null;
+}
+
 interface RtaState {
   running: boolean;
   starting: boolean;
@@ -56,6 +93,12 @@ interface RtaState {
   gen: GenState;
   frame: Frame | null;
   fb: Feedback[];
+  lv: Levels | null;
+  histN: number; // saniyelik kayıt uzunluğu (yeniden çizim için)
+  sweep: SweepState;
+  runs: SweepRun[];
+  latency: number | null; // sistem gecikmesi referansı (ms)
+  dsp: { ec: boolean; ns: boolean; agc: boolean } | null; // tarayıcının ses işleme durumu (ölçümü bozar)
 }
 
 export const FINE: Bands = octaveBands(24);
@@ -107,6 +150,12 @@ export const useRta = create<RtaState>()(() => ({
   gen: { on: false, kind: 'pink', level: -20, freq: 1000, out: 'both' },
   frame: null,
   fb: [],
+  lv: null,
+  histN: 0,
+  sweep: { phase: 'idle', until: 0, error: null },
+  runs: [],
+  latency: null,
+  dsp: null,
 }));
 
 const set = (p: Partial<RtaState>) => useRta.setState(p);
@@ -127,11 +176,16 @@ let logScale = 0; // tarayıcıya göre FFT ölçek düzeltmesi (zaman bölgesiy
 let avgMs: Float64Array | null = null;
 let peakMs: Float64Array | null = null;
 let nAvg = 0;
-let leqSum = 0;
-let leqN = 0;
-let maxA = -200;
 let t0 = 0;
 let calCorr: Float64Array | null = null; // bin başına kalibrasyon çarpanı
+let proc: ScriptProcessorNode | null = null;
+let mute: GainNode | null = null;
+let meter: Meter | null = null;
+// halka tampon: son 20 s giriş (tarama ölçümü için)
+let ring = new Float32Array(0);
+let ringPos = 0; // toplam yazılan örnek
+let lastBlockTime = 0;
+let lastBlockLen = 0;
 
 const FFT = 16384;
 const FRAME_MS = 100;
@@ -190,10 +244,31 @@ export async function startRta(deviceId?: string): Promise<void> {
     splitter.connect(analyser, ch);
     binDb = new Float32Array(analyser.frequencyBinCount);
     td = new Float32Array(analyser.fftSize);
+    // örnek örnek ses seviyesi ölçer + halka tampon
+    if (!meter || meter.fs !== c.sampleRate) meter = new Meter(c.sampleRate);
+    ring = new Float32Array(Math.round(c.sampleRate * 20));
+    ringPos = 0;
+    proc = c.createScriptProcessor(4096, 1, 1);
+    proc.onaudioprocess = (e) => {
+      const x = e.inputBuffer.getChannelData(0);
+      if (!get().frozen) meter?.process(x);
+      const n = x.length;
+      for (let i = 0; i < n; i++) ring[(ringPos + i) % ring.length] = x[i];
+      ringPos += n;
+      lastBlockTime = e.playbackTime;
+      lastBlockLen = n;
+    };
+    mute = c.createGain();
+    mute.gain.value = 0;
+    splitter.connect(proc, ch);
+    proc.connect(mute);
+    mute.connect(c.destination);
     // cihaza ait kalibrasyon
     const saved = loadCals()[label];
     const cal = saved || { ...defaultCal(guessPreset(label)) };
-    set({ running: true, starting: false, deviceId: (settings as MediaTrackSettings).deviceId || want || '', deviceLabel: label, channel: ch, channels: chans, sampleRate: c.sampleRate, cal });
+    const ms0 = settings as MediaTrackSettings;
+    const dsp = { ec: ms0.echoCancellation === true, ns: ms0.noiseSuppression === true, agc: ms0.autoGainControl === true };
+    set({ running: true, starting: false, deviceId: ms0.deviceId || want || '', deviceLabel: label, channel: ch, channels: chans, sampleRate: c.sampleRate, cal, latency: loadLatency(label), dsp });
     buildCalCorr();
     resetAvg();
     timer = setInterval(tick, FRAME_MS);
@@ -210,14 +285,19 @@ export function stopRta(clear = true): void {
   try {
     srcNode?.disconnect();
     splitter?.disconnect();
+    proc?.disconnect();
+    mute?.disconnect();
   } catch {
     /* yok */
   }
+  if (proc) proc.onaudioprocess = null;
   stream?.getTracks().forEach((t) => t.stop());
   stream = null;
   srcNode = null;
   splitter = null;
   analyser = null;
+  proc = null;
+  mute = null;
   if (clear) set({ running: false });
 }
 
@@ -227,6 +307,7 @@ export function setChannel(ch: number): void {
     try {
       splitter.disconnect();
       splitter.connect(analyser, Math.min(ch, get().channels - 1));
+      if (proc) splitter.connect(proc, Math.min(ch, get().channels - 1));
     } catch {
       /* yok */
     }
@@ -243,9 +324,7 @@ export function resetAvg(): void {
   avgMs = null;
   peakMs = null;
   nAvg = 0;
-  leqSum = 0;
-  leqN = 0;
-  maxA = -200;
+  meter?.reset();
   t0 = performance.now();
   set({ fb: [] });
 }
@@ -268,13 +347,31 @@ function buildCalCorr(): void {
 
 // Referansla kalibrasyon: o anki (ağırlıklı) seviye = referans ölçerin gösterdiği
 export function calibrateTo(ref: number, w: 'A' | 'C' | 'Z'): boolean {
-  const f = get().frame;
-  if (!f) return false;
-  const cur = w === 'A' ? f.spl.a : w === 'C' ? f.spl.c : f.spl.z;
+  const lv = get().lv;
+  if (!lv) return false;
+  const cur = w === 'A' ? lv.as : w === 'C' ? lv.cs : lv.zs;
   if (!isFinite(cur)) return false;
   setCal({ offset: get().cal.offset + (ref - cur), calibrated: true });
   resetAvg();
   return true;
+}
+
+function levelsNow(): Levels | null {
+  if (!meter) return null;
+  const r = meter.read();
+  const off = get().cal.offset;
+  const L = (v: number) => (v > 0 ? 10 * Math.log10(v) + off : NaN);
+  return { af: L(r.af), as: L(r.as), cs: L(r.cs), zs: L(r.zs), leqA: L(r.leqA), leqC: L(r.leqC), maxAF: L(r.maxAF), minAF: isFinite(r.minAF) ? L(r.minAF) : NaN, cpk: L(r.cpk), secs: r.secs };
+}
+
+// Saniyelik kayıt (ham MS; dB'ye çevirirken güncel ofset kullanılır)
+export function meterHistory(): SecondRec[] {
+  return meter?.hist ?? [];
+}
+
+export function clearHistory(): void {
+  meter?.clearHistory();
+  set({ histN: 0 });
 }
 
 function tick(): void {
@@ -316,16 +413,13 @@ function tick(): void {
   }
   if (!peakMs) peakMs = Float64Array.from(bandsMs);
   else for (let i = 0; i < bandsMs.length; i++) peakMs[i] = Math.max(peakMs[i] * 0.995, bandsMs[i]);
-  const la = weighted(bandsMs, FINE, 'A');
-  leqSum += Math.pow(10, la / 10);
-  leqN++;
-  maxA = Math.max(maxA, la);
   const toDb = (a: Float64Array) => Float64Array.from(a, (v) => dB(v));
+  const lv = levelsNow();
   const frame: Frame = {
     bands: toDb(avgMs),
     peak: toDb(peakMs),
     live: toDb(bandsMs),
-    spl: { a: weighted(avgMs, FINE, 'A'), c: weighted(avgMs, FINE, 'C'), z: weighted(avgMs, FINE, 'Z'), leq: dB(leqSum / leqN), max: maxA },
+    spl: { a: lv?.as ?? NaN, c: lv?.cs ?? NaN, z: lv?.zs ?? NaN, leq: lv?.leqA ?? NaN, max: lv?.maxAF ?? NaN },
     inPeak: pk > 0 ? 20 * Math.log10(pk) : -120,
     clip: pk >= 0.98,
     secs: (performance.now() - t0) / 1000,
@@ -346,7 +440,7 @@ function tick(): void {
       e.f = p.f;
     } else fb.push({ ...p, seen: 1, at: now });
   }
-  set({ frame, fb: fb.filter((x) => now - x.at < 15000 || x.seen >= 8).slice(-12) });
+  set({ frame, lv, histN: meter?.hist.length ?? 0, fb: fb.filter((x) => now - x.at < 15000 || x.seen >= 8).slice(-12) });
 }
 
 // —— Sinyal üreteci ——
@@ -426,3 +520,142 @@ export function setGen(patch: Partial<GenState>): void {
   merger.connect(c.destination);
   genNode.start();
 }
+
+// —— Sistem gecikmesi referansı (mikrofon hoparlöre dayalıyken ölçülen) ——
+const LAT_KEY = 'sahnecad.latency';
+
+function loadLatency(label: string): number | null {
+  try {
+    const v = (JSON.parse(localStorage.getItem(LAT_KEY) || '{}') as Record<string, number>)[label || 'default'];
+    return typeof v === 'number' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setLatency(ms: number | null): void {
+  set({ latency: ms });
+  try {
+    const all = JSON.parse(localStorage.getItem(LAT_KEY) || '{}') as Record<string, number | null>;
+    all[get().deviceLabel || 'default'] = ms;
+    localStorage.setItem(LAT_KEY, JSON.stringify(all));
+  } catch {
+    /* yok */
+  }
+}
+
+// —— Tarama ölçümü ——
+function ringRead(from: number, to: number): Float32Array | null {
+  if (to <= from || ringPos - from > ring.length || to > ringPos) return null;
+  const out = new Float32Array(to - from);
+  for (let g = from; g < to; g++) out[g - from] = ring[g % ring.length];
+  return out;
+}
+
+function indexOfTime(t: number, fs: number): number {
+  return ringPos - lastBlockLen + Math.round((t - lastBlockTime) * fs);
+}
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export function sweepSpec(): SweepSpec {
+  return { ...SWEEP_DEFAULT, fs: ctx?.sampleRate || get().sampleRate || 48000 };
+}
+
+// source 'self': bu cihaz taramayı çalar (zaman referansı bilinir, A/B karşılaştırılabilir)
+// source 'external': tarama WAV'ı başka cihazdan çalınır; sadece aynı ölçümdeki varışlar karşılaştırılır
+export async function measureSweep(source: 'self' | 'external', label: string, out: 'both' | 'L' | 'R' = 'both'): Promise<SweepRun | null> {
+  if (!ctx || !proc || get().sweep.phase !== 'idle') return null;
+  const c = ctx;
+  const spec = sweepSpec();
+  const seq = sweepSequence(spec, 0.3, 1.4);
+  const durMs = (seq.data.length / spec.fs) * 1000;
+  if (get().gen.on) setGen({ on: false });
+  let g0 = 0;
+  try {
+    if (source === 'self') {
+      const buf = c.createBuffer(2, seq.data.length, spec.fs);
+      if (out !== 'R') buf.copyToChannel(seq.data, 0);
+      if (out !== 'L') buf.copyToChannel(seq.data, 1);
+      const node = c.createBufferSource();
+      node.buffer = buf;
+      node.connect(c.destination);
+      const T0 = c.currentTime + 0.25;
+      node.start(T0);
+      set({ sweep: { phase: 'play', until: performance.now() + durMs + 450, error: null } });
+      await wait(durMs + 450);
+      g0 = indexOfTime(T0, spec.fs);
+    } else {
+      const listen = durMs + 2500;
+      set({ sweep: { phase: 'listen', until: performance.now() + listen, error: null } });
+      await wait(listen);
+    }
+    set({ sweep: { phase: 'analyze', until: 0, error: null } });
+    await wait(30);
+    let rec: Float32Array | null;
+    let res;
+    if (source === 'self') {
+      const from = g0 - Math.round(0.2 * spec.fs);
+      rec = ringRead(from, Math.min(ringPos, g0 + seq.data.length + Math.round(0.4 * spec.fs)));
+      res = rec ? extractIRs(rec, spec, seq.starts.map((st) => st + g0 - from)) : null;
+    } else {
+      const n = Math.round(((durMs + 2400) / 1000) * spec.fs);
+      rec = ringRead(ringPos - n, ringPos);
+      res = rec ? extractIRs(rec, spec) : null;
+    }
+    if (!res || res.snr < 10) {
+      set({ sweep: { phase: 'idle', until: 0, error: res ? 'lowsnr' : 'notfound' } });
+      return null;
+    }
+    const an = analyzeIR(res.ir, spec.fs, res.pre);
+    const run: SweepRun = {
+      id: Math.random().toString(36).slice(2, 8),
+      at: Date.now(),
+      source,
+      label,
+      ir: res.ir,
+      pre: res.pre,
+      fs: spec.fs,
+      an,
+      absMs: source === 'self' ? ((res.peaks[0] - res.starts[0]) / spec.fs) * 1000 + an.firstMs - (res.pre / spec.fs) * 1000 : null,
+      peakMs: source === 'self' ? ((res.peaks[0] - res.starts[0]) / spec.fs) * 1000 : null,
+      snr: res.snr,
+      found: res.found,
+    };
+    set({ sweep: { phase: 'idle', until: 0, error: null }, runs: [...get().runs.slice(-7), run] });
+    return run;
+  } catch {
+    set({ sweep: { phase: 'idle', until: 0, error: 'other' } });
+    return null;
+  }
+}
+
+export function removeRun(id: string): void {
+  set({ runs: get().runs.filter((r) => r.id !== id) });
+}
+
+// —— Ekranı açık tut (ölçüm/kayıt sırasında) ——
+let wake: { release: () => Promise<void> } | null = null;
+let wantWake = false;
+
+export async function keepAwake(on: boolean): Promise<boolean> {
+  wantWake = on;
+  try {
+    if (!on) {
+      await wake?.release();
+      wake = null;
+      return true;
+    }
+    const wl = (navigator as unknown as { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock;
+    if (!wl) return false;
+    wake = await wl.request('screen');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+if (typeof document !== 'undefined')
+  document.addEventListener('visibilitychange', () => {
+    if (wantWake && document.visibilityState === 'visible') void keepAwake(true);
+  });

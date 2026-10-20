@@ -3,7 +3,7 @@ import { runWizard, WIZ_DEFAULT } from './engine/wizard';
 import { makeT } from './i18n';
 import { deleteSelection, duplicateSelection, moveSelection, rotateSelection, toggleLock } from './store/actions';
 import { lastProjectId, loadLibrary, loadProject, normalizeProject, saveProject } from './store/persist';
-import { st, useStore, useT } from './store/store';
+import { st, useStore, useT, type View } from './store/store';
 import { Dialogs } from './ui/dialogs/Dialogs';
 import { Inspector } from './ui/Inspector';
 import { Icon } from './ui/kit';
@@ -34,6 +34,7 @@ export function App() {
   useBoot();
   useAutosave();
   useShortcuts();
+  useHashView();
   return (
     <div className="app">
       <TopBar />
@@ -255,5 +256,32 @@ function useShortcuts() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, []);
+}
+
+// Adres çubuğunda görünüm: #plan, #3d, #sema, #listeler, #analiz, #olcum, #kurulum (ana ekran kısayolu için)
+const SLUG: Record<string, string> = { plan: 'plan', '3d': '3d', schema: 'sema', lists: 'listeler', analysis: 'analiz', measure: 'olcum', setup: 'kurulum' };
+
+function useHashView() {
+  useEffect(() => {
+    const fromHash = () => {
+      const h = decodeURIComponent(location.hash.replace(/^#/, ''));
+      const v = Object.keys(SLUG).find((k) => SLUG[k] === h);
+      if (v && st().view !== v) st().set({ view: v as View });
+    };
+    fromHash();
+    window.addEventListener('hashchange', fromHash);
+    const unsub = useStore.subscribe((s, prev) => {
+      if (s.view === prev.view) return;
+      try {
+        history.replaceState(null, '', '#' + SLUG[s.view]);
+      } catch {
+        /* yok */
+      }
+    });
+    return () => {
+      window.removeEventListener('hashchange', fromHash);
+      unsub();
+    };
   }, []);
 }

@@ -1,7 +1,7 @@
 {
   "name": "sahne-cad",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,8 +11,9 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/engine.test.ts",
     "test:ui": "node tests/ui_smoke.mjs http://127.0.0.1:4173/ shots && node tests/ui_flows.mjs http://127.0.0.1:4173/ shots",
-    "release": "npm run build:tek && node -e \"require('fs').copyFileSync('tek/index.html','SahneCAD.html')\"",
-    "docs:shots": "node tests/docs_shots.mjs http://127.0.0.1:4173/ docs"
+    "release": "npm run build:tek && node scripts/release.mjs",
+    "docs:shots": "node tests/docs_shots.mjs http://127.0.0.1:4173/ docs",
+    "icons": "node scripts/icons.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",

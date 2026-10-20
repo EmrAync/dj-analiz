@@ -3,6 +3,8 @@
 // ses dağılımı önerileri, canlı RTA (sahte mikrofon), kalibrasyon, EQ önerisi, kurulum akış diyagramı.
 import { createRequire } from 'module';
 import fs from 'fs';
+import { execFileSync } from 'child_process';
+import path from 'path';
 const require = createRequire(import.meta.url);
 let chromium;
 try {
@@ -19,7 +21,10 @@ const ok = (cond, msg) => {
   if (!cond) fails.push(msg);
   console.log((cond ? 'PASS ' : 'FAIL ') + msg);
 };
-const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
+// sahte mikrofon: iki varışlı (0 / +23 ms) salon kaydı (tarama WAV'ı)
+const wav = path.resolve(out, 'sweep-room.wav');
+execFileSync('node', ['--import', 'tsx', 'tests/make_sweep_fixture.ts', wav]);
+const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', `--use-file-for-fake-audio-capture=${wav}`, '--autoplay-policy=no-user-gesture-required'] });
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true, permissions: ['microphone'] });
 const page = await ctx.newPage();
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
@@ -182,28 +187,53 @@ if (props) {
   ok((await itemCount()) === nItems0, 'öneri uygulaması geri alındı');
 } else ok(true, 'öneri yok (dağılım iyi)');
 await shot('50-coverage');
-// —— 13. Ölçüm: sahte mikrofon, kalibrasyon, örnek ölçümlerle EQ önerisi
+// —— 13. Ölçüm: dB ölçer, sınır, RTA + kalibrasyon, EQ, gecikme (sahte mikrofon = tarama kaydı)
 await page.locator('[data-testid="view-measure"]').click();
 await page.waitForTimeout(500);
 await page.locator('[data-testid="ms-start"]').click();
-await page.waitForTimeout(2500);
+await page.waitForTimeout(3000);
+await page.getByText('dB ölçer').first().click();
+await page.waitForTimeout(1200);
+const laf = await page.locator('[data-testid="spl-laf"]').innerText();
+ok(/\d/.test(laf), 'dB ölçer LAF (' + laf + ')');
+ok((await page.locator('[data-testid="spl-history"]').count()) === 1, 'seviye geçmişi grafiği');
+await page.locator('[data-testid="limit-preset"]').selectOption('who');
+await page.waitForTimeout(300);
+ok((await page.locator('[data-testid="spl-laeq"]').innerText()).includes('15'), 'WHO sınırı: 15 dk pencere');
+const limSaved = await page.evaluate(() => window.__sahnecad.getState().project.settings.limits);
+ok(limSaved && limSaved.laeq === 100 && limSaved.minutes === 15, 'sınır projeye kaydedildi');
+await shot('50b-spl');
+await page.getByText('RTA', { exact: true }).first().click();
+await page.waitForTimeout(800);
 const spl0 = await page.locator('[data-testid="ms-spl"]').innerText();
-ok(/\d/.test(spl0), 'canlı SPL değeri (' + spl0.replace(/\s+/g, ' ') + ')');
-// sahte mikrofon bip sesi verir (seviye oynar): ölçümü dondur, ofset hesabını doğrula
+ok(/\d/.test(spl0), 'RTA yanında SPL (' + spl0.replace(/\s+/g, ' ') + ')');
+// sahte mikrofon seviyesi oynar: dondur, ofset hesabını doğrula
+await page.locator('[data-testid="ms-cal-toggle"]').click();
 await page.getByText('Dondur').first().click();
 const before = await page.evaluate(() => {
   const s = window.__sahnecadRta.getState();
-  return { c: s.frame.spl.c, off: s.cal.offset };
+  return { c: s.lv.cs, off: s.cal.offset };
 });
 await page.locator('[data-testid="ms-calibrate"]').click();
 const after = await page.evaluate(() => window.__sahnecadRta.getState().cal);
 ok(after.calibrated && Math.abs(after.offset - before.off - (94 - before.c)) < 0.05, `referansla kalibrasyon (ofset ${before.off.toFixed(1)} → ${after.offset.toFixed(1)})`);
 await page.getByText('Devam').first().click();
+await page.locator('[data-testid="ms-cal-toggle"]').click();
+await page.getByText('Noktalar').first().click();
 for (let i = 0; i < 3; i++) await page.locator('[data-testid="ms-demo"]').click();
+await page.getByText('EQ', { exact: true }).first().click();
 await page.waitForTimeout(800);
 ok((await page.locator('[data-testid="peq-table"] tbody tr').count()) >= 1, 'parametrik EQ önerisi');
 ok((await page.locator('[data-testid="geq-chart"]').count()) === 1, '31 bant GEQ');
 await shot('51-measure');
+await page.getByText('Gecikme').first().click();
+await page.getByText('Başka cihazdan (WAV)').first().click();
+await page.locator('[data-testid="dl-measure"]').click();
+await page.waitForTimeout(15500);
+const runs = await page.evaluate(() => window.__sahnecadRta.getState().runs.map((r) => r.an.arrivals.map((a) => a.ms)));
+ok(runs.length === 1 && runs[0].some((ms) => Math.abs(ms - 23) < 0.3), 'gecikme ölçümü: ikinci varış ≈ 23 ms (' + JSON.stringify(runs) + ')');
+ok((await page.locator('[data-testid="ir-chart"]').count()) === 1, 'dürtü yanıtı grafiği');
+await shot('51b-delay');
 await page.locator('[data-testid="ms-stop"]').click();
 // —— 14. Kurulum akış diyagramı ve zaman çizelgesi
 await page.locator('[data-testid="view-setup"]').click();

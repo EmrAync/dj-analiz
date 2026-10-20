@@ -317,6 +317,15 @@ export interface ProjectSettings {
   targetSpl: number; // hedef dB
   crest: number; // tepe/ortalama farkı dB
   eq?: EqTarget; // ölçüm: hedef eğri
+  limits?: SoundLimits; // yasal / önerilen ses sınırı (isteğe bağlı)
+}
+
+export interface SoundLimits {
+  on: boolean;
+  preset: 'din15905' | 'who' | 'custom';
+  laeq: number; // dB(A) — kayan ortalama sınırı
+  minutes: number; // ortalama süresi
+  lcpeak: number; // dB(C) tepe sınırı
 }
 
 export type CurveId = 'flat' | 'house' | 'dance' | 'live' | 'speech';

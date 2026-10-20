@@ -1,5 +1,8 @@
 // README için ekran görüntüleri (JPEG). Kullanım: node tests/docs_shots.mjs <url> docs
 import { createRequire } from 'module';
+import { execFileSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 const require = createRequire(import.meta.url);
 let chromium;
 try {
@@ -9,8 +12,11 @@ try {
 }
 const url = process.argv[2] || 'http://127.0.0.1:4173/';
 const out = process.argv[3] || 'docs';
-const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
-const page = await browser.newPage({ viewport: { width: 1440, height: 860 } });
+const wav = path.resolve(out, '../.sweep-room.wav');
+execFileSync('node', ['--import', 'tsx', 'tests/make_sweep_fixture.ts', wav]);
+const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', `--use-file-for-fake-audio-capture=${wav}`] });
+const bctx = await browser.newContext({ viewport: { width: 1440, height: 860 }, permissions: ['microphone'] });
+const page = await bctx.newPage();
 const snap = (n) => page.screenshot({ path: `${out}/${n}.jpg`, type: 'jpeg', quality: 78 });
 await page.goto(url);
 await page.waitForSelector('[data-testid="plan-svg"]');
@@ -61,13 +67,44 @@ await page.locator('[data-testid="ghost-bar"] .ibtn').click().catch(() => {});
 // ölçüm
 await page.locator('[data-testid="view-measure"]').click();
 await page.waitForTimeout(500);
+const intro = page.locator('.ms-intro .ibtn');
+if (await intro.count()) await intro.first().click();
+await page.locator('[data-testid="ms-start"]').click();
+await page.getByText('dB ölçer').first().click();
+await page.waitForTimeout(7000);
+await snap('olcum-db');
+await page.getByText('Noktalar').first().click();
 for (let i = 0; i < 3; i++) await page.locator('[data-testid="ms-demo"]').click();
-await page.waitForTimeout(800);
-await page.locator('[data-testid="measure-view"]').evaluate((e) => e.scrollTo(0, 0));
+await page.getByText('RTA', { exact: true }).first().click();
+await page.waitForTimeout(1500);
 await snap('olcum');
-await page.locator('[data-testid="eq-panel"]').evaluate((e) => e.scrollIntoView({ block: 'start' }));
-await page.waitForTimeout(300);
+await page.getByText('EQ', { exact: true }).first().click();
+await page.waitForTimeout(800);
 await snap('eq-onerisi');
+await page.getByText('Gecikme').first().click();
+await page.getByText('Başka cihazdan (WAV)').first().click();
+await page.locator('[data-testid="dl-measure"]').click();
+await page.waitForTimeout(15500);
+await page.locator('[data-testid="ir-chart"]').evaluate((e) => e.scrollIntoView({ block: 'center' }));
+await snap('gecikme');
+await page.locator('[data-testid="ms-stop"]').click();
+// iPhone görünümü
+const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, permissions: ['microphone'], userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
+const ph = await phone.newPage();
+await ph.goto(url + '#olcum');
+await ph.waitForSelector('[data-testid="measure-view"]');
+await ph.waitForTimeout(800);
+if (await ph.locator('[data-testid="help-close"]').count()) await ph.locator('[data-testid="help-close"]').click();
+const intro2 = ph.locator('.ms-intro .ibtn');
+if (await intro2.count()) await intro2.first().click();
+await ph.locator('[data-testid="ms-start"]').click();
+await ph.getByText('dB ölçer').first().click();
+await ph.waitForTimeout(7000);
+await ph.locator('[data-testid="measure-view"]').evaluate((e) => e.scrollTo(0, 250));
+await ph.waitForTimeout(300);
+await ph.screenshot({ path: `${out}/iphone-db.jpg`, type: 'jpeg', quality: 78 });
+await phone.close();
+fs.rmSync(wav, { force: true });
 await page.locator('[data-testid="view-plan"]').click();
 await page.locator('[data-testid="open-wizard"]').click();
 await page.waitForTimeout(800);

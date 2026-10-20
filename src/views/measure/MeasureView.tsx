@@ -13,6 +13,10 @@ import { downloadText, pickFile, readText } from '../../store/persist';
 import { st, useStore, useT } from '../../store/store';
 import { Check, Icon, Num, Seg } from '../../ui/kit';
 import { PlanDrawing } from '../plan/PlanDrawing';
+import { SplTab } from './SplTab';
+import { DelayTab } from './DelayTab';
+import { limitsOf, rollingLeq } from '../../audio/meter';
+import { meterHistory } from '../../audio/engine';
 
 export const OCT12: Bands = octaveBands(12);
 const RES: Record<number, Bands> = { 1: octaveBands(1), 3: octaveBands(3), 6: octaveBands(6), 12: OCT12, 24: FINE };
@@ -30,6 +34,10 @@ function avgMeasurements(list: Measurement[]): number[] | null {
   return s.map((v) => dB(v / list.length));
 }
 
+type MsTab = 'spl' | 'rta' | 'delay' | 'eq' | 'points';
+
+const IS_IOS = typeof navigator !== 'undefined' && (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+
 export function MeasureView() {
   const t = useT();
   const p = useStore((s) => s.project);
@@ -37,10 +45,28 @@ export function MeasureView() {
   const areaId = useStore((s) => s.areaId);
   const area = p.areas.find((a) => a.id === areaId) || p.areas[0];
   const running = useRta((s) => s.running);
+  const calibrated = useRta((s) => s.cal.calibrated);
+  const dsp = useRta((s) => s.dsp);
   const [res, setRes] = useState<number>(3);
   const [hold, setHold] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [tab, setTab0] = useState<MsTab>(() => {
+    try {
+      return (localStorage.getItem('sahnecad.msTab') as MsTab) || 'spl';
+    } catch {
+      return 'spl';
+    }
+  });
+  const [showCal, setShowCal] = useState(false);
+  const setTab = (v: MsTab) => {
+    setTab0(v);
+    try {
+      localStorage.setItem('sahnecad.msTab', v);
+    } catch {
+      /* yok */
+    }
+  };
   const eq: EqTarget = p.settings.eq || EQ_DEFAULT;
   const meas = (p.measurements || []).filter((m) => m.areaId === area.id);
   const chosen = meas.filter((m) => sel.has(m.id));
@@ -59,27 +85,55 @@ export function MeasureView() {
           <DeviceBar t={t} />
         </div>
         <Intro t={t} />
-        <div className="ms-grid">
-          <div className="panel">
-            <div className="panel-h">
-              <Icon name="chart" size={16} /> {t('ms.rta')}
-              <span style={{ flex: 1 }} />
-              <Seg value={res} options={[1, 3, 6, 12, 24].map((v) => ({ v, l: `1/${v}` }))} onChange={setRes} />
-            </div>
-            <div className="panel-b">
-              <RtaToolbar t={t} hold={hold} setHold={setHold} />
-              <RtaChart res={res} hold={hold} eq={eq} overlays={chosen} />
-              {!running ? <p className="hint small">{t('ms.chartIdle')}</p> : null}
-            </div>
-          </div>
-          <div className="ms-side">
-            <SplCard p={p} area={area} pos={pos} lang={lang} t={t} />
-            <GenCard t={t} />
-            <CalCard t={t} lang={lang} />
-          </div>
+        {dsp && (dsp.ec || dsp.ns || dsp.agc) ? <div className="warnline" style={{ marginBottom: 8 }}>⚠ {t('ms.dsp')}</div> : null}
+        {IS_IOS ? <div className="ms-intro">{t('ms.ios')}</div> : null}
+        <div className="ms-tabbar">
+          <Seg
+            value={tab}
+            options={[
+              { v: 'spl', l: t('ms.tab.spl') },
+              { v: 'rta', l: 'RTA' },
+              { v: 'delay', l: t('ms.tab.delay') },
+              { v: 'eq', l: 'EQ' },
+              { v: 'points', l: t('ms.tab.points') },
+            ]}
+            onChange={setTab}
+          />
+          <button className={'btn sm' + (showCal ? ' primary' : '')} onClick={() => setShowCal(!showCal)} data-testid="ms-cal-toggle">
+            <Icon name="mic" size={14} /> {t('ms.calTitle')}
+            {!calibrated ? <span className="dot" style={{ background: 'var(--warn)', marginLeft: 4 }} /> : null}
+          </button>
         </div>
-        <EqPanel p={p} eq={eq} chosen={chosen} lang={lang} t={t} />
-        <MeasList p={p} area={area} meas={meas} sel={sel} setSel={setSel} pos={pos} setPos={setPos} lang={lang} t={t} />
+        {showCal ? (
+          <div className="ms-grid2" style={{ marginBottom: 12 }}>
+            <CalCard t={t} lang={lang} />
+            <GenCard t={t} />
+          </div>
+        ) : null}
+        {tab === 'spl' ? <SplTab p={p} area={area} pos={pos} lang={lang} t={t} /> : null}
+        {tab === 'rta' ? (
+          <div className="ms-grid">
+            <div className="panel">
+              <div className="panel-h">
+                <Icon name="chart" size={16} /> {t('ms.rta')}
+                <span style={{ flex: 1 }} />
+                <Seg value={res} options={[1, 3, 6, 12, 24].map((v) => ({ v, l: `1/${v}` }))} onChange={setRes} />
+              </div>
+              <div className="panel-b">
+                <RtaToolbar t={t} hold={hold} setHold={setHold} />
+                <RtaChart res={res} hold={hold} eq={eq} overlays={chosen} />
+                {!running ? <p className="hint small">{t('ms.chartIdle')}</p> : null}
+              </div>
+            </div>
+            <div className="ms-side">
+              <SplCard p={p} area={area} pos={pos} lang={lang} t={t} />
+              {!showCal ? <GenCard t={t} /> : null}
+            </div>
+          </div>
+        ) : null}
+        {tab === 'delay' ? <DelayTab p={p} area={area} lang={lang} t={t} /> : null}
+        {tab === 'eq' ? <EqPanel p={p} eq={eq} chosen={chosen} lang={lang} t={t} /> : null}
+        {tab === 'points' ? <MeasList p={p} area={area} meas={meas} sel={sel} setSel={setSel} pos={pos} setPos={setPos} lang={lang} t={t} /> : null}
       </div>
     </div>
   );
@@ -346,7 +400,12 @@ function SplCard({ p, area, pos, lang, t }: { p: Project; area: Area; pos: { x: 
             Max <b>{frame ? fmt(frame.spl.max, 1, lang) : '–'}</b>
           </span>
         </div>
-        {frame && frame.spl.leq > 99 && frame.secs > 20 ? <div className="warnline">⚠ {t('ms.din', { l: fmt(frame.spl.leq, 1, lang) })}</div> : null}
+        {(() => {
+          const lim = limitsOf(p);
+          const w = rollingLeq(meterHistory(), lim.minutes * 60);
+          const l = w.ms > 0 ? 10 * Math.log10(w.ms) + cal.offset : NaN;
+          return lim.on && w.n > 20 && l > lim.laeq ? <div className="warnline">⚠ {t('ms.din', { l: fmt(l, 1, lang), lim: lim.laeq, m: lim.minutes })}</div> : null;
+        })()}
         <div className="inmeter" title={t('ms.input')}>
           <div style={{ width: `${Math.max(0, Math.min(100, ((inPk + 60) / 60) * 100))}%`, background: frame?.clip ? 'var(--err)' : inPk > -6 ? 'var(--warn)' : 'var(--ok)' }} />
         </div>

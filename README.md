@@ -15,6 +15,27 @@ boyunu, elektrik yükünü ve ses dağılımını hesaplar. Sonunda sahneyi hiç
 - İlk açılışta hazır bir örnek gelir: 250 kişilik düğün salonu (DJ, kablosuz mikrofon, ışık, elektrik).
   **Sihirbaz** ile kendi etkinliğini saniyeler içinde kurabilirsin.
 
+## iPhone'da kullan (UMIK-1 ile)
+
+iPhone'da mikrofon sadece güvenli (https) bir adreste çalışır. Uygulama bu yüzden GitHub Pages'te
+yayınlanacak şekilde hazır (`docs/` klasörü). **Bir kez** şunu yap:
+
+1. GitHub'da `EmrAync/dj-analiz` → **Settings** → **Pages**.
+2. **Build and deployment** → Source: **Deploy from a branch** → Branch: **`sahne-cad`**, klasör **`/docs`** → **Save**.
+3. 1–2 dakika sonra adres hazır: **https://emraync.github.io/dj-analiz/#olcum**
+4. iPhone'da Safari ile aç → **Paylaş** → **Ana Ekrana Ekle**. Simgeden açınca tam ekran çalışır.
+   Bir kez açıldıktan sonra **internetsiz de** açılır (salonda internet olmasa da).
+
+UMIK-1'i bağlama:
+
+- **USB-C iPhone** (15 ve sonrası): UMIK-1'in USB kablosunu USB-C'ye çeviren kabloyla doğrudan tak.
+- **Lightning iPhone**: *Lightning – USB 3 Kamera Adaptörü* ile tak.
+- Denetim Merkezi → **Mikrofon Modu: Standart** seç (Ses Yalıtımı ölçümü bozar).
+
+Adres herkese açıktır ama içinde senin bilgin yoktur. Projelerin sadece telefonunda saklanır.
+
+![iPhone dB ölçer](docs/iphone-db.jpg)
+
 ## Neler var?
 
 | Ekran | Ne işe yarar |
@@ -24,7 +45,7 @@ boyunu, elektrik yükünü ve ses dağılımını hesaplar. Sonunda sahneyi hiç
 | **Bağlantı şeması** | Sinyal akışı blok şeması: cihazlar portlarıyla, kablolar etiketiyle. **Porttan porta sürükleyerek bağla.** Elektrik şeması (faz, watt, amper). Tüm bölümler birlikte gösterilebilir. |
 | **Listeler** | Malzeme listesi (standlar, ara direk, kum torbası, podest, kablo köprüsü, gaffa otomatik eklenir), kablo listesi, **kablo paketi** (hangi boydan kaç kablo + yedek), **input listesi**, elektrik devreleri. CSV (Excel) ve yazdırma. |
 | **Analiz** | Ortalama/maksimum dB, dağılım, oda yankısı (RT60), kritik mesafe, delay önerileri, sıcaklığa göre ses hızı, rüzgar ve komşu ses sınırı, faz yükleri, öneriler. |
-| **Ölçüm (RTA)** | **miniDSP UMIK-1** (USB) veya **Behringer ECM8000** (ses kartı) ile canlı spektrum, dB(A)/dB(C), Leq. Kalibrasyon dosyası, referansla kalibrasyon, pembe gürültü üreteci, birkaç noktanın ortalaması, **hangi frekansı ne kadar indireceğin** (parametrik EQ + 31 bant), geri besleme avcısı. |
+| **Ölçüm** | **miniDSP UMIK-1** (USB, iPhone dahil) veya **Behringer ECM8000** (ses kartı) ile: **dB ölçer** (LAeq, LAF, LCpeak, geçmiş, isteğe bağlı yasal sınır, protokol), **RTA**, **gecikme ölçümü** (sub–tepe, ana–delay, yankı süresi), **EQ önerisi** (hangi frekansı ne kadar indireceğin) ve geri besleme avcısı. |
 | **Kurulum** | Kurulumu yapacak kişi için **akış diyagramı** (ekip şeritleri, kritik yol), **zaman çizelgesi** (etkinlik saatine göre en geç başlangıç) ve adım adım talimat. Her adım işaretlenebilir. Başka dilde yazdırılabilir. |
 
 ### Ses dağılımı: pist yüksek, masalar konforlu
@@ -44,6 +65,47 @@ boyunu, elektrik yükünü ve ses dağılımını hesaplar. Sonunda sahneyi hiç
 - Planda ısı haritasını **"Hedefe göre"** aç: yeşil uygun, mavi az, kırmızı fazla.
 
 ![Ses dağılımı](docs/ses-dagilimi.jpg)
+
+### dB ölçer ve yasal sınır
+
+**Ölçüm → dB ölçer** sekmesi gerçek bir ses seviyesi ölçer gibi çalışır:
+
+- **LAeq** (sınır penceresine göre kayan ortalama, örn. 30 dk), **LAF / LAS** (anlık), **LCpeak**, **LAFmax**,
+  başlangıçtan beri LAeq ve bas payı (LCeq − LAeq).
+- Seviye geçmişi grafiği (5 / 15 / 60 dk / tümü) ve **protokol (CSV)**: saniye saniye kayıt, belgelemek için.
+- **Ses sınırı isteğe bağlıdır**: aç/kapat. Hazır ayarlar: **DIN 15905-5** (Almanya, 99 dB(A) / 30 dk,
+  LCpeak 135 dB(C)), **WHO 2022** önerisi (100 dB(A) / 15 dk) ya da kendi değerin. Sınır projeye kaydedilir.
+- Pist hedefi sınırın üstündeyse ses dağılımı bölümü de uyarır.
+- "Ekranı açık tut" ile telefon ölçüm sırasında kararmaz.
+
+![dB ölçer](docs/olcum-db.jpg)
+
+### Gecikme ölçümü: sub–tepe ve ana–delay
+
+**Ölçüm → Gecikme** sekmesi tarama sinyaliyle (sweep) hoparlörlerin mikrofona varış zamanını ölçer.
+
+- **Sub – tepe (satellite) hizalama**: mikrofonu pistin ortasına koy. Mikserde önce **sadece sub**,
+  sonra **sadece tepe** açıkken "Ölç"e bas. Program hangi tarafa kaç ms gecikme gerektiğini ve gerekirse
+  sub polaritesinin çevrilmesini söyler. Geçiş bölgesinde kazanılan bas da yazılır. "Plana yaz" ile
+  hoparlörün gecikmesi güncellenir.
+- **Ana – delay hizalama**: mikrofonu delay hoparlörünün kapsadığı bölgenin başına koy. Sadece ana, sonra sadece
+  delay ölç. Program delay hoparlörüne eklenecek gecikmeyi verir; sesin sahneden geliyormuş gibi
+  duyulması için küçük bir ek pay (Haas, 5–10 ms) ekler.
+- **Tek ölçüm, birden çok varış**: ana ve delay birlikte açıkken iki varış arasındaki fark da görülür.
+- **Yankı süresi**: her ölçümden salonun gerçek yankı süresi (T20/T30, 125 Hz – 4 kHz) hesaplanır ve
+  modelle karşılaştırılır.
+- **Sıfır noktası**: mikrofonu hoparlöre dayayıp bir kez ölçersen cihazın kendi gecikmesi çıkarılır ve
+  hoparlörlere uzaklık metre olarak görünür.
+
+Test sinyali iki yoldan çalınabilir:
+
+- **Bu cihazdan çal**: bilgisayarın veya telefonun ses çıkışı miksere bağlıysa. Ayrı ayrı (A/B)
+  ölçümler sadece bu yolla karşılaştırılır (zaman referansı bilinir). Bluetooth kullanma.
+- **Başka cihazdan (WAV)**: "Tarama WAV" dosyasını indir, DJ cihazından (örn. Prime 4 USB) çal.
+  Telefon sadece dinler. Bu modda aynı ölçümdeki varışlar karşılaştırılır. "Pembe gürültü WAV" de
+  RTA ve EQ için aynı şekilde kullanılır.
+
+![Gecikme](docs/gecikme.jpg)
 
 ### Ölçüm: UMIK-1 / ECM8000 ile canlı RTA
 
