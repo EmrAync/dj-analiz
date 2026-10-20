@@ -10,7 +10,8 @@ const VIEWS: { id: View; icon: string; key: string }[] = [
   { id: 'schema', icon: 'schema', key: '3' },
   { id: 'lists', icon: 'list', key: '4' },
   { id: 'analysis', icon: 'wave', key: '5' },
-  { id: 'setup', icon: 'checklist', key: '6' },
+  { id: 'measure', icon: 'mic', key: '6' },
+  { id: 'setup', icon: 'checklist', key: '7' },
 ];
 
 export function TopBar() {

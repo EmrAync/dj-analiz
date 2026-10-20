@@ -15,6 +15,12 @@ import { runWizard, WIZ_DEFAULT, type WizardParams } from '../src/engine/wizard'
 import { makeT } from '../src/i18n';
 import { CATALOG, findPort, makeItem, newProject, portsOf } from '../src/model/project';
 import type { Project } from '../src/model/types';
+import { freeze } from 'immer';
+import { applyPlan, coveragePlan, danceScan, moveDance, zoneTarget } from '../src/engine/coverage';
+import { reverbEnergy } from '../src/engine/acoustics';
+import { aWeight, calAt, cWeight, demoCurve, octaveBands, parseCal } from '../src/audio/dsp';
+import { EQ_DEFAULT, peqDb, suggestEq } from '../src/engine/eq';
+import { buildPlan } from '../src/engine/activities';
 
 const t = makeT('tr');
 const zn = { stage: 'Sahne', audience: 'Seyirci', dance: 'Dans', tables: 'Masalar', foh: 'FOH', walkway: 'Yol', backstage: 'Kulis', bar: 'Bar', nogo: 'Yasak', custom: 'Alan' } as WizardParams['zoneNames'];
@@ -167,4 +173,81 @@ test('DXF çıktısı', () => {
   assert.ok(dxf.startsWith('0\r\nSECTION'));
   assert.ok(dxf.trim().endsWith('EOF'));
   assert.ok(dxf.includes('POLYLINE') && dxf.includes('KABLO_audio'));
+});
+
+// —— Ses dağılımı ——
+test('kapsama: bölge hedefleri ve kapatma', () => {
+  const p = wiz({ music: 'dj', guests: 250 });
+  const dance = p.zones.find((z) => z.kind === 'dance')!;
+  assert.equal(zoneTarget(dance), 98);
+  assert.equal(zoneTarget({ ...dance, target: 0 }), null);
+  assert.equal(zoneTarget({ ...dance, kind: 'tables' }), 87);
+});
+
+test('kapsama: pist hedefte, öneriler uygulanınca kararlı', () => {
+  const p = freeze(wiz({ music: 'dj', guests: 250 }), true);
+  const a = p.areas[0].id;
+  const plan = coveragePlan(p, a);
+  assert.ok(!plan.noZones && !plan.noSpeakers);
+  const d = plan.final.find((e) => e.kind === 'dance')!;
+  assert.ok(Math.abs(d.avg - d.target) < 2.5, 'pist ' + d.avg);
+  const q = JSON.parse(JSON.stringify(p)) as Project;
+  applyPlan(q, a, plan.proposals.map((x) => x.id), true);
+  const q2 = freeze(JSON.parse(JSON.stringify(q)) as Project, true);
+  const plan2 = coveragePlan(q2, a);
+  assert.equal(plan2.proposals.length, 0, 'ikinci kez öneri çıkmamalı');
+  assert.ok(Math.abs(plan2.now.find((e) => e.kind === 'dance')!.avg - 98) < 2.5);
+  assert.equal(errors(q2).length, 0, JSON.stringify(errors(q2)));
+});
+
+test('kapsama: yankılı salonda tavsiye, açık havada masalar hedefe yakın', () => {
+  const hall = freeze(wiz({ music: 'dj', guests: 250 }), true);
+  assert.ok(coveragePlan(hall, hall.areas[0].id).advice.some((x) => x.code === 'reverb'));
+  const out = freeze(wiz({ music: 'dj', guests: 600, indoor: false, w: 30, d: 55 }), true);
+  const pl = coveragePlan(out, out.areas[0].id);
+  for (const e of pl.final.filter((x) => x.kind === 'tables')) assert.ok(Math.abs(e.avg - e.target) < 4, 'masa ' + e.avg);
+  assert.ok(reverbEnergy(out, out.areas[0].id) === 0);
+});
+
+test('kapsama: pist mesafesi taraması', () => {
+  const p = freeze(wiz({ music: 'dj', guests: 500, w: 22, d: 34, h: 5 }), true);
+  const sc = danceScan(p, p.areas[0].id)!;
+  assert.ok(sc && sc.pts.length > 5);
+  assert.ok(sc.best[0] <= sc.bestGap && sc.bestGap <= sc.best[1]);
+  const q = JSON.parse(JSON.stringify(p)) as Project;
+  moveDance(q, q.areas[0].id, sc.bestGap, sc.ref);
+  const dz = q.zones.find((z) => z.kind === 'dance')!;
+  assert.ok(Math.abs(dz.y - (sc.ref + sc.bestGap)) < 0.02);
+});
+
+// —— Ölçüm / EQ ——
+test('dsp: bantlar, ağırlıklar, kalibrasyon dosyası', () => {
+  assert.equal(octaveBands(3).fc.length, 29);
+  assert.ok(Math.abs(aWeight(1000)) < 0.05 && Math.abs(aWeight(100) + 19.1) < 0.2 && Math.abs(cWeight(31.5) + 3) < 0.2);
+  const cal = parseCal('"Sens Factor =-1.378dB, SERNO: 7012345"\n20.0\t-1.2\n1000\t0.0\n20000\t2.1\n')!;
+  assert.equal(cal.sens, -1.378);
+  assert.equal(cal.serial, '7012345');
+  assert.ok(Math.abs(calAt(cal, 1000)) < 1e-9 && calAt(cal, 30000) === 2.1);
+});
+
+test('eq: oda modu ve sertlik için kesme, sadece kesme', () => {
+  const b = octaveBands(12);
+  const r = suggestEq(b.fc, demoCurve(b.fc), EQ_DEFAULT);
+  assert.ok(r.filters.length >= 2 && r.filters.every((f) => f.gain < 0));
+  assert.ok(r.filters.some((f) => f.f > 50 && f.f < 80), '63 Hz modu');
+  assert.ok(r.filters.some((f) => f.f > 2000 && f.f < 3200), '2,5 kHz');
+  assert.ok(Math.max(...r.after) < Math.max(...r.dev));
+  assert.ok(Math.abs(peqDb(1000, 1000, -6, 2) + 6) < 0.01);
+});
+
+// —— Kurulum planı ——
+test('kurulum planı: bağımlılık sırası ve kritik yol', () => {
+  const p = wiz({ music: 'band', guests: 300, lights: 'full' });
+  p.meta.time = '19:30';
+  const plan = buildPlan(p, buildSetup(p, t, 'tr'));
+  assert.ok(plan.total > 60);
+  for (const a of plan.acts) for (const d of a.deps) assert.ok(plan.acts.find((x) => x.id === d)!.ef <= a.es + 1e-9);
+  const crit = plan.acts.filter((a) => a.critical).map((a) => a.id);
+  assert.ok(crit.includes('prep') && crit.includes('test'));
+  assert.equal(plan.start, 19 * 60 + 30 - plan.total - plan.buffer);
 });

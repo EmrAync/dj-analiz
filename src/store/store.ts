@@ -7,7 +7,7 @@ import { newProject } from '../model/project';
 import type { Band } from '../engine/acoustics';
 import type { EquipDef } from '../model/types';
 
-export type View = 'plan' | '3d' | 'schema' | 'lists' | 'analysis' | 'setup';
+export type View = 'plan' | '3d' | 'schema' | 'lists' | 'analysis' | 'measure' | 'setup';
 export type Tool = 'select' | 'cable' | 'zone' | 'measure' | 'text' | 'pan';
 export type LeftTab = 'library' | 'layers' | 'areas' | 'checks';
 
@@ -34,12 +34,14 @@ export interface Layers {
   bg: boolean;
   notes: boolean;
   room: boolean; // 3D duvarlar
+  measure: boolean; // ölçüm noktaları
 }
 
 export interface HeatOpts {
   band: Band;
   freq: number;
   coherent: boolean;
+  mode: 'abs' | 'dev'; // mutlak dB / bölge hedefine göre sapma
 }
 
 export type DialogKind = 'wizard' | 'projects' | 'project' | 'defEditor' | 'connect' | 'help' | 'export' | 'area';
@@ -78,6 +80,7 @@ export interface State extends PrefState {
   library: { defs: EquipDef[] };
   focus: { x: number; y: number; at: number } | null; // planı bir noktaya odakla
   installer: boolean; // kurulumcu (salt-okunur) modu
+  ghosts: boolean; // kapsama önerilerini planda göster
 
   mutate: (fn: (d: Draft<Project>) => void, history?: boolean) => void;
   checkpoint: () => void;
@@ -111,8 +114,9 @@ function defaultPrefs(): PrefState {
       bg: true,
       notes: true,
       room: true,
+      measure: true,
     },
-    heat: { band: 'mid', freq: 63, coherent: true },
+    heat: { band: 'mid', freq: 63, coherent: true, mode: 'abs' },
     snap: true,
     gridStep: 0.1,
     leftTab: 'library',
@@ -168,6 +172,7 @@ export const useStore = create<State>()((set, get) => ({
   library: { defs: [] },
   focus: null,
   installer: false,
+  ghosts: false,
 
   mutate: (fn, history = true) =>
     set((s) => {

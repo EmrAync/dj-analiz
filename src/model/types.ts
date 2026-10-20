@@ -229,6 +229,7 @@ export interface Zone {
   d: number;
   elev: number; // yükselti (sahne podesti yüksekliği)
   color?: string;
+  target?: number; // hedef ses seviyesi dB (0 = hedef yok; boşsa bölge türüne göre)
 }
 
 export type NoteKind = 'text' | 'dim' | 'arrow';
@@ -315,6 +316,36 @@ export interface ProjectSettings {
   earH: number; // kulak yüksekliği (m)
   targetSpl: number; // hedef dB
   crest: number; // tepe/ortalama farkı dB
+  eq?: EqTarget; // ölçüm: hedef eğri
+}
+
+export type CurveId = 'flat' | 'house' | 'dance' | 'live' | 'speech';
+
+export interface EqTarget {
+  curve: CurveId;
+  bass: number; // ek bas (dB, ~90 Hz altı)
+  tilt: number; // 1 kHz üstü eğim (dB/oktav)
+  lo: number; // sistem alt sınırı (Hz)
+  hi: number; // sistem üst sınırı (Hz)
+  boost: boolean; // küçük yükseltmelere izin
+}
+
+// RTA ölçümü (kalibre edilmiş, Z ağırlıklı, 1/12 oktav bantlar)
+export interface Measurement {
+  id: string;
+  name: string;
+  areaId: string;
+  x?: number;
+  y?: number;
+  at: number;
+  device: string;
+  calibrated: boolean;
+  freqs: number[];
+  bands: number[]; // dB SPL (kalibre değilse dBFS + ofset)
+  spl: { a: number; c: number; z: number; leq: number; max: number };
+  secs: number; // ortalama süresi
+  hidden?: boolean;
+  demo?: boolean;
 }
 
 export interface Project {
@@ -346,6 +377,7 @@ export interface Project {
   defImages: Record<string, string>; // katalog modeli → resim (asset id)
   assets: Record<string, Asset>;
   done: Record<string, boolean>; // kurulum kontrol listesi
+  measurements?: Measurement[];
 }
 
 export interface PortInst {

@@ -208,17 +208,21 @@ export function listenZones(p: Project, areaId: string): Zone[] {
   return p.zones.filter((z) => z.areaId === areaId && (z.kind === 'audience' || z.kind === 'dance' || z.kind === 'tables' || z.kind === 'foh'));
 }
 
+// Tek kaynağın orta bant (1 kHz) seviyesi
+export function midLevel(s: Source, x: number, y: number, z: number): number {
+  const vx = x - s.x;
+  const vy = y - s.y;
+  const vz = z - s.z;
+  const d = Math.max(1, Math.hypot(vx, vy, vz));
+  return s.lp1m - 20 * Math.log10(d) - 0.004 * d + directivity(s, vx, vy, vz);
+}
+
 export function splAt(srcs: Source[], x: number, y: number, z: number, o: GridOpts, c: number): number {
   if (o.band === 'mid') {
     let e = 0;
     for (const s of srcs) {
       if (s.kind === 'sub') continue;
-      const vx = x - s.x;
-      const vy = y - s.y;
-      const vz = z - s.z;
-      const d = Math.max(1, Math.hypot(vx, vy, vz));
-      const L = s.lp1m - 20 * Math.log10(d) - 0.004 * d + directivity(s, vx, vy, vz);
-      e += Math.pow(10, L / 10);
+      e += Math.pow(10, midLevel(s, x, y, z) / 10);
     }
     return e > 0 ? 10 * Math.log10(e) : NaN;
   }
@@ -250,6 +254,33 @@ export function splAt(srcs: Source[], x: number, y: number, z: number, o: GridOp
   return e > 0 ? 10 * Math.log10(e) : NaN;
 }
 
+// Yankı alanı (Hopkins–Stryker): kapalı salonda her kaynağın yansıyan enerjisi her yere eşit dağılır.
+// Lrev = Lw + 10·log10(4/R), Lw = Lp(1 m) − 10·log10(Q) + 11, R = A/(1−ᾱ) (500 Hz)
+export function roomConstant(area: Area): number | null {
+  const ra = roomAcoustics(area);
+  if (!ra) return null;
+  const am = Math.min(0.95, ra.A[1] / ra.S);
+  return ra.A[1] / (1 - am);
+}
+
+export function reverbOf(s: Source, R: number | null): number {
+  if (R == null || s.kind === 'sub' || s.kind === 'iem') return 0;
+  const Q = s.kind === 'array' ? qFromCoverage(s.h, Math.max(s.v, 10)) : qFromCoverage(s.h, s.v);
+  const Lw = s.lp1m - 10 * Math.log10(Math.max(1, Q)) + 11;
+  return Math.pow(10, (Lw + 10 * Math.log10(4 / Math.max(1, R))) / 10);
+}
+
+export function reverbEnergy(p: Project, areaId: string): number {
+  return derive(p, 'rev:' + areaId, () => {
+    const area = p.areas.find((a) => a.id === areaId);
+    const R = area ? roomConstant(area) : null;
+    if (R == null) return 0;
+    let e = 0;
+    for (const s of sourcesOf(p, areaId)) e += reverbOf(s, R);
+    return e;
+  });
+}
+
 export function splGrid(p: Project, areaId: string, o: GridOpts): SplGrid | null {
   const key = `grid:${areaId}:${o.band}:${o.freq}:${o.coherent}`;
   return derive(p, key, () => {
@@ -263,6 +294,7 @@ export function splGrid(p: Project, areaId: string, o: GridOpts): SplGrid | null
     const data = new Float32Array(nx * ny);
     const zones = listenZones(p, areaId);
     const c = speedOfSound(p.env.tempC);
+    const rev = reverbEnergy(p, areaId);
     const vals: number[] = [];
     let min = Infinity;
     let max = -Infinity;
@@ -271,7 +303,8 @@ export function splGrid(p: Project, areaId: string, o: GridOpts): SplGrid | null
         const x = (i + 0.5) * step;
         const y = (j + 0.5) * step;
         const z = floorElevAt(p.zones, areaId, x, y) + p.settings.earH;
-        const L = splAt(srcs, x, y, z, o, c);
+        let L = splAt(srcs, x, y, z, o, c);
+        if (o.band === 'mid' && rev > 0) L = 10 * Math.log10((isNaN(L) ? 0 : Math.pow(10, L / 10)) + rev);
         data[j * nx + i] = L;
         if (!isNaN(L)) {
           if (L < min) min = L;
@@ -336,7 +369,10 @@ export function splPoint(p: Project, areaId: string, x: number, y: number): { mi
   const srcs = sourcesOf(p, areaId);
   const c = speedOfSound(p.env.tempC);
   const z = floorElevAt(p.zones, areaId, x, y) + p.settings.earH;
-  return { mid: splAt(srcs, x, y, z, { band: 'mid', freq: 1000, coherent: false }, c), low: splAt(srcs, x, y, z, { band: 'low', freq: 63, coherent: false }, c) };
+  const d = splAt(srcs, x, y, z, { band: 'mid', freq: 1000, coherent: false }, c);
+  const rev = reverbEnergy(p, areaId);
+  const mid = rev > 0 ? 10 * Math.log10((isNaN(d) ? 0 : Math.pow(10, d / 10)) + rev) : d;
+  return { mid, low: splAt(srcs, x, y, z, { band: 'low', freq: 63, coherent: false }, c) };
 }
 
 // Uzak mesafede tahmini seviye (komşu)

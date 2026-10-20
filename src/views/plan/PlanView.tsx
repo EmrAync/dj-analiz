@@ -3,10 +3,11 @@ import { analyzeCables, anchorPlan } from '../../engine/cables';
 import { getDef, makeItem } from '../../model/project';
 import { L } from '../../i18n';
 import type { Item, Project, ZoneKind } from '../../model/types';
-import { addItem, addNote, addZone, moveSelection, snapPt, updateCable, updateItem, updateNote, updateZone } from '../../store/actions';
+import { addItem, addNote, addZone, applyCoverage, moveSelection, snapPt, updateCable, updateItem, updateNote, updateZone } from '../../store/actions';
 import { st, useStore, useT } from '../../store/store';
 import { Icon, useSize } from '../../ui/kit';
 import { HeatLegend } from '../HeatLegend';
+import { coveragePlan } from '../../engine/coverage';
 import { ZONE_KINDS } from '../common';
 import { PlanDrawing, PlanItem, type ViewBox } from './PlanDrawing';
 
@@ -42,7 +43,9 @@ export function PlanView() {
   const cableDraft = useStore((s) => s.cableDraft);
   const focus = useStore((s) => s.focus);
   const installer = useStore((s) => s.installer);
+  const showGhosts = useStore((s) => s.ghosts);
   const area = p.areas.find((a) => a.id === areaId) || p.areas[0];
+  const plan = showGhosts ? coveragePlan(p, area.id) : null;
   const [wrapRef, size] = useSize<HTMLDivElement>();
   const svgRef = useRef<SVGSVGElement>(null);
   const [cam, setCam] = useState<Cam>(() => cams.get(area.id) || { tx: 60, ty: 60, k: 30 });
@@ -468,7 +471,7 @@ export function PlanView() {
       >
         <g transform={`translate(${cam.tx} ${cam.ty}) scale(${cam.k})`}>
           <style>{'.plan-overlay{pointer-events:none}'}</style>
-          <PlanDrawing p={p} area={area} layers={layers} sel={sel} k={cam.k} lang={lang} t={t} vb={vb} heat={layers.heatmap ? heat : null} hover={hover} />
+          <PlanDrawing p={p} area={area} layers={layers} sel={sel} k={cam.k} lang={lang} t={t} vb={vb} heat={layers.heatmap ? heat : null} hover={hover} ghosts={plan?.proposals} />
           {ghost ? <PlanItem it={ghost.it} def={ghost.def} k={cam.k} sel={false} labels={false} ghost /> : null}
           {draftLine ? <line x1={draftLine.a.x} y1={draftLine.a.y} x2={draftLine.b.x} y2={draftLine.b.y} stroke="var(--accent)" strokeWidth={2} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} /> : null}
           {overlay?.kind === 'marquee' ? <rect className="plan-overlay" x={Math.min(overlay.x0, overlay.x1)} y={Math.min(overlay.y0, overlay.y1)} width={Math.abs(overlay.x1 - overlay.x0)} height={Math.abs(overlay.y1 - overlay.y0)} fill="rgba(37,99,235,0.08)" stroke="var(--accent)" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" /> : null}
@@ -512,6 +515,30 @@ export function PlanView() {
         </div>
       ) : null}
       {hud ? <div className="hud">{hud}</div> : null}
+      {plan ? (
+        <div className="ghost-bar no-print" data-testid="ghost-bar">
+          <Icon name="sparkles" size={16} color="#16a34a" />
+          <span>{plan.proposals.length ? t('cov.ghostBar', { n: plan.proposals.reduce((s0, x) => s0 + x.add.length, 0) }) : t('cov.allGood')}</span>
+          {plan.proposals.length && !installer ? (
+            <button
+              className="btn sm primary"
+              onClick={() => {
+                const n = applyCoverage(plan.proposals.map((x) => x.id), true);
+                st().notify(t('cov.applied', { n }));
+                st().set({ ghosts: false });
+              }}
+            >
+              {t('cov.applyAll')}
+            </button>
+          ) : null}
+          <button className="btn sm" onClick={() => st().set({ view: 'analysis' })}>
+            {t('cov.details')}
+          </button>
+          <button className="ibtn sm" onClick={() => st().set({ ghosts: false })} title={t('act.close')}>
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+      ) : null}
       <HoverTip id={hover} cursor={cursor} cam={cam} />
       <div className="floating-br no-print">
         {layers.heatmap ? <HeatLegend /> : null}

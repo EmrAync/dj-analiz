@@ -1,5 +1,6 @@
 // Etkileşim testleri: kablo aracı, geri al, sürükleme, alan çizme, şemada bağlama, ayna kopya,
-// kurulumcu modu, koyu tema, mobil görünüm, Almanca kurulum talimatı, DXF/PNG/JSON dışa aktarma.
+// kurulumcu modu, koyu tema, mobil görünüm, Almanca kurulum talimatı, DXF/PNG/JSON dışa aktarma,
+// ses dağılımı önerileri, canlı RTA (sahte mikrofon), kalibrasyon, EQ önerisi, kurulum akış diyagramı.
 import { createRequire } from 'module';
 import fs from 'fs';
 const require = createRequire(import.meta.url);
@@ -18,8 +19,8 @@ const ok = (cond, msg) => {
   if (!cond) fails.push(msg);
   console.log((cond ? 'PASS ' : 'FAIL ') + msg);
 };
-const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
-const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
+const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
+const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true, permissions: ['microphone'] });
 const page = await ctx.newPage();
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 page.on('console', (m) => m.type() === 'error' && errors.push('console: ' + m.text()));
@@ -164,6 +165,54 @@ ok(setupText.includes('Aufbauanleitung') && setupText.includes('von der linken W
 await shot('34-setup-de');
 await page.locator('[data-testid="file-menu"]').click();
 await page.locator('[data-testid="toggle-installer"]').click();
+// —— 12. Ses dağılımı: önerileri uygula, geri al
+await page.locator('[data-testid="view-analysis"]').click();
+await page.waitForTimeout(1200);
+ok((await page.locator('[data-testid="coverage-panel"]').count()) === 1, 'ses dağılımı paneli');
+ok((await page.locator('[data-testid="cov-profile"]').count()) === 1, 'mesafe profili grafiği');
+ok((await page.locator('[data-testid="dance-distance"]').count()) === 1, 'pist mesafesi taraması');
+const nItems0 = await itemCount();
+const props = await page.locator('[data-testid^="cov-prop-"]').count();
+if (props) {
+  await page.locator('[data-testid="cov-apply"]').click();
+  await page.waitForTimeout(800);
+  ok((await itemCount()) > nItems0, `öneriler uygulandı (${nItems0} → ${await itemCount()})`);
+  await page.locator('[data-testid="undo"]').click();
+  await page.waitForTimeout(400);
+  ok((await itemCount()) === nItems0, 'öneri uygulaması geri alındı');
+} else ok(true, 'öneri yok (dağılım iyi)');
+await shot('50-coverage');
+// —— 13. Ölçüm: sahte mikrofon, kalibrasyon, örnek ölçümlerle EQ önerisi
+await page.locator('[data-testid="view-measure"]').click();
+await page.waitForTimeout(500);
+await page.locator('[data-testid="ms-start"]').click();
+await page.waitForTimeout(2500);
+const spl0 = await page.locator('[data-testid="ms-spl"]').innerText();
+ok(/\d/.test(spl0), 'canlı SPL değeri (' + spl0.replace(/\s+/g, ' ') + ')');
+// sahte mikrofon bip sesi verir (seviye oynar): ölçümü dondur, ofset hesabını doğrula
+await page.getByText('Dondur').first().click();
+const before = await page.evaluate(() => {
+  const s = window.__sahnecadRta.getState();
+  return { c: s.frame.spl.c, off: s.cal.offset };
+});
+await page.locator('[data-testid="ms-calibrate"]').click();
+const after = await page.evaluate(() => window.__sahnecadRta.getState().cal);
+ok(after.calibrated && Math.abs(after.offset - before.off - (94 - before.c)) < 0.05, `referansla kalibrasyon (ofset ${before.off.toFixed(1)} → ${after.offset.toFixed(1)})`);
+await page.getByText('Devam').first().click();
+for (let i = 0; i < 3; i++) await page.locator('[data-testid="ms-demo"]').click();
+await page.waitForTimeout(800);
+ok((await page.locator('[data-testid="peq-table"] tbody tr').count()) >= 1, 'parametrik EQ önerisi');
+ok((await page.locator('[data-testid="geq-chart"]').count()) === 1, '31 bant GEQ');
+await shot('51-measure');
+await page.locator('[data-testid="ms-stop"]').click();
+// —— 14. Kurulum akış diyagramı ve zaman çizelgesi
+await page.locator('[data-testid="view-setup"]').click();
+await page.waitForTimeout(600);
+ok((await page.locator('[data-testid^="act-"]').count()) >= 6, 'aktivite diyagramı düğümleri');
+await page.getByText('Zaman çizelgesi').first().click();
+await page.waitForTimeout(300);
+ok((await page.locator('[data-testid="gantt"]').count()) === 1, 'zaman çizelgesi');
+await shot('52-gantt');
 // —— 10. Koyu tema + İngilizce
 await page.locator('[title="Açık / koyu tema"]').click();
 await page.locator('[data-testid="view-plan"]').click();

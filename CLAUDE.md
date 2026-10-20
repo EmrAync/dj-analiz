@@ -58,13 +58,21 @@ src/
     wizard.ts           runWizard: room, zones, PA sizing (throw distance → model, delays, arrays), DJ/band/davul,
                         lights, tables, power, then autowire
     lists.ts            patch/input list, CSV, DXF (R12 ASCII, layers per cable kind)
+    coverage.ts         zone targets (dance 98 / tables 87 dB…; DIN 15905-5: Leq 30 min ≤ 99 dB(A)), per-group direct-energy grids + reverberant
+                        field, gain optimiser (dance near-hard, reverb floor, D/R clarity), proposals (aim mains,
+                        dance fills, side fills, delays), applyPlan/applyLevels, danceScan, profile rows
+    eq.ts               target curves, RBJ peaking response, suggestEq (cuts first, GEQ 31, advice), feedbackPeaks
+    activities.ts       setup steps → team activities, durations, dependencies, CPM (critical path), latest start
+  audio/dsp.ts          fractional-octave bands, A/C weighting, UMIK-1 cal file parser, smoothing, demo curve
+  audio/engine.ts       Web Audio RTA (getUserMedia raw, AnalyserNode 16k FFT, scale self-check vs time domain),
+                        calibration per device (localStorage), averaging, SPL A/C/Z/Leq/Max, generator, feedback
   store/store.ts        zustand: project + undo history (immer snapshots), UI state, prefs (localStorage)
   store/actions.ts      every user operation (add/move/rotate/duplicate/mirror/delete, connect, zones, areas, images, custom defs)
   store/persist.ts      IndexedDB (projects + personal library), file import/export, image downscaling
   views/plan/           PlanDrawing (pure SVG, also used for export/print), PlanView (camera, tools, pointer logic)
   views/three/          ThreeView (r3f scene, TransformControls, cones, heatmap), models.tsx (procedural models)
   views/schema/         SchemaView (signal/power block diagram, drag port→port)
-  views/lists|analysis|setup/
+  views/lists|analysis|setup|measure/   analysis/CoveragePanel, measure/MeasureView, setup/ActivityDiagram
   ui/                   TopBar, LeftPanel (library/layers/sections/checks), Inspector, StatusBar, dialogs, kit
   i18n/                 tr.ts (source of keys, TKey type), de.ts, en.ts (complete), makeT, L()
 ```
@@ -85,7 +93,21 @@ pitch `rotation.x = -tilt`. Item `z` is the bottom edge above the local floor (s
 - Approximate brand data: keep the "values are approximate" hint; never claim manufacturer accuracy.
 - Safety hints stay: 400 V by an electrician, rigging by a qualified rigger, keep escape routes clear.
 
-## 5. Status (v0.1.0)
+## 5. Status (v0.2.0)
+
+v0.2.0 (user request: "as the venue gets longer, where to add speakers; dance floor loud, tables pleasant;
+dance-floor distance; UMIK-1 / ECM8000 live RTA with cut suggestions; setup as an activity diagram"):
+- Analysis → **Ses dağılımı** panel (coverage.ts). Reverberant field is now part of `splGrid` mid band and
+  `splPoint` (indoor only). Wizard indoor rooms use gypsum ceiling + 15 % curtains.
+- **Ölçüm** view (key 6; setup moved to 7). Mic needs a secure context: works from `file://` in Chrome/Edge;
+  blocked inside the claude.ai artifact preview. Fake mic for tests: Chromium flags
+  `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream` (beeping tone; freeze before asserting levels).
+- Setup view modes: flow diagram / Gantt / list (`activities.ts`). Event time from Project info (`meta.time`).
+- `window.__sahnecadRta` exposes the RTA store for tests.
+- UMIK-1 absolute SPL from "Sens Factor" is only approximate (depends on OS input gain); reference
+  calibration is the primary path. Keep saying so in the UI.
+
+v0.1.0:
 
 Working and tested: all six views, library + custom gear + images, cable tool & dialog, schema drag-connect,
 autowire signal/power, checks, BOM/cable pack/input/power lists + CSV, analysis, setup instructions in 3
@@ -94,6 +116,9 @@ mirror copy, DXF/SVG/PNG/JSON export, dark theme, mobile layout, single-file bui
 
 ## 6. Backlog / ideas (ask the user before big changes)
 
+0. Coverage: per-band (63/125/…/8k) model, ground reflection, real speaker balloon data; transfer-function
+   (dual-channel) measurement and impulse response / RT60 measurement with sweeps; measured points could
+   calibrate the model.
 1. **Programs/scenes** (e.g. "DJ set" vs "live band", ceremony vs dance): per-item visibility per program.
 2. Truss load calculation (points, kg per hoist) and LED-wall processor port mapping.
 3. Wireless frequency plan (Germany: 470–608 MHz, 823–832, 863–865 MHz) and IEM mixes.

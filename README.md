@@ -24,7 +24,59 @@ boyunu, elektrik yükünü ve ses dağılımını hesaplar. Sonunda sahneyi hiç
 | **Bağlantı şeması** | Sinyal akışı blok şeması: cihazlar portlarıyla, kablolar etiketiyle. **Porttan porta sürükleyerek bağla.** Elektrik şeması (faz, watt, amper). Tüm bölümler birlikte gösterilebilir. |
 | **Listeler** | Malzeme listesi (standlar, ara direk, kum torbası, podest, kablo köprüsü, gaffa otomatik eklenir), kablo listesi, **kablo paketi** (hangi boydan kaç kablo + yedek), **input listesi**, elektrik devreleri. CSV (Excel) ve yazdırma. |
 | **Analiz** | Ortalama/maksimum dB, dağılım, oda yankısı (RT60), kritik mesafe, delay önerileri, sıcaklığa göre ses hızı, rüzgar ve komşu ses sınırı, faz yükleri, öneriler. |
-| **Kurulum** | Kurulumu yapacak kişi için adım adım talimat. Her adım işaretlenebilir. Talimat başka dilde yazdırılabilir (yardımcı ekip için Almanca). |
+| **Ölçüm (RTA)** | **miniDSP UMIK-1** (USB) veya **Behringer ECM8000** (ses kartı) ile canlı spektrum, dB(A)/dB(C), Leq. Kalibrasyon dosyası, referansla kalibrasyon, pembe gürültü üreteci, birkaç noktanın ortalaması, **hangi frekansı ne kadar indireceğin** (parametrik EQ + 31 bant), geri besleme avcısı. |
+| **Kurulum** | Kurulumu yapacak kişi için **akış diyagramı** (ekip şeritleri, kritik yol), **zaman çizelgesi** (etkinlik saatine göre en geç başlangıç) ve adım adım talimat. Her adım işaretlenebilir. Başka dilde yazdırılabilir. |
+
+### Ses dağılımı: pist yüksek, masalar konforlu
+
+**Analiz** ekranının başındaki bölüm:
+
+- Her bölgenin **hedef seviyesi** var: dans pisti 98 dB, masalar 87 dB, seyirci 96 dB, bar 82 dB.
+  Tablodan ya da bölgenin ayarlarından değiştirilir.
+- Program yankıyı da hesaba katar (salonun malzemesi, kişi sayısı). **Netlik** sütunu masalarda konuşmanın ve
+  şarkı sözünün anlaşılır olup olmadığını gösterir.
+- **Öneriler**: alan uzadıkça gereken **delay hoparlörleri**, sahne yanındaki masalar için **yan dolgu**,
+  **pist hoparlörleri** ve ana hoparlörlerin açısı. Her öneride konum, yükseklik, **gecikme (ms)** ve
+  seviye var. "Planda göster" ile yeşil kesikli görürsün; "Uygula" ile kablolarıyla eklenir (geri alınabilir).
+- **Seviye ayarı**: ana sistem, delay ve sub için mikserde ne kadar kısıp açacağın.
+- **Mesafe profili**: sahneden uzaklaştıkça her bölgenin seviyesi, şimdi ve önerilerle.
+- **Pistin sahneye uzaklığı**: pistin her konumu denenir, önerilen aralık gösterilir, tek tuşla taşınır.
+- Planda ısı haritasını **"Hedefe göre"** aç: yeşil uygun, mavi az, kırmızı fazla.
+
+![Ses dağılımı](docs/ses-dagilimi.jpg)
+
+### Ölçüm: UMIK-1 / ECM8000 ile canlı RTA
+
+1. **UMIK-1**: USB'ye tak. miniDSP sitesinden seri numarana ait kalibrasyon dosyasını indir ve
+   "Kalibrasyon dosyası" ile yükle. **ECM8000**: ses kartının XLR girişine tak, 48V phantom aç,
+   kazancı ayarla ve sonra değiştirme.
+2. **Ölçüm** sekmesi → "Ölçümü başlat" → tarayıcıda mikrofon iznini ver (Chrome veya Edge önerilir).
+3. Bir kez **kalibre et**: pembe gürültü çalarken referans ses ölçerin değerini yaz. 94 dB
+   kalibratörün varsa 94 / C seç. Kalibre edilmeden seviyeler yaklaşıktır, EQ önerisi yine çalışır.
+4. Pistte ve masalarda birkaç noktada ölç. Planda mikrofonun yerine tıkla ve "Ölçümü kaydet"e bas.
+   En az 3 noktanın ortalamasıyla EQ yap, tek noktaya göre yapma.
+5. **EQ önerileri**: hedef eğri seçilir (Dans, Salon, Canlı, Konuşma, Düz). Program frekans, kesme (dB)
+   ve Q listesini verir; 31 bant grafik EQ değerlerini de gösterir. Varsayılan olarak sadece kesme
+   (indirme) önerir. Sub ve tiz için kısa tavsiyeler verir.
+6. **Geri besleme avcısı**: mikrofonlar açıkken çınlayan frekansları yakalar ve dar kesme önerir.
+
+![Ölçüm](docs/olcum.jpg)
+
+Ölçümler proje dosyasında saklanır ve planda mor noktalarla görünür. CSV olarak da indirilebilir.
+
+### Kurulum: akış diyagramı ve zaman çizelgesi
+
+Kurulum talimatı proje yönetimindeki gibi gösterilir:
+
+- **Akış diyagramı**: ekip şeritleri (genel, sahne, rigging, elektrik, ses, ışık), hangi işin hangisinden
+  sonra geldiği ve kırmızı **kritik yol**.
+- **Zaman çizelgesi (Gantt)**: her işin süresi ve esnek payı. Proje bilgilerine etkinlik saatini yazarsan
+  **en geç başlama saatini** hesaplar.
+- Kutuya tıklayınca o işin adım adım talimatına gider. Yazdırınca diyagram da kağıda çıkar.
+
+| | |
+|---|---|
+| ![Akış](docs/kurulum-akis.jpg) | ![Zaman çizelgesi](docs/kurulum-zaman.jpg) |
 
 Diğer özellikler:
 
@@ -63,12 +115,16 @@ Diğer özellikler:
 | ![3D](docs/3d.jpg) | ![Şema](docs/sema.jpg) |
 | ![Isı haritası](docs/isi-haritasi.jpg) | ![Kurulum](docs/kurulum.jpg) |
 | ![Listeler](docs/listeler.jpg) | ![Sihirbaz](docs/sihirbaz.jpg) |
+| ![Öneriler planda](docs/oneriler.jpg) | ![EQ önerisi](docs/eq-onerisi.jpg) |
 
 ## Önemli
 
-- Akustik ve elektrik değerleri **tahminidir** (yansımalar ve gerçek ölçüm hariç). Marka/model verileri
+- Akustik ve elektrik değerleri **tahminidir**. Yankı istatistiksel modelle hesaplanır, tek tek yansımalar
+  hesaplanmaz. Gerçek değeri ölçüm sekmesiyle kontrol et. Marka/model verileri
   yaklaşıktır; gerekirse "Özelleştir" ile üretici föyüne göre düzelt.
 - 400 V / CEE bağlantılarını **elektrik yetkilisi**, asma (rigging) işlerini **yetkili rigger** yapmalı.
+- Ses seviyesi: Almanya'da DIN 15905-5'e göre seyirci alanında 30 dakikalık ortalama 99 dB(A)'yı
+  geçmemeli. Pist hedefi bu yüzden varsayılan 98 dB. Ölçüm ekranı Leq 99'u geçince uyarır.
 
 ## Geliştirme
 

@@ -16,6 +16,7 @@ import { SchemaView } from './views/schema/SchemaView';
 import { ListsView } from './views/lists/ListsView';
 import { AnalysisView } from './views/analysis/AnalysisView';
 import { SetupView } from './views/setup/SetupView';
+import { MeasureView } from './views/measure/MeasureView';
 import { copySelection, pasteClipboard } from './ui/clipboard';
 
 const ThreeView = lazy(() => import('./views/three/ThreeView'));
@@ -47,6 +48,7 @@ export function App() {
         {view === 'schema' ? <SchemaView /> : null}
         {view === 'lists' ? <ListsView /> : null}
         {view === 'analysis' ? <AnalysisView /> : null}
+        {view === 'measure' ? <MeasureView /> : null}
         {view === 'setup' ? <SetupView /> : null}
       </main>
       <Inspector />
@@ -206,8 +208,8 @@ function useShortcuts() {
         moveSelection(dx, dy, true);
         return;
       }
-      const views = ['plan', '3d', 'schema', 'lists', 'analysis', 'setup'] as const;
-      if (/^[1-6]$/.test(e.key)) {
+      const views = ['plan', '3d', 'schema', 'lists', 'analysis', 'measure', 'setup'] as const;
+      if (/^[1-7]$/.test(e.key)) {
         s.set({ view: views[Number(e.key) - 1] });
         return;
       }

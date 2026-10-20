@@ -56,7 +56,7 @@ function HelpDialog({ welcome }: { welcome: boolean }) {
     ['L', t('help.k.lock')],
     ['F', t('help.k.fit')],
     ['H / C / G', t('help.k.layers')],
-    ['1 … 6', t('help.k.views')],
+    ['1 … 7', t('help.k.views')],
     [t('help.k.mouse'), t('help.k.mouseDesc')],
   ];
   return (

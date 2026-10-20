@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react';
 import { iconMarkup } from '../../catalog/icons';
 import { sourcesOf, splColor, splGrid, type SplGrid } from '../../engine/acoustics';
 import { analyzeCables, type CableInfo } from '../../engine/cables';
+import { devColor, targetGrid, zoneTarget, type Proposal } from '../../engine/coverage';
 import { polyLen, polyMid } from '../../engine/derive';
 import { getDef, itemBaseZ, itemDims, localToPlan } from '../../model/project';
 import type { Area, EquipDef, Item, Lang, Note, Project, Zone } from '../../model/types';
@@ -28,11 +29,12 @@ interface Props {
   heat?: HeatOpts | null;
   hover?: string | null;
   print?: boolean;
+  ghosts?: Proposal[] | null;
 }
 
 const NS = { vectorEffect: 'non-scaling-stroke' } as const;
 
-export function PlanDrawing({ p, area, layers, sel, k, lang, t, vb, heat, hover, print }: Props) {
+export function PlanDrawing({ p, area, layers, sel, k, lang, t, vb, heat, hover, print, ghosts }: Props) {
   const items = useMemo(() => p.items.filter((i) => i.areaId === area.id), [p.items, area.id]);
   const zones = useMemo(() => p.zones.filter((z) => z.areaId === area.id), [p.zones, area.id]);
   const notes = useMemo(() => p.notes.filter((n) => n.areaId === area.id), [p.notes, area.id]);
@@ -44,7 +46,9 @@ export function PlanDrawing({ p, area, layers, sel, k, lang, t, vb, heat, hover,
   const px = (n: number) => n / k;
   const bg = layers.bg && area.bg ? p.assets[area.bg.assetId] : undefined;
   const grid = heat && layers.heatmap ? splGrid(p, area.id, heat) : null;
-  const heatImg = useHeatImage(grid, p.settings.targetSpl);
+  const devMode = !!heat && heat.mode === 'dev' && heat.band === 'mid';
+  const tgrid = grid && devMode ? targetGrid(p, area.id, grid) : null;
+  const heatImg = useHeatImage(grid, p.settings.targetSpl, tgrid);
   const showLabels = layers.labels && k > 14;
 
   // seçili tek öğe: duvarlara ölçü
@@ -60,7 +64,7 @@ export function PlanDrawing({ p, area, layers, sel, k, lang, t, vb, heat, hover,
       {bg ? <image href={bg.data} x={area.bg!.x} y={area.bg!.y} width={area.bg!.w} height={(area.bg!.w * bg.h) / bg.w} opacity={area.bg!.opacity} preserveAspectRatio="none" /> : null}
       {layers.grid ? <rect x={0} y={0} width={area.w} height={area.d} fill={k > 14 ? 'url(#grid-fine)' : 'url(#grid-coarse)'} opacity={0.9} /> : null}
       {/* bölgeler */}
-      {layers.zones ? zones.map((z) => <PlanZone key={z.id} z={z} k={k} sel={selZones.has(z.id)} lang={lang} t={t} />) : null}
+      {layers.zones ? zones.map((z) => <PlanZone key={z.id} z={z} k={k} sel={selZones.has(z.id)} lang={lang} t={t} target={grid ? zoneTarget(z) : null} />) : null}
       {/* ısı haritası */}
       {grid && heatImg ? <image href={heatImg} x={0} y={0} width={grid.nx * grid.step} height={grid.ny * grid.step} opacity={0.72} preserveAspectRatio="none" style={{ pointerEvents: 'none' }} /> : null}
       {/* duvarlar */}
@@ -89,6 +93,10 @@ export function PlanDrawing({ p, area, layers, sel, k, lang, t, vb, heat, hover,
           return <PlanItem key={it.id} it={it} def={def} img={itemImage(p, it, def)} k={k} sel={selItems.has(it.id)} labels={(showLabels && big) || selItems.has(it.id) || hover === it.id} model={k > 55 && layers.labels} hover={hover === it.id} />;
         })}
       </g>
+      {/* ölçüm noktaları */}
+      {layers.measure !== false && p.measurements?.length ? <MeasurePoints p={p} areaId={area.id} k={k} lang={lang} /> : null}
+      {/* öneriler (hayalet) */}
+      {ghosts?.length ? <Ghosts p={p} area={area} ghosts={ghosts} k={k} /> : null}
       {/* notlar */}
       {layers.notes ? notes.map((n) => <PlanNote key={n.id} n={n} k={k} sel={selNotes.has(n.id)} lang={lang} />) : null}
       {/* seçim tutamakları */}
@@ -157,7 +165,7 @@ function RoomDims({ area, k, lang }: { area: Area; k: number; lang: Lang }) {
   );
 }
 
-const PlanZone = memo(function PlanZone({ z, k, sel, lang, t }: { z: Zone; k: number; sel: boolean; lang: Lang; t: TFn }) {
+const PlanZone = memo(function PlanZone({ z, k, sel, lang, t, target }: { z: Zone; k: number; sel: boolean; lang: Lang; t: TFn; target?: number | null }) {
   const st = ZONE_STYLE[z.kind] || ZONE_STYLE.custom;
   const fill = z.kind === 'walkway' ? 'url(#hatch-walk)' : z.kind === 'nogo' ? 'url(#hatch-nogo)' : z.kind === 'dance' ? 'url(#dance-check)' : z.kind === 'stage' ? 'url(#stage-boards)' : z.color || st.fill;
   const fs = Math.min(12 / k, Math.max(0.18, z.w / 12));
@@ -167,6 +175,7 @@ const PlanZone = memo(function PlanZone({ z, k, sel, lang, t }: { z: Zone; k: nu
       <text x={z.x + 5 / k} y={z.y + 14 / k} fontSize={fs} fill={st.stroke} fontWeight={700} className="plan-zone-label" style={{ textTransform: 'uppercase', letterSpacing: 0.4 / k }}>
         {z.name}
         {z.elev > 0 ? ` · +${fmtM(z.elev, lang)} m` : ''}
+        {target ? ` · ${t('cov.targetShort', { d: target })}` : ''}
       </text>
       {k > 30 ? (
         <text x={z.x + 5 / k} y={z.y + 14 / k + fs * 1.25} fontSize={fs * 0.82} fill={st.stroke} opacity={0.8} className="plan-zone-label">
@@ -436,8 +445,8 @@ function CableHandles({ inf, k }: { inf?: CableInfo; k: number }) {
 }
 
 // —— Isı haritası görüntüsü ——
-const heatCache = new WeakMap<SplGrid, Map<number, string>>();
-function useHeatImage(g: SplGrid | null, target: number): string | null {
+const heatCache = new WeakMap<SplGrid, Map<string, string>>();
+function useHeatImage(g: SplGrid | null, target: number, tg: Float32Array | null): string | null {
   return useMemo(() => {
     if (!g) return null;
     let m = heatCache.get(g);
@@ -445,7 +454,8 @@ function useHeatImage(g: SplGrid | null, target: number): string | null {
       m = new Map();
       heatCache.set(g, m);
     }
-    const hit = m.get(target);
+    const key = tg ? 'dev' : String(target);
+    const hit = m.get(key);
     if (hit) return hit;
     const c = document.createElement('canvas');
     c.width = g.nx;
@@ -454,15 +464,80 @@ function useHeatImage(g: SplGrid | null, target: number): string | null {
     if (!ctx) return null;
     const img = ctx.createImageData(g.nx, g.ny);
     for (let i = 0; i < g.data.length; i++) {
-      const [r, gg, b, a] = splColor(g.data[i], target);
-      img.data[i * 4] = r;
-      img.data[i * 4 + 1] = gg;
-      img.data[i * 4 + 2] = b;
-      img.data[i * 4 + 3] = a;
+      let col: [number, number, number, number];
+      if (tg) {
+        col = isNaN(tg[i]) ? (isNaN(g.data[i]) ? [0, 0, 0, 0] : [148, 163, 184, 40]) : devColor(g.data[i] - tg[i]);
+      } else col = splColor(g.data[i], target);
+      img.data[i * 4] = col[0];
+      img.data[i * 4 + 1] = col[1];
+      img.data[i * 4 + 2] = col[2];
+      img.data[i * 4 + 3] = col[3];
     }
     ctx.putImageData(img, 0, 0);
     const url = c.toDataURL();
-    m.set(target, url);
+    m.set(key, url);
     return url;
-  }, [g, target]);
+  }, [g, target, tg]);
+}
+
+// —— Ölçüm noktaları ——
+function MeasurePoints({ p, areaId, k, lang }: { p: Project; areaId: string; k: number; lang: Lang }) {
+  const ms = (p.measurements || []).filter((m) => m.areaId === areaId && !m.hidden && m.x != null && m.y != null);
+  const r = 7 / k;
+  return (
+    <g className="plan-overlay" style={{ pointerEvents: 'none' }}>
+      {ms.map((m, i) => (
+        <g key={m.id} transform={`translate(${m.x} ${m.y})`}>
+          <circle r={r} fill="#7c3aed" stroke="#fff" strokeWidth={1.5} {...NS} />
+          <path d={`M ${-r * 0.45} 0 H ${r * 0.45} M 0 ${-r * 0.45} V ${r * 0.45}`} stroke="#fff" strokeWidth={1.4} {...NS} />
+          <text x={r * 1.4} y={-r * 0.2} fontSize={11 / k} fontWeight={700} fill="#6d28d9" className="plan-label">
+            {i + 1}. {fmtM(m.spl.a, lang, 0)} dB(A)
+          </text>
+          <text x={r * 1.4} y={r * 1.2} fontSize={9.5 / k} fill="#6d28d9" className="plan-label">
+            {m.name}
+          </text>
+        </g>
+      ))}
+    </g>
+  );
+}
+
+// —— Öneri hayaletleri ——
+function Ghosts({ p, area, ghosts, k }: { p: Project; area: Area; ghosts: Proposal[]; k: number }) {
+  return (
+    <g className="plan-overlay" style={{ pointerEvents: 'none' }}>
+      {ghosts.map((g) => (
+        <g key={g.id}>
+          {g.add.map((s, i) => {
+            const def = getDef(p, s.defId);
+            const it: Item = { id: g.id + i, defId: s.defId, areaId: area.id, label: s.prefix, x: s.x, y: s.y, z: s.z, rot: s.rot, tilt: s.tilt, mount: 'stand', role: s.role };
+            const r = (s.rot * Math.PI) / 180;
+            const L = 3.5;
+            return (
+              <g key={i}>
+                <line x1={s.x} y1={s.y} x2={s.x - Math.sin(r) * L} y2={s.y + Math.cos(r) * L} stroke="#16a34a" strokeWidth={1.6} strokeDasharray="5 4" {...NS} />
+                <circle cx={s.x} cy={s.y} r={Math.max(def.w, 16 / k)} fill="rgba(22,163,74,0.12)" stroke="#16a34a" strokeWidth={1.6} strokeDasharray="4 3" {...NS} />
+                <PlanItem it={it} def={def} k={k} sel={false} labels={false} ghost />
+                <text x={s.x + 14 / k} y={s.y - 10 / k} fontSize={11 / k} fontWeight={800} fill="#15803d" className="plan-label">
+                  + {s.prefix} · {s.delayMs.toFixed(1)} ms
+                </text>
+              </g>
+            );
+          })}
+          {g.change.map((c) => {
+            const it0 = p.items.find((x) => x.id === c.itemId);
+            if (!it0) return null;
+            const it = { ...it0, ...c.patch } as Item;
+            const r = (it.rot * Math.PI) / 180;
+            return (
+              <g key={c.itemId}>
+                <line x1={it.x} y1={it.y} x2={it.x - Math.sin(r) * 5} y2={it.y + Math.cos(r) * 5} stroke="#d97706" strokeWidth={1.8} strokeDasharray="6 4" {...NS} />
+                <PlanItem it={it} def={getDef(p, it.defId)} k={k} sel={false} labels={false} ghost />
+              </g>
+            );
+          })}
+        </g>
+      ))}
+    </g>
+  );
 }

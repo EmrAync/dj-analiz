@@ -1,8 +1,9 @@
 import { current, type Draft } from 'immer';
 import { addCable as addCableRaw, autoPower, autoSignal } from '../engine/autowire';
 import { suggestDelay } from '../engine/acoustics';
+import { applyPlan, moveDance } from '../engine/coverage';
 import { CATALOG, findPort, getDef, makeItem, newArea, uid } from '../model/project';
-import type { Area, Asset, Cable, EquipDef, Item, Note, NoteKind, Project, Zone, ZoneKind } from '../model/types';
+import type { Area, Asset, Cable, EquipDef, Item, Measurement, Note, NoteKind, Project, Zone, ZoneKind } from '../model/types';
 import { EMPTY_SEL, st, type Selection } from './store';
 import { makeT } from '../i18n';
 import { imageToAsset, loadLibrary, saveLibrary } from './persist';
@@ -437,4 +438,44 @@ export function toggleDone(stepId: string): void {
 
 export function catalogDef(id: string): EquipDef | undefined {
   return CATALOG[id];
+}
+
+// —— Ses kapsama ——
+export function applyCoverage(ids: string[], withLevels: boolean): number {
+  const s = st();
+  const q = JSON.parse(JSON.stringify(s.project)) as Project;
+  const added = applyPlan(q, s.areaId, ids, withLevels);
+  s.mutate((d) => {
+    d.items = q.items;
+    d.cables = q.cables;
+    d.settings = q.settings;
+  });
+  if (added.length) s.set({ sel: { ...EMPTY_SEL, items: added } });
+  return added.length;
+}
+
+export function moveDanceGap(gap: number, ref: number): void {
+  const areaId = st().areaId;
+  st().mutate((d) => moveDance(d as Project, areaId, gap, ref));
+}
+
+// —— Ölçümler ——
+export function addMeasurement(m: Measurement): void {
+  st().mutate((d) => {
+    if (!d.measurements) d.measurements = [];
+    d.measurements.push(m);
+  });
+}
+
+export function updateMeasurement(id: string, patch: Partial<Measurement>): void {
+  st().mutate((d) => {
+    const m = d.measurements?.find((x) => x.id === id);
+    if (m) Object.assign(m, patch);
+  });
+}
+
+export function deleteMeasurement(id: string): void {
+  st().mutate((d) => {
+    if (d.measurements) d.measurements = d.measurements.filter((x) => x.id !== id);
+  });
 }

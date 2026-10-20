@@ -39,7 +39,7 @@ await page.locator('[data-testid="toggle-heat"]').click();
 await page.waitForTimeout(600);
 await shot('03-plan-heat');
 await page.locator('[data-testid="toggle-heat"]').click();
-for (const v of ['3d', 'schema', 'lists', 'analysis', 'setup']) {
+for (const v of ['3d', 'schema', 'lists', 'analysis', 'measure', 'setup']) {
   await page.locator(`[data-testid="view-${v}"]`).click();
   await page.waitForTimeout(v === '3d' ? 3500 : 900);
   await shot('10-' + v);

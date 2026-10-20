@@ -65,7 +65,11 @@ export function runWizard(par: WizardParams): Project {
   const area = newArea(par.indoor ? 'Salon' : 'Açık alan', W, D, H);
   area.indoor = par.indoor;
   area.guests = par.guests;
-  if (!par.indoor) {
+  if (par.indoor) {
+    // düğün salonu: asma tavan, dekor perdeleri
+    area.ceiling = 'alcipan';
+    area.curtainPct = 15;
+  } else {
     area.floor = 'acik';
     area.walls = 'acik';
     area.ceiling = 'acik';
@@ -310,7 +314,7 @@ export function runWizard(par: WizardParams): Project {
       if (s != null) it.delayMs = Math.round(s * 10) / 10;
     }
   }
-  p.settings.targetSpl = 100;
+  p.settings.targetSpl = 98;
   // türetilmiş önbellekler bu nesneye bağlı; değişmiş olabileceği için temiz kopya döndür
   return JSON.parse(JSON.stringify(p)) as Project;
 }

@@ -5,7 +5,9 @@ import { getDef } from '../../model/project';
 import type { Lang } from '../../model/types';
 import { toggleDone } from '../../store/actions';
 import { st, useStore, useT } from '../../store/store';
-import { Check, Icon } from '../../ui/kit';
+import { Check, Icon, Seg } from '../../ui/kit';
+import { buildPlan, clock } from '../../engine/activities';
+import { durText, FlowDiagram, GanttChart } from './ActivityDiagram';
 import { catColor, itemImage } from '../common';
 import { PrintHeader } from '../lists/ListsView';
 import { PlanDrawing } from '../plan/PlanDrawing';
@@ -18,9 +20,29 @@ export function SetupView() {
   const [lang, setLang] = useState<Lang>(uiLang);
   const [onlyOpen, setOnlyOpen] = useState(false);
   const [withPlan, setWithPlan] = useState(true);
+  const [mode, setMode] = useState<'list' | 'flow' | 'gantt'>(() => {
+    try {
+      return (localStorage.getItem('sahnecad.setupMode') as 'list' | 'flow' | 'gantt') || 'flow';
+    } catch {
+      return 'flow';
+    }
+  });
+  const pickMode = (m: 'list' | 'flow' | 'gantt') => {
+    setMode(m);
+    try {
+      localStorage.setItem('sahnecad.setupMode', m);
+    } catch {
+      /* yok */
+    }
+  };
   const tt = useMemo(() => makeT(lang), [lang]);
   const steps = useMemo(() => buildSetup(p, tt, lang), [p, tt, lang]);
   const done = steps.filter((s) => p.done[s.id]).length;
+  const plan = useMemo(() => buildPlan(p, steps), [p, steps]);
+  const open = (phase: string) => {
+    setOnlyOpen(false);
+    setTimeout(() => document.getElementById('ph-' + phase)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 30);
+  };
   const byPhase = new Map<string, SetupStep[]>();
   for (const s of steps) {
     if (onlyOpen && p.done[s.id]) continue;
@@ -51,7 +73,16 @@ export function SetupView() {
             <Icon name="print" size={15} /> {t('lists.print')}
           </button>
         </div>
-        <div className="no-print" style={{ display: 'flex', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
+        <div className="no-print" style={{ display: 'flex', gap: 16, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Seg
+            value={mode}
+            options={[
+              { v: 'flow', l: t('act.modeFlow') },
+              { v: 'gantt', l: t('act.modeGantt') },
+              { v: 'list', l: t('act.modeList') },
+            ]}
+            onChange={pickMode}
+          />
           <Check checked={onlyOpen} onChange={setOnlyOpen}>
             {t('setup.onlyOpen')}
           </Check>
@@ -70,6 +101,43 @@ export function SetupView() {
           ) : null}
         </div>
         <PrintHeader />
+        {mode !== 'list' ? (
+          <div className="panel" style={{ marginBottom: 12 }} data-testid="activity-panel">
+            <div className="panel-h">
+              <Icon name="schema" size={16} /> {tt(mode === 'flow' ? 'act.flowTitle' : 'act.ganttTitle')}
+            </div>
+            <div className="panel-b">
+              <div className="act-sum">
+                <div>
+                  <span className="l">{tt('act.total')}</span>
+                  <b>{durText(plan.total, tt)}</b>
+                </div>
+                <div>
+                  <span className="l">{tt('act.critical')}</span>
+                  <b className="crit">{plan.acts.filter((a) => a.critical).length}</b>
+                </div>
+                {plan.start != null && plan.event != null ? (
+                  <div>
+                    <span className="l">{tt('act.latestStart')}</span>
+                    <b style={{ color: '#db2777' }}>{clock(plan.start)}</b>
+                    <span className="hint small">{tt('act.forEvent', { e: clock(plan.event), b: plan.buffer })}</span>
+                  </div>
+                ) : (
+                  <div className="no-print">
+                    <span className="l">{tt('act.latestStart')}</span>
+                    <button className="btn sm" onClick={() => st().set({ dialog: { kind: 'project' } })}>
+                      {tt('act.setTime')}
+                    </button>
+                  </div>
+                )}
+                <p className="hint small" style={{ flex: '1 1 260px', margin: 0 }}>
+                  {tt('act.hint')}
+                </p>
+              </div>
+              {mode === 'flow' ? <FlowDiagram plan={plan} t={tt} onOpen={open} /> : <GanttChart plan={plan} t={tt} onOpen={open} />}
+            </div>
+          </div>
+        ) : null}
         <p className="hint">{tt('setup.intro')}</p>
         {withPlan ? <PlanFigures /> : null}
         <div className="panel">
@@ -78,7 +146,7 @@ export function SetupView() {
             if (!list?.length) return null;
             n++;
             return (
-              <div key={ph}>
+              <div key={ph} id={'ph-' + ph}>
                 <div className="phase-h">
                   <span className="num-c">{n}</span>
                   {tt(('phase.' + ph) as 'phase.prep')}

@@ -1612,7 +1612,399 @@ table.tbl {
 }
 
 /* yazdırma */
+/* —— Ses dağılımı (kapsama) —— */
+.cov-sum {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+
+.cov-big {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.cov-big .l {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.cov-big b {
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cov-big .arrow {
+  color: var(--faint);
+  margin: 0 6px;
+  font-size: 16px;
+}
+
+.cov-big b.ok {
+  color: var(--ok);
+}
+
+.cov-big b.warn {
+  color: var(--warn);
+}
+
+.cov-adv {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel2);
+  font-size: 12px;
+}
+
+.cov-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.cov-h {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 6px;
+}
+
+.cov-props {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cov-card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.cov-card.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.cov-card input {
+  margin-top: 9px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.cov-card ul {
+  margin: 4px 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.cov-ic {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.okbar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--panel2);
+}
+
+.okbar span {
+  display: block;
+  height: 100%;
+}
+
+.dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+svg.chart {
+  width: 100%;
+  height: auto;
+  display: block;
+  font-family: inherit;
+}
+
+.ghost-bar {
+  position: absolute;
+  left: 50%;
+  top: 56px;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid #16a34a;
+  border-radius: 12px;
+  padding: 6px 8px 6px 12px;
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  max-width: calc(100% - 24px);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 760px) {
+  .cov-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* —— Ölçüm (RTA) —— */
+.ms-dev {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.ms-intro {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.ms-intro ol {
+  margin: 0;
+  padding-left: 18px;
+  flex: 1;
+  display: grid;
+  gap: 3px;
+}
+
+.ms-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 12px;
+  align-items: start;
+}
+
+.ms-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ms-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.rta-canvas {
+  width: 100%;
+  height: 380px;
+  display: block;
+  border-radius: 6px;
+}
+
+.spl-big {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.spl-big b {
+  font-size: 44px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -1px;
+}
+
+.spl-big span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.spl-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 6px 0 8px;
+}
+
+.spl-row b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.inmeter {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel2);
+  overflow: hidden;
+}
+
+.inmeter div {
+  height: 100%;
+  transition: width 0.1s;
+}
+
+.ms-verdict {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.ms-verdict.ok {
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  color: var(--ok);
+}
+
+.ms-verdict.warn {
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--warn);
+}
+
+.cal-ref {
+  margin-top: 10px;
+  padding: 8px;
+  border: 1px dashed var(--line2);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.eq-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 16px;
+}
+
+.ms-adv {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.fb-list {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ms-pts {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 14px;
+}
+
+@media (max-width: 1000px) {
+  .ms-grid,
+  .eq-grid,
+  .ms-pts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rta-canvas {
+    height: 280px;
+  }
+}
+
+/* —— Kurulum aktivite diyagramı —— */
+.act-sum {
+  display: flex;
+  gap: 22px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.act-sum > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.act-sum .l {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.act-sum b {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.act-sum b.crit {
+  color: #dc2626;
+}
+
+.flow-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+svg.flow {
+  width: 100%;
+  height: auto;
+  display: block;
+  font-family: inherit;
+}
+
+.flow-node {
+  cursor: pointer;
+}
+
+.flow-node:hover > rect:first-child {
+  stroke: var(--accent);
+}
+
 @media print {
+  .flow-wrap {
+    overflow: visible;
+    border: 0;
+  }
+
+  svg.flow {
+    min-width: 0 !important;
+  }
+
   @page {
     size: A4;
     margin: 12mm;

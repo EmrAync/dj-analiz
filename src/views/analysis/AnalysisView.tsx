@@ -10,6 +10,7 @@ import { st, useStore, useT } from '../../store/store';
 import { Check, Icon, Num, Row, Text } from '../../ui/kit';
 import { PlanDrawing } from '../plan/PlanDrawing';
 import { HeatLegend } from '../HeatLegend';
+import { CoveragePanel } from './CoveragePanel';
 
 export function AnalysisView() {
   const t = useT();
@@ -78,7 +79,8 @@ export function AnalysisView() {
           <Stat l={t('an.foh')} v={fohSpl && !isNaN(fohSpl.mid) ? `${fmt(fohSpl.mid, 0, lang)} dB` : '–'} />
           <Stat l={t('an.rt')} v={ra ? `${fmt(ra.rt[1], 2, lang)} s` : t('an.outdoor')} tone={ra ? (ra.rt[1] > 1.6 ? 'warn' : 'ok') : undefined} />
         </div>
-        <div className="grid-2">
+        <CoveragePanel area={area} />
+        <div className="grid-2" style={{ marginTop: 12 }}>
           <div className="panel">
             <div className="panel-h">
               <Icon name="heat" size={16} /> {t('an.map')}

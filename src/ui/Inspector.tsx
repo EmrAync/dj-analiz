@@ -6,6 +6,7 @@ import { MATERIALS, suggestDelay, splPoint } from '../engine/acoustics';
 import { analyzeCables, portUse, suggestCableTypes } from '../engine/cables';
 import { analyzePower, ownWatt } from '../engine/power';
 import { aimPoint, posText } from '../engine/setup';
+import { danceScan, zoneTarget } from '../engine/coverage';
 import { fmt, L } from '../i18n';
 import { findPort, getDef, itemBaseZ, itemDims, portLabel, portsOf } from '../model/project';
 import type { Area, Cable, EquipDef, Item, MaterialId, MountType, Note, SpeakerRole, Zone, ZoneKind } from '../model/types';
@@ -16,6 +17,7 @@ import {
   cloneDef,
   deleteSelection,
   duplicateSelection,
+  moveDanceGap,
   rotateSelection,
   setDefImage,
   setItemImage,
@@ -826,6 +828,12 @@ function ZoneInspector({ z }: { z: Zone }) {
         <Row label={t('zone.elev')}>
           <Num value={z.elev} onChange={(v) => up({ elev: Math.max(0, v) })} unit="m" step={0.1} />
         </Row>
+        {z.kind !== 'stage' && z.kind !== 'walkway' && z.kind !== 'nogo' && z.kind !== 'backstage' ? (
+          <Row label={t('zone.target')}>
+            <Num value={zoneTarget(z) ?? 0} onChange={(v) => up({ target: Math.max(0, Math.min(125, Math.round(v))) })} unit="dB" step={1} digits={0} />
+          </Row>
+        ) : null}
+        {z.kind === 'dance' ? <DanceGapRow z={z} /> : null}
         <div className="hint small">{t(('zone.hint.' + z.kind) as 'zone.hint.stage')}</div>
         <dl className="kv" style={{ marginTop: 8 }}>
           <dt>{t('zone.area')}</dt>
@@ -838,6 +846,21 @@ function ZoneInspector({ z }: { z: Zone }) {
         </button>
       </div>
     </div>
+  );
+}
+
+function DanceGapRow({ z }: { z: Zone }) {
+  const t = useT();
+  const p = useStore((s) => s.project);
+  const sc = danceScan(p, z.areaId);
+  if (!sc) return null;
+  return (
+    <>
+      <Row label={t('zone.danceGap')}>
+        <Num value={sc.current} onChange={(v) => moveDanceGap(Math.max(0, v), sc.ref)} unit="m" step={0.5} digits={1} />
+      </Row>
+      <div className="hint small">{t('zone.danceBest', { a: sc.best[0].toFixed(1), b: sc.best[1].toFixed(1) })}</div>
+    </>
   );
 }
 
