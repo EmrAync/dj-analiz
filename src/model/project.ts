@@ -146,7 +146,7 @@ export function labelPrefix(def: EquipDef): string {
     case 'video':
       return 'VID';
     case 'elektrik':
-      return def.icon === 'distro' ? 'DIST' : 'PWR';
+      return def.icon === 'distro' ? 'DIST' : def.icon === 'powerstrip' ? 'GP' : 'PWR';
     case 'ag':
       return 'NET';
     case 'sahne':
