@@ -13,7 +13,8 @@
     "test:ui": "node tests/ui_smoke.mjs http://127.0.0.1:4173/ shots && node tests/ui_flows.mjs http://127.0.0.1:4173/ shots",
     "release": "npm run build:tek && node scripts/release.mjs",
     "docs:shots": "node tests/docs_shots.mjs http://127.0.0.1:4173/ docs",
-    "icons": "node scripts/icons.mjs"
+    "icons": "node scripts/icons.mjs",
+    "pages": "bash scripts/pages.sh"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",

@@ -17,14 +17,11 @@ boyunu, elektrik yükünü ve ses dağılımını hesaplar. Sonunda sahneyi hiç
 
 ## iPhone'da kullan (UMIK-1 ile)
 
-iPhone'da mikrofon sadece güvenli (https) bir adreste çalışır. Uygulama bu yüzden GitHub Pages'te
-yayınlanacak şekilde hazır (`docs/` klasörü). **Bir kez** şunu yap:
+Adres: **https://emraync.github.io/dj-analiz/#olcum**
 
-1. GitHub'da `EmrAync/dj-analiz` → **Settings** → **Pages**.
-2. **Build and deployment** → Source: **Deploy from a branch** → Branch: **`sahne-cad`**, klasör **`/docs`** → **Save**.
-3. 1–2 dakika sonra adres hazır: **https://emraync.github.io/dj-analiz/#olcum**
-4. iPhone'da Safari ile aç → **Paylaş** → **Ana Ekrana Ekle**. Simgeden açınca tam ekran çalışır.
-   Bir kez açıldıktan sonra **internetsiz de** açılır (salonda internet olmasa da).
+1. iPhone'da Safari ile aç → **Paylaş** → **Ana Ekrana Ekle**. Simgeden açınca tam ekran çalışır.
+2. Bir kez açıldıktan sonra **internetsiz de** açılır (salonda internet olmasa da).
+3. Diğer ekranlar aynı adreste: `#plan`, `#3d`, `#sema`, `#listeler`, `#analiz`, `#kurulum`.
 
 UMIK-1'i bağlama:
 

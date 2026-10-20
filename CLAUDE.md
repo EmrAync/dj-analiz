@@ -27,7 +27,8 @@ npx vite preview --port 4173 --strictPort &
 node tests/ui_smoke.mjs http://127.0.0.1:4173/ shots   # every view, fails on JS errors
 node tests/ui_flows.mjs http://127.0.0.1:4173/ shots   # cable tool, undo, drag, zone, schema drag-connect,
                                                        # exports (DXF/SVG/PNG/JSON), installer mode, DE setup, mobile
-npm run release             # SahneCAD.html (single file, file://) + docs/ (GitHub Pages, iPhone PWA)
+npm run release             # SahneCAD.html (single file, file://) + docs/ (app files for Pages)
+npm run pages               # publish docs/ app files to the gh-pages branch → https://emraync.github.io/dj-analiz/
 node tests/docs_shots.mjs http://127.0.0.1:4173/ docs  # README screenshots
 ```
 
@@ -105,8 +106,10 @@ v0.3.0 (user: "legal limits optional, not fixed; measure delays between sub and 
 make it usable on iPhone because the UMIK works there; not only RTA, also SPL dB"):
 - Measure view tabs: dB meter (SplTab), RTA, Delay (DelayTab), EQ, Points. Calibration/generator behind the
   "Mikrofon ve kalibrasyon" button. `settings.limits` (on/off, preset, laeq/minutes/lcpeak).
-- iPhone: mic needs https → GitHub Pages from `docs/` on branch `sahne-cad` (user enables it once in repo
-  Settings → Pages). `npm run release` writes SahneCAD.html AND docs/index.html + public/ PWA files
+- iPhone: mic needs https → GitHub Pages: https://emraync.github.io/dj-analiz/ served from branch **`gh-pages`**
+  (app files only; Pages was enabled automatically when that branch was pushed). After `npm run release`,
+  run `npm run pages` (scripts/pages.sh) to publish docs/ app files to gh-pages, then check the
+  "pages build and deployment" run. `npm run release` writes SahneCAD.html AND docs/index.html + public/ PWA files
   (manifest, sw.js network-first offline cache, icons). main.tsx injects manifest/apple-touch-icon and registers
   the service worker only on https/localhost (never file:// or claude.ai). Hash routes: #plan #3d #sema
   #listeler #analiz #olcum #kurulum. Artifact preview has NO microphone capability.
