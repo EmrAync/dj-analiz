@@ -128,7 +128,7 @@ function ItemInspector({ it }: { it: Item }) {
         </div>
         <Row label={t('insp.rotation')}>
           <div style={{ display: 'flex', gap: 4 }}>
-            <Num value={it.rot} onChange={(v) => up({ rot: ((v % 360) + 360) % 360 })} unit="°" step={5} digits={1} disabled={installer} />
+            <Num value={it.rot} onChange={(v) => up({ rot: ((v % 360) + 360) % 360 })} unit="°" step={5} digits={1} disabled={installer} width={84} />
             {!installer
               ? [0, 90, 180, 270].map((a) => (
                   <button key={a} className={'ibtn sm' + (Math.round(it.rot) === a ? ' on' : '')} onClick={() => up({ rot: a })} style={{ minWidth: 30 }}>
@@ -950,6 +950,17 @@ export function AreaForm({ area }: { area: Area }) {
         <Row label={t('area.guests')}>
           <Num value={area.guests} onChange={(v) => up({ guests: Math.max(0, Math.round(v)) })} step={10} digits={0} unit={t('area.people')} />
         </Row>
+        {p.areas.length > 1 ? (
+          <>
+            <div className="hint small" style={{ marginTop: 8 }}>
+              {t('area.offsetHint')}
+            </div>
+            <div className="row2" style={{ marginTop: 4 }}>
+              <Num label="X" value={area.ox ?? 0} onChange={(v) => up({ ox: v })} unit="m" step={1} digits={1} disabled={installer} />
+              <Num label="Y" value={area.oy ?? 0} onChange={(v) => up({ oy: v })} unit="m" step={1} digits={1} disabled={installer} />
+            </div>
+          </>
+        ) : null}
       </Section>
       {area.indoor ? (
         <Section title={t('area.materials')} id="a-mat" defaultOpen={false}>

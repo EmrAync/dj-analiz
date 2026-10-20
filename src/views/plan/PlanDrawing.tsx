@@ -397,9 +397,9 @@ function SelectionExtras({ it, def, area, k, lang, z }: { it: Item; def: EquipDe
       {/* döndürme tutamağı */}
       {!it.locked ? (
         <g data-kind="rot" data-id={it.id} style={{ cursor: 'grab' }}>
-          <line x1={it.x} y1={it.y} x2={h.x} y2={h.y} stroke="var(--sel)" strokeWidth={1} strokeDasharray="3 2" {...NS} />
+          <line x1={it.x} y1={it.y} x2={h.x} y2={h.y} stroke="var(--sel)" strokeWidth={1} strokeDasharray="3 2" {...NS} style={{ pointerEvents: 'none' }} />
           <circle cx={h.x} cy={h.y} r={6 / k} fill="var(--panel)" stroke="var(--sel)" strokeWidth={2} {...NS} />
-          <circle cx={h.x} cy={h.y} r={2 / k} fill="var(--sel)" />
+          <circle cx={h.x} cy={h.y} r={2 / k} fill="var(--sel)" style={{ pointerEvents: 'none' }} />
         </g>
       ) : null}
     </g>

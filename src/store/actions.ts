@@ -4,6 +4,7 @@ import { suggestDelay } from '../engine/acoustics';
 import { CATALOG, findPort, getDef, makeItem, newArea, uid } from '../model/project';
 import type { Area, Asset, Cable, EquipDef, Item, Note, NoteKind, Project, Zone, ZoneKind } from '../model/types';
 import { EMPTY_SEL, st, type Selection } from './store';
+import { makeT } from '../i18n';
 import { imageToAsset, loadLibrary, saveLibrary } from './persist';
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -119,7 +120,8 @@ export function duplicateSelection(dx = 0.5, dy = 0.5, mirror = false): void {
       const c = JSON.parse(JSON.stringify(current(src))) as Item;
       c.id = uid('it');
       const def = getDef(p, c.defId);
-      c.label = mirrorLabel(src.label, mirror) || nextFree(p, src.label);
+      const ml = mirrorLabel(src.label, mirror);
+      c.label = ml && !d.items.some((i) => i.label === ml) ? ml : nextFree(p, src.label);
       if (mirror && area) {
         c.x = r2(area.w - src.x);
         c.rot = (360 - src.rot) % 360;
@@ -128,6 +130,7 @@ export function duplicateSelection(dx = 0.5, dy = 0.5, mirror = false): void {
         c.y = r2(src.y + dy);
       }
       void def;
+      if (mirror && c.splays) c.splays = [...c.splays];
       d.items.push(c);
       map.set(id, c.id);
       newSel.items.push(c.id);
@@ -205,6 +208,12 @@ export function connect(aItem: string, aPort: string, bItem: string, bPort: stri
   const pa = findPort(getDef(p, a.defId), aPort);
   const pb = findPort(getDef(p, b.defId), bPort);
   if (!pa || !pb) return null;
+  // bir porta tek kablo
+  const busy = p.cables.some((c) => (c.a.item === aItem && c.a.port === aPort) || (c.b.item === aItem && c.b.port === aPort) || (c.a.item === bItem && c.a.port === bPort) || (c.b.item === bItem && c.b.port === bPort));
+  if (busy) {
+    s.notify(makeT(s.lang)('toast.portBusy'), 'warn');
+    return null;
+  }
   let id: string | null = null;
   s.mutate((d) => {
     const c = addCableRaw(d as unknown as Project, a, pa, b, pb, typeId);

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CAT_BY_ID } from '../../catalog/categories';
 import { CONNECTORS, DOMAINS } from '../../catalog/connectors';
 import { iconMarkup } from '../../catalog/icons';
-import { analyzeCables, type CableInfo } from '../../engine/cables';
+import { analyzeCables, suggestCableTypes, type CableInfo } from '../../engine/cables';
 import { analyzePower } from '../../engine/power';
 import { fmt, L } from '../../i18n';
 import { getDef, portLabel, portsOf } from '../../model/project';
@@ -15,7 +15,7 @@ import { itemImage, itemVisible } from '../common';
 const BW = 230; // blok genişliği
 const HEAD = 40;
 const ROW = 17;
-const COLW = 340;
+const COLW = 300;
 const GAPY = 26;
 
 interface Block {
@@ -63,6 +63,16 @@ export function SchemaView() {
     setCam({ k, tx: -x0 * k + (size.w - (x1 - x0) * k) / 2, ty: -y0 * k + 50 });
   }, [blocks, size.w, size.h]);
   const fitted = useRef('');
+  // görünür blok kümesi değişince yeniden sığdır
+  const firstToggle = useRef(true);
+  useEffect(() => {
+    if (firstToggle.current) {
+      firstToggle.current = false;
+      return;
+    }
+    fit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showFree, allPorts]);
   useEffect(() => {
     const key = areaId + mode + scopeAll;
     if (size.w && fitted.current !== key) {
@@ -172,8 +182,17 @@ export function SchemaView() {
         const bi = el.getAttribute('data-id')!;
         const bp = el.getAttribute('data-port')!;
         if (bi !== d.item) {
-          const id = connect(d.item, d.port, bi, bp);
-          if (id) st().notify(t('toast.connected', { c: st().project.cables.find((c) => c.id === id)?.label || '' }));
+          const pr = st().project;
+          const ia = pr.items.find((x) => x.id === d.item);
+          const ib = pr.items.find((x) => x.id === bi);
+          const pa = ia ? portsOf(getDef(pr, ia.defId)).find((x) => x.id === d.port) : undefined;
+          const pb = ib ? portsOf(getDef(pr, ib.defId)).find((x) => x.id === bp) : undefined;
+          if (pa && pb && suggestCableTypes(pa, pb)[0].id === 'generic' && pa.group.domain !== pb.group.domain) {
+            st().notify(t('toast.incompatible'), 'warn');
+          } else {
+            const id = connect(d.item, d.port, bi, bp);
+            if (id) st().notify(t('toast.connected', { c: st().project.cables.find((c) => c.id === id)?.label || '' }));
+          }
         }
       }
     }
@@ -214,7 +233,7 @@ export function SchemaView() {
           {blocks.map((b) => (
             <BlockView key={b.it.id} b={b} p={p} sel={sel.items.includes(b.it.id)} lang={lang} power={power} showArea={areasMulti} pw={pw.nodes.get(b.it.id)} used={ci} t={t} />
           ))}
-          {wire ? <path d={`M ${wire.x1} ${wire.y1} C ${wire.x1 + 60} ${wire.y1}, ${wire.x2 - 60} ${wire.y2}, ${wire.x2} ${wire.y2}`} stroke="var(--accent)" strokeWidth={2} fill="none" strokeDasharray="6 4" /> : null}
+          {wire ? <path d={`M ${wire.x1} ${wire.y1} C ${wire.x1 + 60} ${wire.y1}, ${wire.x2 - 60} ${wire.y2}, ${wire.x2} ${wire.y2}`} stroke="var(--accent)" strokeWidth={2} fill="none" strokeDasharray="6 4" style={{ pointerEvents: 'none' }} /> : null}
         </g>
       </svg>
       <div className="toolbar no-print">
@@ -269,7 +288,11 @@ export function SchemaView() {
           </button>
         </div>
       </div>
-      {!installer ? <div className="hud" style={{ top: 'auto', bottom: 14 }}>{t('schema.hint')}</div> : null}
+      {!installer ? (
+        <div className="hud no-print" style={{ top: 'auto', bottom: 12, left: 12, transform: 'none' }}>
+          {t('schema.hint')}
+        </div>
+      ) : null}
       {!blocks.length ? (
         <div className="empty" style={{ position: 'absolute', inset: 0 }}>
           <Icon name="schema" size={40} color="var(--faint)" />

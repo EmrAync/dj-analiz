@@ -152,17 +152,86 @@ export function autoPower(p: Project, onlyItems?: string[], allowStrips = true):
       // cihazın yanına grup priz koy ve onu besle
       const strip = makeItem(p, CATALOG['strip6'], it.areaId, Math.round((it.x + 0.45) * 100) / 100, Math.round((it.y - 0.45) * 100) / 100);
       const sIn = portsOf(CATALOG['strip6']).find((x) => x.group.dir === 'in')!;
-      const feed = findSource(strip, sIn);
+      let feed = findSource(strip, sIn);
+      // devreler dolu: boş bir 3 fazlı çıkışa yeni dağıtıcı ekle
+      if (!feed && addSubDistro(it)) feed = findSource(strip, sIn);
       if (feed) {
         p.items.push(strip);
         const longType = feed.dist * 1.25 + 1 > 25 ? 'schuko-25' : feed.type;
-        connect({ ...feed, type: CABLE_TYPES.some((c) => c.id === longType && c.ends[0].includes(feed.port.group.conn)) ? longType : feed.type }, strip, sIn);
+        connect({ ...feed, type: CABLE_TYPES.some((c) => c.id === longType && c.ends[0].includes(feed!.port.group.conn)) ? longType : feed.type }, strip, sIn);
         best = findSource(it, pin);
       }
     }
+    if (!best && allowStrips && addSubDistro(it)) best = findSource(it, pin);
     if (best) connect(best, it, pin);
   }
+  balancePhases(p);
   return n;
+
+  // Boş CEE 16/32 kırmızı çıkışı olan enerjili bir kaynaktan yeni 16 A dağıtıcı besle
+  function addSubDistro(near: Item): boolean {
+    const dDef = CATALOG['distro-16'];
+    const dIn = portsOf(dDef).find((x) => x.group.dir === 'in')!;
+    let bestSrc: { src: Item; port: PortInst; dist: number } | null = null;
+    for (const src of p.items) {
+      if (!energized(src) || src.areaId !== near.areaId) continue;
+      for (const po of freePorts(p, src, u, (x) => x.group.domain === 'power' && x.group.dir === 'out' && (x.group.conn === 'cee16r' || x.group.conn === 'cee32r'))) {
+        const dist = d2(src, near);
+        if (!bestSrc || dist < bestSrc.dist) bestSrc = { src, port: po, dist };
+      }
+    }
+    if (!bestSrc) return false;
+    const dist = makeItem(p, dDef, near.areaId, Math.round((near.x - 0.6) * 100) / 100, Math.round((near.y - 0.6) * 100) / 100);
+    p.items.push(dist);
+    const type = bestSrc.port.group.conn === 'cee32r' ? 'cee32-16' : 'cee16r';
+    connect({ src: bestSrc.src, port: bestSrc.port, type, s: 0, dist: bestSrc.dist }, dist, dIn);
+    return true;
+  }
+}
+
+// 3 fazlı dağıtıcıda çıkış prizlerini, fazlar dengeli olacak şekilde yeniden dağıt.
+// Aynı kutunun prizleri olduğundan bu fiziksel olarak serbesttir.
+export function balancePhases(p: Project): void {
+  const pc = p.cables.filter((c) => CABLE_TYPES.find((t) => t.id === c.type)?.domain === 'power');
+  const children = new Map<string, string[]>();
+  for (const c of pc) {
+    const l = children.get(c.a.item);
+    if (l) l.push(c.b.item);
+    else children.set(c.a.item, [c.b.item]);
+  }
+  const memo = new Map<string, number>();
+  const down = (id: string, depth = 0): number => {
+    if (memo.has(id)) return memo.get(id)!;
+    if (depth > 40) return 0;
+    const it = p.items.find((i) => i.id === id);
+    let w = it ? ownWatt(p, it) : 0;
+    for (const ch of children.get(id) || []) w += down(ch, depth + 1);
+    memo.set(id, w);
+    return w;
+  };
+  for (const box of p.items) {
+    const def = getDef(p, box.defId);
+    const phased = portsOf(def).filter((x) => x.phase && x.group.domain === 'power' && x.group.dir === 'out');
+    if (phased.length < 3) continue;
+    const groupKey = phased[0].group.key;
+    const same = phased.filter((x) => x.group.key === groupKey);
+    const cabs = pc.filter((c) => c.a.item === box.id && same.some((x) => x.id === c.a.port));
+    if (cabs.length < 2) continue;
+    const load: Record<string, number> = { L1: 0, L2: 0, L3: 0 };
+    const free = new Map<string, string[]>();
+    for (const x of same) {
+      const l = free.get(x.phase!);
+      if (l) l.push(x.id);
+      else free.set(x.phase!, [x.id]);
+    }
+    const sorted = cabs.map((c) => ({ c, w: down(c.b.item) })).sort((a, b) => b.w - a.w);
+    for (const { c, w } of sorted) {
+      const ph = (['L1', 'L2', 'L3'] as const).filter((x) => (free.get(x) || []).length).sort((a, b) => load[a] - load[b])[0];
+      if (!ph) break;
+      c.a.port = free.get(ph)!.shift()!;
+      load[ph] += w;
+    }
+  }
 }
 
 function isDistro(p: Project, it: Item): boolean {

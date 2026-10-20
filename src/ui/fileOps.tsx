@@ -6,8 +6,17 @@ import { downloadBlob, downloadText, normalizeProject, pickFile, readText, saveP
 import { st } from '../store/store';
 import { PlanDrawing } from '../views/plan/PlanDrawing';
 
-function safeName(s: string): string {
-  return (s || 'proje').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'proje';
+// Dosya adı: Türkçe harfleri sadeleştir, sorunlu karakterleri at (bazı tarayıcılar adı yok sayıyor)
+export function safeName(s: string): string {
+  const map: Record<string, string> = { ç: 'c', Ç: 'C', ğ: 'g', Ğ: 'G', ı: 'i', İ: 'I', ö: 'o', Ö: 'O', ş: 's', Ş: 'S', ü: 'u', Ü: 'U', ä: 'ae', Ä: 'Ae', ß: 'ss' };
+  const out = (s || 'proje')
+    .replace(/[çÇğĞıİöÖşŞüÜäÄß]/g, (c) => map[c] || c)
+    .normalize('NFKD')
+    .replace(/[^\w .-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return out.slice(0, 80) || 'proje';
 }
 
 export function exportJSON(): void {
@@ -48,7 +57,8 @@ export async function newEmptyProject(t: TFn): Promise<void> {
 // —— Plan dışa aktarma ——
 function resolveVars(svg: string): string {
   const cs = getComputedStyle(document.documentElement);
-  return svg.replace(/var\(--([a-z0-9-]+)\)/gi, (_, n) => cs.getPropertyValue('--' + n).trim() || '#888');
+  // değerlerdeki çift tırnak (font adları) XML özniteliğini bozmasın
+  return svg.replace(/var\(--([a-z0-9-]+)\)/gi, (_, n) => (cs.getPropertyValue('--' + n).trim() || '#888').replace(/"/g, "'"));
 }
 
 export function planSvgString(scale = 40): { svg: string; w: number; h: number } {

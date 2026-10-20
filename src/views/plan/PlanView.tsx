@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { analyzeCables, anchorPlan } from '../../engine/cables';
 import { getDef, makeItem } from '../../model/project';
+import { L } from '../../i18n';
 import type { Item, Project, ZoneKind } from '../../model/types';
 import { addItem, addNote, addZone, moveSelection, snapPt, updateCable, updateItem, updateNote, updateZone } from '../../store/actions';
 import { st, useStore, useT } from '../../store/store';
@@ -466,12 +467,13 @@ export function PlanView() {
         data-testid="plan-svg"
       >
         <g transform={`translate(${cam.tx} ${cam.ty}) scale(${cam.k})`}>
+          <style>{'.plan-overlay{pointer-events:none}'}</style>
           <PlanDrawing p={p} area={area} layers={layers} sel={sel} k={cam.k} lang={lang} t={t} vb={vb} heat={layers.heatmap ? heat : null} hover={hover} />
           {ghost ? <PlanItem it={ghost.it} def={ghost.def} k={cam.k} sel={false} labels={false} ghost /> : null}
-          {draftLine ? <line x1={draftLine.a.x} y1={draftLine.a.y} x2={draftLine.b.x} y2={draftLine.b.y} stroke="var(--accent)" strokeWidth={2} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" /> : null}
-          {overlay?.kind === 'marquee' ? <rect x={Math.min(overlay.x0, overlay.x1)} y={Math.min(overlay.y0, overlay.y1)} width={Math.abs(overlay.x1 - overlay.x0)} height={Math.abs(overlay.y1 - overlay.y0)} fill="rgba(37,99,235,0.08)" stroke="var(--accent)" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" /> : null}
+          {draftLine ? <line x1={draftLine.a.x} y1={draftLine.a.y} x2={draftLine.b.x} y2={draftLine.b.y} stroke="var(--accent)" strokeWidth={2} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} /> : null}
+          {overlay?.kind === 'marquee' ? <rect className="plan-overlay" x={Math.min(overlay.x0, overlay.x1)} y={Math.min(overlay.y0, overlay.y1)} width={Math.abs(overlay.x1 - overlay.x0)} height={Math.abs(overlay.y1 - overlay.y0)} fill="rgba(37,99,235,0.08)" stroke="var(--accent)" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" /> : null}
           {overlay?.kind === 'zone-draw' ? (
-            <g>
+            <g className="plan-overlay">
               <rect x={Math.min(overlay.x0, overlay.x1)} y={Math.min(overlay.y0, overlay.y1)} width={Math.abs(overlay.x1 - overlay.x0)} height={Math.abs(overlay.y1 - overlay.y0)} fill="rgba(37,99,235,0.1)" stroke="var(--accent)" vectorEffect="non-scaling-stroke" />
               <text x={Math.max(overlay.x0, overlay.x1)} y={Math.max(overlay.y0, overlay.y1)} dx={6 / cam.k} dy={14 / cam.k} fontSize={11 / cam.k} fill="var(--accent)" fontWeight={700}>
                 {Math.abs(overlay.x1 - overlay.x0).toFixed(2)} × {Math.abs(overlay.y1 - overlay.y0).toFixed(2)} m
@@ -479,7 +481,7 @@ export function PlanView() {
             </g>
           ) : null}
           {overlay?.kind === 'measure' ? (
-            <g>
+            <g className="plan-overlay">
               <line x1={overlay.x0} y1={overlay.y0} x2={overlay.x1} y2={overlay.y1} stroke="#0891b2" strokeWidth={2} vectorEffect="non-scaling-stroke" />
               <text x={overlay.x1} y={overlay.y1} dx={8 / cam.k} dy={-8 / cam.k} fontSize={12 / cam.k} fill="#0891b2" fontWeight={700}>
                 {Math.hypot(overlay.x1 - overlay.x0, overlay.y1 - overlay.y0).toFixed(2)} m
@@ -510,6 +512,7 @@ export function PlanView() {
         </div>
       ) : null}
       {hud ? <div className="hud">{hud}</div> : null}
+      <HoverTip id={hover} cursor={cursor} cam={cam} />
       <div className="floating-br no-print">
         {layers.heatmap ? <HeatLegend /> : null}
         <div className="tool-card">
@@ -578,6 +581,32 @@ function LayerQuick() {
       <button className={'ibtn' + (layers.heatmap ? ' on' : '')} title={t('layer.heatmap') + ' (H)'} onClick={() => tog('heatmap')} data-testid="toggle-heat">
         <Icon name="heat" size={16} />
       </button>
+    </div>
+  );
+}
+
+function HoverTip({ id, cursor, cam }: { id: string | null; cursor: { x: number; y: number } | null; cam: Cam }) {
+  const p = useStore((s) => s.project);
+  const lang = useStore((s) => s.lang);
+  if (!id || !cursor) return null;
+  const it = p.items.find((i) => i.id === id);
+  let title = '';
+  let sub = '';
+  if (it) {
+    const d = getDef(p, it.defId);
+    title = it.label;
+    sub = [d.brand, d.model].filter(Boolean).join(' ') || L(d.name, lang);
+    if (it.channel) sub += ' · ' + it.channel;
+  } else {
+    const inf = analyzeCables(p).get(id);
+    if (!inf) return null;
+    title = `${inf.cable.label} · ${inf.type.short}${inf.type.wireless ? '' : ` ${inf.len} m`}`;
+    sub = `${inf.a?.label || '?'} → ${inf.b?.label || '?'}${inf.cable.channel ? ' · ' + inf.cable.channel : ''}`;
+  }
+  return (
+    <div className="tip no-print" style={{ left: cursor.x * cam.k + cam.tx + 14, top: cursor.y * cam.k + cam.ty + 14 }}>
+      <b>{title}</b>
+      <span>{sub}</span>
     </div>
   );
 }

@@ -595,7 +595,7 @@ export const EQUIPMENT: EquipDef[] = [
   // ===== DJ =====
   djDef({
     id: 'denon-prime4', name: nm('DJ sistemi (4 deck, bağımsız)', 'DJ-System (4 Decks, Standalone)', 'DJ system (4-deck standalone)'), brand: 'Denon DJ', model: 'Prime 4', icon: 'djcontroller', shape: 'djcontroller', w: 0.86, d: 0.46, h: 0.09, kg: 10.6, watt: 60,
-    ports: [pg('mic', N.mic, 'combo', 'in', 'audio', 2), pg('aux', nm('Aux giriş', 'Aux-Eingang', 'Aux in'), 'rca', 'in', 'audio'), pg('master', nm('Master çıkış', 'Master-Ausgang', 'Master out'), 'xlr', 'out', 'audio', 2, LR), pg('master2', nm('Master 2 (RCA)', 'Master 2 (Cinch)', 'Master 2 (RCA)'), 'rca', 'out', 'audio'), pg('booth', N.booth, 'jack', 'out', 'audio', 2, LR), pg('zone', nm('Zone çıkış', 'Zone-Ausgang', 'Zone out'), 'jack', 'out', 'audio', 2, LR), pg('usb', N.usb, 'usb', 'io', 'data'), pg('net', nm('Ağ (StageLinQ)', 'Netzwerk (StageLinQ)', 'Network (StageLinQ)'), 'rj45', 'io', 'network'), iec()],
+    ports: [pg('mic', N.mic, 'combo', 'in', 'audio', 2), pg('aux', nm('Aux giriş', 'Aux-Eingang', 'Aux in'), 'rca', 'in', 'audio'), pg('master', nm('Master çıkış', 'Master-Ausgang', 'Master out'), 'xlr', 'out', 'audio', 2, LR), pg('mstb', nm('Master 2 (RCA)', 'Master 2 (Cinch)', 'Master 2 (RCA)'), 'rca', 'out', 'audio'), pg('booth', N.booth, 'jack', 'out', 'audio', 2, LR), pg('zone', nm('Zone çıkış', 'Zone-Ausgang', 'Zone out'), 'jack', 'out', 'audio', 2, LR), pg('usb', N.usb, 'usb', 'io', 'data'), pg('net', nm('Ağ (StageLinQ)', 'Netzwerk (StageLinQ)', 'Network (StageLinQ)'), 'rj45', 'io', 'network'), iec()],
     tags: ['prime', 'denon', 'engine', 'standalone', 'controller'],
   }),
   djDef({
@@ -610,7 +610,7 @@ export const EQUIPMENT: EquipDef[] = [
   }),
   djDef({
     id: 'pio-djm900', name: nm('DJ mikseri 4 kanal', 'DJ-Mixer 4-Kanal', 'DJ mixer 4-ch'), brand: 'Pioneer DJ', model: 'DJM-900NXS2', icon: 'djmixer', shape: 'djmixer', w: 0.33, d: 0.41, h: 0.11, kg: 7.3, watt: 39,
-    ports: [pg('ch', N.ch, 'rca', 'in', 'audio', 4), pg('mic', N.mic, 'combo', 'in', 'audio', 2), pg('master', nm('Master çıkış', 'Master-Ausgang', 'Master out'), 'xlr', 'out', 'audio', 2, LR), pg('master2', nm('Master 2 (RCA)', 'Master 2 (Cinch)', 'Master 2 (RCA)'), 'rca', 'out', 'audio'), pg('booth', N.booth, 'jack', 'out', 'audio', 2, LR), pg('usb', N.usb, 'usb', 'io', 'data'), pg('link', 'Pro DJ Link', 'rj45', 'io', 'network'), iec()],
+    ports: [pg('ch', N.ch, 'rca', 'in', 'audio', 4), pg('mic', N.mic, 'combo', 'in', 'audio', 2), pg('master', nm('Master çıkış', 'Master-Ausgang', 'Master out'), 'xlr', 'out', 'audio', 2, LR), pg('mstb', nm('Master 2 (RCA)', 'Master 2 (Cinch)', 'Master 2 (RCA)'), 'rca', 'out', 'audio'), pg('booth', N.booth, 'jack', 'out', 'audio', 2, LR), pg('usb', N.usb, 'usb', 'io', 'data'), pg('link', 'Pro DJ Link', 'rj45', 'io', 'network'), iec()],
     tags: ['djm', 'mixer', 'pioneer'],
   }),
   djDef({

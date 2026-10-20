@@ -259,6 +259,7 @@ export const tr = {
   'area.bg': 'Arka plan (mekan planı)',
   'area.bgHint': 'Mekanın krokisini/fotoğrafını yükle, ölçeği genişliği girerek ayarla.',
   'area.bgUpload': 'Resim yükle',
+  'area.offsetHint': 'Bu bölümün diğerlerine göre konumu (bölümler arası kablo boyu için):',
   'area.opacity': 'Saydamlık',
   'checks.allGood': 'Her şey yolunda',
   'checks.allGoodHint': 'Uyarı yok. Yine de kurulumdan önce listeyi kontrol et.',
@@ -478,6 +479,8 @@ export const tr = {
   'toast.noSource': 'Uygun boş priz bulunamadı — dağıtıcı veya grup priz ekle',
   'toast.nothing': 'Bağlanacak bir şey bulunamadı',
   'toast.connected': '{c} bağlandı',
+  'toast.portBusy': 'Bu port zaten kullanılıyor — önce mevcut kabloyu sil veya başka port seç',
+  'toast.incompatible': 'Bu iki port birbirine bağlanamaz (farklı sinyal türü)',
   'toast.no3d': '3D görünüm hazır değil',
 
   // —— Listeler ——

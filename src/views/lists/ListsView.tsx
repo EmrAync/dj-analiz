@@ -10,6 +10,7 @@ import { getDef } from '../../model/project';
 import { downloadText } from '../../store/persist';
 import { st, useStore, useT } from '../../store/store';
 import { Icon, Seg } from '../../ui/kit';
+import { safeName } from '../../ui/fileOps';
 
 type Tab = 'bom' | 'cables' | 'pack' | 'patch' | 'power';
 
@@ -19,7 +20,7 @@ export function ListsView() {
   const lang = useStore((s) => s.lang);
   const [tab, setTab] = useState<Tab>('bom');
   const bom = useMemo(() => buildBom(p, t, lang), [p, t, lang]);
-  const csv = (name: string, rows: (string | number | boolean | undefined)[][]) => downloadText(`${p.name || 'proje'}-${name}.csv`, toCSV(rows), 'text/csv');
+  const csv = (name: string, rows: (string | number | boolean | undefined)[][]) => downloadText(`${safeName(p.name)}-${safeName(name)}.csv`, toCSV(rows), 'text/csv');
   const exportCurrent = () => {
     if (tab === 'bom') {
       csv(t('lists.bom'), [[t('col.group'), t('col.qty'), t('col.name'), t('col.brand'), t('col.model'), t('col.weight'), t('col.power'), t('col.labels')], ...bom.rows.map((r) => [groupName(r.group, lang, t), r.qty, r.name, r.brand || '', r.model || '', fmt(r.kg, 1, lang), Math.round(r.watt), r.items.map((id) => p.items.find((i) => i.id === id)?.label).join(', ')])]);

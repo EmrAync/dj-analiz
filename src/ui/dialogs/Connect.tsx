@@ -61,7 +61,7 @@ export function ConnectDialog({ a, ap, b }: { a: string; ap?: string; b: string 
           <button className="btn" onClick={close}>
             {t('btn.cancel')}
           </button>
-          <button className="btn primary" disabled={!PA || !PB} onClick={doConnect} data-testid="con-ok">
+          <button className="btn primary" disabled={!PA || !PB || used.has(A.id + '#' + pa) || used.has(B.id + '#' + pb)} onClick={doConnect} data-testid="con-ok">
             <Icon name="cable" size={15} /> {t('con.connect')}
           </button>
         </>
@@ -98,6 +98,7 @@ export function ConnectDialog({ a, ap, b }: { a: string; ap?: string; b: string 
           </span>
           {PA.group.domain !== PB.group.domain && !(['digital', 'network'].includes(PA.group.domain) && ['digital', 'network'].includes(PB.group.domain)) ? <span className="chip err">{t('con.domainMismatch')}</span> : null}
           {PA.group.dir === PB.group.dir && PA.group.dir !== 'io' ? <span className="chip warn">{t('con.sameDir')}</span> : null}
+          {used.has(A.id + '#' + pa) || used.has(B.id + '#' + pb) ? <span className="chip err">{t('toast.portBusy')}</span> : null}
           {types[0] && !cableFits(types.find((x) => x.id === typeId) || types[0], PA.group.conn, PB.group.conn) ? <span className="chip warn">{t('cab.adapter')}</span> : null}
         </div>
       ) : (

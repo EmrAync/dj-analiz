@@ -119,8 +119,10 @@ function analyzeOne(p: Project, c: Cable, items: Map<string, Item>, offsets: Map
     } else {
       const aa = p.areas.find((x) => x.id === a.areaId);
       const ab = p.areas.find((x) => x.id === b.areaId);
-      if (aa?.ox != null && ab?.ox != null) {
+      if (aa && ab) {
+        // bölümlerin genel yerleşimdeki konumu (ox, oy) — girilmemişse 0
         len3d = dist({ x: A.x + (aa.ox || 0), y: A.y + (aa.oy || 0) }, { x: B.x + (ab.ox || 0), y: B.y + (ab.oy || 0) }) * 1.3 + 1;
+        if (aa.ox == null && ab.ox == null) issues.push('chk.cableNoLen');
       }
       issues.push('chk.cableCrossArea');
     }
@@ -145,7 +147,10 @@ function analyzeOne(p: Project, c: Cable, items: Map<string, Item>, offsets: Map
   const stock = type.wireless ? 0 : need > 0 ? stockOf(type, need) : 0;
   const len = c.len ?? stock;
   if (!type.wireless && type.maxLen && len > type.maxLen) issues.push('chk.cableTooLong');
-  if (!type.wireless && crossArea && c.len == null && len3d === 0) issues.push('chk.cableNoLen');
+  if (!type.wireless && crossArea && c.len != null) {
+    const i = issues.indexOf('chk.cableNoLen');
+    if (i >= 0) issues.splice(i, 1);
+  }
   const info: CableInfo = { cable: c, type, a, b, defA, defB, portA, portB, path, crossArea, len3d, need, stock, len, issues };
   if (type.domain === 'speaker' && type.mm2 && len > 0) {
     const spk = defB?.acoustic?.impedance ? defB : defA?.acoustic?.impedance ? defA : undefined;
