@@ -1,16 +1,60 @@
 {
   "name": "SahneCAD",
   "short_name": "SahneCAD",
-  "description": "Sahne, ses, ışık, elektrik ve kablo planlama; dB ölçer, RTA ve gecikme ölçümü",
-  "start_url": "./#olcum",
+  "description": "Sahne, ses, ışık, elektrik ve kablo planlama; paketleme, kurulum talimatı, dB ölçer, RTA ve gecikme ölçümü",
+  "start_url": "./#ana",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f6f7f9",
   "theme_color": "#2563eb",
   "lang": "tr",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Kurulum",
+      "url": "./#kurulum",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Paketleme",
+      "url": "./#paket",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Ölçüm (dB / RTA)",
+      "url": "./#olcum",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
   ]
 }

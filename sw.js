@@ -1,5 +1,5 @@
 // SahneCAD çevrimdışı önbellek: önce ağ, ağ yoksa önbellek (salonda internet olmasa da açılır)
-const C = 'sahnecad-v1';
+const C = 'sahnecad-v2';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-192.png'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(C).then((c) => c.addAll(CORE)).catch(() => {}));
