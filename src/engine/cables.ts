@@ -1,6 +1,7 @@
 import { cableFits, cableType, CABLE_TYPES, type CableType } from '../catalog/connectors';
 import { findPort, floorElevAt, getDef, itemBaseZ, itemDims, localToPlan, portsOf } from '../model/project';
 import type { Cable, EquipDef, Item, PortInst, Project } from '../model/types';
+import { activeView, baseOf, isOff } from '../model/variants';
 import { derive, dist, polyLen, type Pt } from './derive';
 
 export interface CableInfo {
@@ -143,10 +144,12 @@ function analyzeOne(p: Project, c: Cable, items: Map<string, Item>, offsets: Map
     }
   }
   const s = p.settings;
-  const need = type.wireless ? 0 : len3d > 0 ? len3d * (1 + s.slackPct / 100) + s.slackM : 0;
+  const plug = type.id === 'plug';
+  if (plug && len3d > 1.2) issues.push('chk.plugFar');
+  const need = type.wireless || plug ? 0 : len3d > 0 ? len3d * (1 + s.slackPct / 100) + s.slackM : 0;
   const stock = type.wireless ? 0 : need > 0 ? stockOf(type, need) : 0;
   const len = c.len ?? stock;
-  if (!type.wireless && type.maxLen && len > type.maxLen) issues.push('chk.cableTooLong');
+  if (!type.wireless && !plug && type.maxLen && len > type.maxLen) issues.push('chk.cableTooLong');
   if (!type.wireless && crossArea && c.len != null) {
     const i = issues.indexOf('chk.cableNoLen');
     if (i >= 0) issues.splice(i, 1);
@@ -176,6 +179,9 @@ function stockOf(t: CableType, need: number): number {
 }
 
 export function analyzeCables(p: Project): Map<string, CableInfo> {
+  const base = baseOf(p);
+  // seçili plan görünümü: tam projenin kablo bilgilerini paylaş (elektrik akımı çizimde de görünsün)
+  if (base !== p) return derive(p, 'cables', () => { const full = analyzeCables(base); return new Map(p.cables.map((c) => [c.id, full.get(c.id)!])); });
   return derive(p, 'cables', () => {
     const items = new Map(p.items.map((i) => [i.id, i]));
     const offsets = pairOffsets(p);
@@ -183,6 +189,7 @@ export function analyzeCables(p: Project): Map<string, CableInfo> {
     const used = new Map<string, string[]>();
     for (const c of p.cables) {
       m.set(c.id, analyzeOne(p, c, items, offsets));
+      if (isOff(p, c)) continue; // seçili olmayan alternatif: port meşgul sayılmaz
       for (const e of [c.a, c.b]) {
         const k = e.item + '#' + e.port;
         const u = used.get(k);
@@ -207,7 +214,7 @@ export function analyzeCables(p: Project): Map<string, CableInfo> {
 export function cablesAt(p: Project): Map<string, Cable[]> {
   return derive(p, 'cablesAt', () => {
     const m = new Map<string, Cable[]>();
-    for (const c of p.cables) {
+    for (const c of activeView(p).cables) {
       for (const e of [c.a, c.b]) {
         const k = e.item;
         const l = m.get(k);
@@ -223,6 +230,7 @@ export function portUse(p: Project): Map<string, Cable> {
   return derive(p, 'portUse', () => {
     const m = new Map<string, Cable>();
     for (const c of p.cables) {
+      if (isOff(p, c)) continue;
       m.set(c.a.item + '#' + c.a.port, c);
       m.set(c.b.item + '#' + c.b.port, c);
     }
@@ -232,7 +240,7 @@ export function portUse(p: Project): Map<string, Cable> {
 
 // İki port için uygun kablo tipleri (en iyi önce)
 export function suggestCableTypes(pa: PortInst, pb: PortInst): CableType[] {
-  const res = CABLE_TYPES.filter((ct) => ct.id !== 'generic' && cableFits(ct, pa.group.conn, pb.group.conn));
+  const res = CABLE_TYPES.filter((ct) => ct.id !== 'generic' && ct.id !== 'plug' && cableFits(ct, pa.group.conn, pb.group.conn));
   const dom = pa.group.domain === pb.group.domain ? pa.group.domain : pa.group.domain;
   res.sort((x, y) => {
     const sx = (x.domain === dom ? 0 : 1) + (x.ends[0].includes(pa.group.conn) && x.ends[1].includes(pb.group.conn) ? 0 : 0.5);

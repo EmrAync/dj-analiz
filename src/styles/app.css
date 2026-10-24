@@ -2323,3 +2323,685 @@ svg.flow {
   color: var(--muted);
   font-size: 11px;
 }
+
+/* —— Alternatif planlar (A/B/C) —— */
+.var-list {
+  display: grid;
+  gap: 8px;
+}
+.var-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--panel);
+}
+.var-card.on {
+  border-color: var(--ok);
+  box-shadow: 0 0 0 2px var(--ok-soft);
+}
+.var-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.var-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.var-letter {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--warn);
+  color: #fff;
+  font-weight: 800;
+  font-size: 13px;
+  flex: none;
+}
+.var-card.on .var-letter {
+  background: var(--ok);
+}
+.var-when {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 4px 0 2px 32px;
+}
+.var-chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 0 2px;
+}
+.var-node {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  font-size: 11.5px;
+  cursor: pointer;
+  max-width: 100%;
+}
+.var-node.cable {
+  background: var(--err-soft);
+  border-color: transparent;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.var-node.plug {
+  background: transparent;
+  border-style: dashed;
+  color: var(--muted);
+  font-size: 11px;
+}
+.var-node.sys {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.var-arrow {
+  color: var(--faint);
+  font-size: 12px;
+}
+.var-tools {
+  display: flex;
+  gap: 2px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.var-banner {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 6px 10px;
+  border-radius: 999px;
+  background: var(--warn-soft);
+  border: 1px solid var(--warn);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  max-width: calc(100% - 24px);
+}
+.var-badge {
+  font-weight: 800;
+}
+
+/* —— Kayıtlı salonlar —— */
+.venue-form {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 2px 30px;
+  padding: 8px;
+  border: 1px dashed var(--accent);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.venue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.venue-row:last-child {
+  border-bottom: 0;
+}
+
+/* —— Paketleme —— */
+.pk-tpl {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.menu .pk-tpl button.ibtn {
+  width: auto;
+}
+.pk-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+  border: 0;
+  padding: 0;
+}
+.pk-dot.big {
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+}
+.pk-dot.on {
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--text);
+}
+.pk-colors {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.pk-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel3);
+  overflow: hidden;
+  margin-top: 4px;
+}
+.pk-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.2s;
+}
+.pk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+.pk-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 10px;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--c);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+  min-height: 84px;
+}
+.pk-card:hover {
+  border-color: var(--c);
+}
+.pk-photo {
+  width: 60px;
+  height: 60px;
+  border-radius: 10px;
+  background: var(--panel2);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  flex: none;
+  border: 0;
+  padding: 0;
+}
+.pk-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.pk-photo.big {
+  width: 96px;
+  height: 96px;
+  cursor: pointer;
+}
+.pk-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pk-desc {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.empty-card {
+  text-align: center;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 28px 16px;
+}
+.pk-miss {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.pk-miss:last-child {
+  border-bottom: 0;
+}
+.pk-qty {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 34px;
+}
+.pk-case {
+  max-width: 760px;
+}
+.pk-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.pk-head {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-top: 6px solid var(--c);
+  box-shadow: var(--shadow);
+}
+.pk-title {
+  margin: 4px 0;
+  font-size: 22px;
+}
+.pk-name {
+  font-size: 18px;
+  font-weight: 700;
+  height: 38px;
+}
+.pk-desc2 {
+  margin: 0;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+.pk-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 8px;
+}
+.pk-progress b {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.pk-progress .pk-bar {
+  flex: 1;
+  height: 10px;
+  margin: 0;
+}
+.pk-lines {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.pk-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  min-height: 56px;
+  border-bottom: 1px solid var(--line);
+}
+.pk-line:last-child {
+  border-bottom: 0;
+}
+.pk-line.done {
+  background: var(--ok-soft);
+}
+.pk-line.done .pk-lname {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.pk-check {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid var(--c, var(--accent));
+  background: var(--panel);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex: none;
+  padding: 0;
+  color: var(--text);
+}
+.pk-line.done .pk-check {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+.pk-line.part .pk-check {
+  background: var(--warn-soft);
+  border-color: var(--warn);
+}
+.pk-ltext {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+}
+.pk-lname {
+  font-size: 15px;
+}
+.pk-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-weight: 600;
+}
+.pk-stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pk-stepper b {
+  min-width: 22px;
+  text-align: center;
+}
+.pk-add {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px dashed var(--line2);
+  border-radius: 12px;
+}
+.pk-done {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--ok-soft);
+  color: var(--ok);
+  font-weight: 700;
+  text-align: center;
+  font-size: 16px;
+}
+.pk-print {
+  break-inside: avoid;
+  margin-bottom: 18px;
+}
+
+/* —— Ana sayfa (adım adım iş) —— */
+.home-inner {
+  max-width: 760px;
+}
+.home-hero {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 4px 0 12px;
+}
+.home-title {
+  font-size: 22px;
+  margin: 2px 0 6px;
+  overflow-wrap: anywhere;
+}
+.home-prog {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.home-prog .pk-bar {
+  height: 8px;
+  margin: 0;
+}
+.home-next {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  width: 100%;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  border: 0;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: var(--accent-text);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+.home-next .hint {
+  color: inherit;
+  opacity: 0.85;
+  grid-column: 1;
+}
+.home-next b {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  grid-column: 1;
+}
+.home-next-go {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+}
+.home-next.done {
+  background: var(--ok-soft);
+  color: var(--ok);
+  font-weight: 700;
+  font-size: 16px;
+  display: block;
+  text-align: center;
+}
+.home-steps {
+  display: grid;
+  gap: 8px;
+}
+.home-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  min-height: 64px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+.home-step:hover {
+  border-color: var(--accent);
+}
+.home-step.next {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.home-num {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+  font-weight: 800;
+  background: var(--panel3);
+  color: var(--muted);
+}
+.home-step.ok .home-num {
+  background: var(--ok);
+}
+.home-step.warn .home-num {
+  background: var(--warn);
+  color: #fff;
+}
+.home-txt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.home-txt b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+}
+.home-txt > span {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.home-venues {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.home-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 18px 0 8px;
+}
+
+/* —— Telefon kabuğu —— */
+.phone-title,
+.phone-only,
+.bnav {
+  display: none;
+}
+@media (max-width: 760px) {
+  .app {
+    grid-template-rows: 48px 1fr calc(58px + env(safe-area-inset-bottom, 0px));
+  }
+  .topbar {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .topbar .tabs,
+  .topbar .proj-name,
+  .topbar .brand {
+    display: none;
+  }
+  .phone-title {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    font-weight: 700;
+    font-size: 16px;
+    padding-left: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .phone-only {
+    display: inline-flex;
+  }
+  .topbar .ibtn {
+    min-width: 38px;
+    height: 38px;
+  }
+  .bnav {
+    grid-area: status;
+    display: flex;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    z-index: 40;
+  }
+  .bnav button {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 10.5px;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .bnav button.on {
+    color: var(--accent);
+  }
+  .left {
+    top: 48px;
+    bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+  }
+  /* özellikler: alttan açılan panel */
+  .right {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    max-height: 62vh;
+    border-radius: 16px 16px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  .right::before {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line2);
+    margin: 6px auto 0;
+  }
+  .page-inner {
+    padding: 12px;
+  }
+  .page-head h1 {
+    display: none; /* başlık üst çubukta */
+  }
+  .measure .page-head h1 {
+    display: none;
+  }
+  .pack .grid-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .pack .stat {
+    padding: 8px;
+  }
+  .pack .stat .v {
+    font-size: 17px;
+  }
+  .pack .stat .l {
+    font-size: 9.5px;
+  }
+  .hide-phone {
+    display: none !important;
+  }
+  .home-title {
+    font-size: 20px;
+  }
+  .pk-head {
+    flex-direction: row;
+  }
+  .pk-photo.big {
+    width: 72px;
+    height: 72px;
+  }
+  .pk-top .seg {
+    order: 3;
+    width: 100%;
+  }
+  .pk-top .seg button {
+    flex: 1;
+  }
+  .var-banner {
+    border-radius: 12px;
+    top: 6px;
+    font-size: 12px;
+  }
+  .toast {
+    bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+  }
+}

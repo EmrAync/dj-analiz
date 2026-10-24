@@ -11,6 +11,7 @@ import { durText, FlowDiagram, GanttChart } from './ActivityDiagram';
 import { catColor, itemImage } from '../common';
 import { PrintHeader } from '../lists/ListsView';
 import { PlanDrawing } from '../plan/PlanDrawing';
+import { AltChoices } from '../../ui/VariantPanel';
 
 export function SetupView() {
   const t = useT();
@@ -216,11 +217,13 @@ function StepRow({ s, done }: { s: SetupStep; done: boolean }) {
             </button>
           ) : null}
         </div>
-        <ul>
+        {s.group ? <AltChoices gid={s.group} /> : null}
+        <ul className={s.group ? 'print-only' : undefined}>
           {s.lines.map((l, i) => (
             <li key={i}>{l}</li>
           ))}
         </ul>
+        {s.group ? <div className="hint no-print">{s.lines[s.lines.length - 1]}</div> : null}
         {s.warn?.map((w, i) => (
           <div key={i} className="warnline">
             ⚠ {w}

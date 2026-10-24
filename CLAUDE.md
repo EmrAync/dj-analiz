@@ -12,6 +12,8 @@ Hand-off notes for future Claude sessions. Read this first.
   **someone who doesn't know the setup can build it** from the drawing. Think like a sound engineer, an
   analyst and an architect (room acoustics, environment).
 - UI language: **Turkish** first (DE/EN complete as well). Calm, light UI; short sentences; buttons over text.
+- **Always answer the user in Turkish** — even if a German or English message appears automatically
+  (he asked explicitly: "Limit dolarsa türkçe devam edeceksin").
 - The project lives on the **`sahne-cad` branch of `EmrAync/dj-analiz`** (orphan branch, no DJ Doktor files) because the
   session could not create a new repository. If he creates a separate repo, push this branch there as `main`.
 
@@ -27,6 +29,7 @@ npx vite preview --port 4173 --strictPort &
 node tests/ui_smoke.mjs http://127.0.0.1:4173/ shots   # every view, fails on JS errors
 node tests/ui_flows.mjs http://127.0.0.1:4173/ shots   # cable tool, undo, drag, zone, schema drag-connect,
                                                        # exports (DXF/SVG/PNG/JSON), installer mode, DE setup, mobile
+node tests/ui_power.mjs http://127.0.0.1:4173/ shots   # power A/B/C, venues, packing, phone shell
 npm run release             # SahneCAD.html (single file, file://) + docs/ (app files for Pages)
 npm run pages               # publish docs/ app files to the gh-pages branch → https://emraync.github.io/dj-analiz/
 node tests/docs_shots.mjs http://127.0.0.1:4173/ docs  # README screenshots
@@ -96,11 +99,46 @@ pitch `rotation.x = -tilt`. Item `z` is the bottom edge above the local floor (s
   derived functions on an object you will mutate afterwards (the wizard returns a JSON clone for this reason).
 - Mutations only via `st().mutate(fn, history?)`; drags call `checkpoint()` once, then `mutate(fn, false)`.
 - Power cables are **directional** (`ends[0]` = socket side). `addCable` orients output → input.
-- One cable per port (`connect()` refuses busy ports).
+- One cable per port (`connect()` refuses busy ports; cables of inactive variants don't count).
+- Analyses must see only the active variants: start new engine entry points with
+  `const pv = activeView(p); if (pv !== p) return fn(pv, …);`.
 - Approximate brand data: keep the "values are approximate" hint; never claim manufacturer accuracy.
 - Safety hints stay: 400 V by an electrician, rigging by a qualified rigger, keep escape routes clear.
 
-## 5. Status (v0.3.0)
+## 5. Status (v0.4.0)
+
+v0.4.0 (user: "power alternatives — first 32 A 5-pin, else 16 A, else Schuko with PRCD-S+; click power cables
+to see the alternatives; the worker must see it; save them for the venue; packing — which gear in which bag,
+a page to take just that bag and pack it back; make the phone feel like a phone app, guiding"):
+- **Variants** (`model/variants.ts`): `p.variants: VariantGroup[]` (`variants[]` in priority order, `active`).
+  Items/cables carry `variant` (Variant.id). `isOff(p, x)` (also works on immer drafts), `activeView(p)` = memoised
+  copy without inactive variants (returns p when nothing is filtered; `baseOf(view)` gives the full project).
+  Analyses redirect to the view at their top (`analyzePower`, `runChecks`, `walkwayCrossings`, lists, activities,
+  `sourcesOf`, `coveragePlan`, `danceScan`, `subClusters`); `analyzeCables(view)` shares CableInfo objects with
+  the full project so power amps show in drawings. `portUse`/busy checks/autowire skip inactive variants;
+  autowire never uses variant items as targets or sources. `buildBom` lists extra parts of other variants as
+  group `alt` (max over variants − active). `buildSetup` adds a decision step `vg:<groupId>` (`group` field),
+  rendered with `AltChoices`. Plan/schema fade inactive variants only with `layers.alts`; 3D hides them.
+- `engine/powerAlt.ts`: `findEntry` (walk past entry gear: wall sockets, adapters, PRCD), `entrySpecs`
+  (Schuko-fed entries: A/B/C; CEE16r entries: A/B), `buildPowerAlternatives` (removes the old feed chain, places
+  each chain at the nearest wall, `plug` cable type = plugged directly, 0 m). Catalog: `adp-cee32-16`,
+  `adp-cee16r-schuko`, `prcd` renamed PRCD-S+. `plug` is excluded from `suggestCableTypes`.
+- `store/variantActions.ts` (use/draw/copy/move/delete/dissolve), `ui/VariantPanel.tsx` (Inspector section,
+  `VariantBanner` while drawing: `st().editVariant` → `addItem`/`connect` assign the variant).
+- **Venues**: `VenueTpl` in the personal library (`Library.venues`); `store/venueActions.ts`
+  (`venueFromArea`, `insertVenue` remaps all ids incl. variant groups; replaces a lone empty area); UI in the
+  Areas tab (`ui/Venues.tsx`) and on the home page.
+- **Packing**: `p.cases: CaseDef[]` (lines kind def/cable/acc/text), `p.packing["caseId:lineId"] = {out, back}`
+  (ticks are not in undo history). `engine/packing.ts` (`packingNeeds` from the BOM without furniture/stage
+  decks/consumables, `suggestCases`, `caseProgress`), `store/packActions.ts`, `views/pack/PackView.tsx`
+  (home: cards, missing list; case page: big rows, load-out / pack-back, edit, photo, print). Case templates in
+  `Library.cases` ("Çantalarım").
+- **Phone shell** (≤760 px, `ui/phone.tsx`): bottom nav (home/plan/setup/pack/measure), ⋯ menu for the other
+  views, inspector as a bottom sheet that opens on selection (`usePhoneSheet`), status bar hidden, page titles in
+  the top bar. `views/home/HomeView.tsx`: guided job steps with status and "next step". Without a hash the
+  phone opens `#ana`; manifest `start_url` is `./#ana` (+ shortcuts). Views: keys 1–7 as before, 8 pack, 9 home.
+- Tests: `tests/ui_power.mjs` (alternatives, setup cards, BOM, undo, venue save/add, packing, phone) — run it
+  with the other UI tests. Engine tests cover variants, venues and packing (27 tests).
 
 v0.3.0 (user: "legal limits optional, not fixed; measure delays between sub and satellite / main and delay;
 make it usable on iPhone because the UMIK works there; not only RTA, also SPL dB"):

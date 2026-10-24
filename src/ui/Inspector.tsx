@@ -35,6 +35,7 @@ import { pickFile } from '../store/persist';
 import { st, useStore, useT } from '../store/store';
 import { ZONE_KINDS, catColor, itemImage } from '../views/common';
 import { Check, Icon, Num, Row, Section, Seg, Text } from './kit';
+import { VariantSection } from './VariantPanel';
 
 export function Inspector() {
   const open = useStore((s) => s.rightOpen);
@@ -120,6 +121,7 @@ function ItemInspector({ it }: { it: Item }) {
         </div>
       ) : null}
 
+      <VariantSection item={it} />
       <Section title={t('insp.position')} id="i-pos">
         <div className="row2">
           <Num label="X" value={it.x} onChange={(v) => up({ x: v })} unit="m" disabled={installer || it.locked} />
@@ -667,6 +669,7 @@ function CableInspector({ c }: { c: Cable }) {
           </div>
         </div>
       </div>
+      <VariantSection cable={c} />
       <Section title={t('cab.route')} id="c-route">
         <div style={{ display: 'grid', gap: 6 }}>
           <div className="lbl hint small">{t('cab.from')}</div>

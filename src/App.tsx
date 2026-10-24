@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { runWizard, WIZ_DEFAULT } from './engine/wizard';
 import { makeT } from './i18n';
-import { deleteSelection, duplicateSelection, moveSelection, rotateSelection, toggleLock } from './store/actions';
+import { deleteSelection, duplicateSelection, moveSelection, publishLibrary, rotateSelection, toggleLock } from './store/actions';
 import { lastProjectId, loadLibrary, loadProject, normalizeProject, saveProject } from './store/persist';
 import { st, useStore, useT, type View } from './store/store';
 import { Dialogs } from './ui/dialogs/Dialogs';
@@ -17,7 +17,11 @@ import { ListsView } from './views/lists/ListsView';
 import { AnalysisView } from './views/analysis/AnalysisView';
 import { SetupView } from './views/setup/SetupView';
 import { MeasureView } from './views/measure/MeasureView';
+import { PackView } from './views/pack/PackView';
+import { HomeView } from './views/home/HomeView';
+import { BottomNav, isPhone, useIsPhone, usePhoneSheet } from './ui/phone';
 import { copySelection, pasteClipboard } from './ui/clipboard';
+import { VariantBanner } from './ui/VariantPanel';
 
 const ThreeView = lazy(() => import('./views/three/ThreeView'));
 
@@ -35,11 +39,14 @@ export function App() {
   useAutosave();
   useShortcuts();
   useHashView();
+  usePhoneSheet();
+  const phone = useIsPhone();
   return (
     <div className="app">
       <TopBar />
       <LeftPanel />
       <main className="main">
+        {view === 'plan' || view === '3d' || view === 'schema' ? <VariantBanner /> : null}
         {view === 'plan' ? <PlanView /> : null}
         {view === '3d' ? (
           <Suspense fallback={<Loading />}>
@@ -51,9 +58,11 @@ export function App() {
         {view === 'analysis' ? <AnalysisView /> : null}
         {view === 'measure' ? <MeasureView /> : null}
         {view === 'setup' ? <SetupView /> : null}
+        {view === 'pack' ? <PackView /> : null}
+        {view === 'home' ? <HomeView /> : null}
       </main>
       <Inspector />
-      <StatusBar />
+      {phone ? <BottomNav /> : <StatusBar />}
       <Dialogs />
       <Toast />
     </div>
@@ -99,7 +108,7 @@ function useBoot() {
     let cancelled = false;
     (async () => {
       const lib = await loadLibrary();
-      if (!cancelled) st().set({ library: { defs: lib.defs } });
+      if (!cancelled) publishLibrary(lib);
       // URL ile gelen proje (#p=...)? Yok — son projeyi aç
       const id = lastProjectId();
       const saved = id ? await loadProject(id) : undefined;
@@ -209,8 +218,8 @@ function useShortcuts() {
         moveSelection(dx, dy, true);
         return;
       }
-      const views = ['plan', '3d', 'schema', 'lists', 'analysis', 'measure', 'setup'] as const;
-      if (/^[1-7]$/.test(e.key)) {
+      const views = ['plan', '3d', 'schema', 'lists', 'analysis', 'measure', 'setup', 'pack', 'home'] as const;
+      if (/^[1-9]$/.test(e.key)) {
         s.set({ view: views[Number(e.key) - 1] });
         return;
       }
@@ -259,8 +268,8 @@ function useShortcuts() {
   }, []);
 }
 
-// Adres çubuğunda görünüm: #plan, #3d, #sema, #listeler, #analiz, #olcum, #kurulum (ana ekran kısayolu için)
-const SLUG: Record<string, string> = { plan: 'plan', '3d': '3d', schema: 'sema', lists: 'listeler', analysis: 'analiz', measure: 'olcum', setup: 'kurulum' };
+// Adres çubuğunda görünüm: #ana, #plan, #3d, #sema, #listeler, #analiz, #olcum, #kurulum, #paket (ana ekran kısayolu için)
+const SLUG: Record<string, string> = { home: 'ana', plan: 'plan', '3d': '3d', schema: 'sema', lists: 'listeler', analysis: 'analiz', measure: 'olcum', setup: 'kurulum', pack: 'paket' };
 
 function useHashView() {
   useEffect(() => {
@@ -268,6 +277,7 @@ function useHashView() {
       const h = decodeURIComponent(location.hash.replace(/^#/, ''));
       const v = Object.keys(SLUG).find((k) => SLUG[k] === h);
       if (v && st().view !== v) st().set({ view: v as View });
+      else if (!h && isPhone()) st().set({ view: 'home' }); // telefonda başlangıç: ana sayfa
     };
     fromHash();
     window.addEventListener('hashchange', fromHash);

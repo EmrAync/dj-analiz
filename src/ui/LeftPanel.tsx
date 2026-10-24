@@ -9,6 +9,7 @@ import type { CatId, Dept, Domain, EquipDef } from '../model/types';
 import { addArea, deleteArea, duplicateArea, updateArea } from '../store/actions';
 import { st, useStore, useT } from '../store/store';
 import { Check, Icon, Section, Seg } from './kit';
+import { SaveVenueForm, VenueList } from './Venues';
 
 export function LeftPanel() {
   const t = useT();
@@ -307,6 +308,7 @@ function AreasTab() {
   const t = useT();
   const p = useStore((s) => s.project);
   const areaId = useStore((s) => s.areaId);
+  const [saving, setSaving] = useState<string | null>(null);
   const cross = p.cables.filter((c) => {
     const a = p.items.find((i) => i.id === c.a.item);
     const b = p.items.find((i) => i.id === c.b.item);
@@ -338,6 +340,9 @@ function AreasTab() {
               <button className="ibtn sm" title={t('area.duplicate')} onClick={() => duplicateArea(a.id, t('area.copy'))}>
                 <Icon name="copy" size={14} />
               </button>
+              <button className={'ibtn sm' + (saving === a.id ? ' on' : '')} title={t('venue.saveAs')} onClick={() => setSaving(saving === a.id ? null : a.id)} data-testid="venue-save-open">
+                <Icon name="venue" size={14} />
+              </button>
               {p.areas.length > 1 ? (
                 <button
                   className="ibtn sm danger"
@@ -353,9 +358,11 @@ function AreasTab() {
             <div className="hint small" style={{ marginTop: 4, paddingLeft: 30 }}>
               {a.w} × {a.d} × {a.h} m · {n} {t('area.items')} · {a.indoor ? t('area.indoor') : t('area.outdoor')}
             </div>
+            {saving === a.id ? <SaveVenueForm areaId={a.id} onDone={() => setSaving(null)} /> : null}
           </div>
         );
       })}
+      <VenueList />
       {cross.length ? (
         <Section title={t('area.cross', { n: cross.length })} id="l-cross">
           {cross.map((c) => {

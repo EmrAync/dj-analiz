@@ -2,6 +2,7 @@ import { findPort, getDef, itemDims, portsOf } from '../model/project';
 import type { Item, Phase, Project } from '../model/types';
 import { analyzeCables } from './cables';
 import { derive } from './derive';
+import { activeView } from '../model/variants';
 
 export const PF = 0.95; // güç faktörü (anahtarlamalı güç kaynakları)
 const RHO = 0.0175; // bakır Ω·mm²/m
@@ -61,6 +62,8 @@ export function needsPower(p: Project, it: Item): boolean {
 }
 
 export function analyzePower(p: Project): PowerReport {
+  const pv = activeView(p);
+  if (pv !== p) return analyzePower(pv);
   return derive(p, 'power', () => {
     const cinfo = analyzeCables(p);
     const items = new Map(p.items.map((i) => [i.id, i]));

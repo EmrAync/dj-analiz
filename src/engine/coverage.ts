@@ -8,6 +8,7 @@ import type { Item, Project, Zone, ZoneKind } from '../model/types';
 import { midLevel, reverbOf, roomAcoustics, roomConstant, sourcesOf, speedOfSound, type Source, type SplGrid } from './acoustics';
 import { autoPower, autoSignal } from './autowire';
 import { derive } from './derive';
+import { activeView } from '../model/variants';
 
 // —— Bölge hedefleri ——
 // pist 98: DIN 15905-5 (Almanya) seyirci alanında 30 dk Leq ≤ 99 dB(A)
@@ -459,6 +460,8 @@ function inRect(z: { x: number; y: number; w: number; d: number }, x: number, y:
 }
 
 export function coveragePlan(p: Project, areaId: string): CoveragePlan {
+  const pv = activeView(p);
+  if (pv !== p) return coveragePlan(pv, areaId);
   return derive(p, 'cov:' + areaId, () => planImpl(p, areaId));
 }
 
@@ -809,6 +812,8 @@ export interface DanceScan {
 }
 
 export function danceScan(p: Project, areaId: string): DanceScan | null {
+  const pv = activeView(p);
+  if (pv !== p) return danceScan(pv, areaId);
   return derive(p, 'dscan:' + areaId, () => {
     const area = p.areas.find((a) => a.id === areaId);
     const dance = p.zones.find((z) => z.areaId === areaId && z.kind === 'dance');

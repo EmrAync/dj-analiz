@@ -328,3 +328,120 @@ test('tarama: sessiz kayıtta sonuç yok', () => {
   const spec = { ...SWEEP_DEFAULT, fs: 48000 };
   assert.equal(extractIRs(new Float32Array(48000 * 12), spec), null);
 });
+
+test('elektrik alternatifleri: A/B/C kurulur, seçili plan hesaplara girer', async () => {
+  const { produce } = await import('immer');
+  const { buildPowerAlternatives, findEntry } = await import('../src/engine/powerAlt');
+  const { activeView, isOff } = await import('../src/model/variants');
+  const base = wiz({ power: 'schuko', guests: 120 });
+  const gp = base.items.find((i) => i.label === 'GP-1')!;
+  assert.equal(findEntry(base, gp.id)?.id, gp.id);
+  let res: ReturnType<typeof buildPowerAlternatives> | undefined;
+  const p = produce(base, (d) => {
+    res = buildPowerAlternatives(d as Project, gp.id, t);
+  });
+  assert.ok(res && res.ok, 'kuruldu');
+  const g = p.variants![0];
+  assert.equal(g.variants.map((v) => v.label).join(''), 'ABC');
+  assert.equal(g.active, g.variants[0].id);
+  // seçili olmayan planlar görünümden çıkar, port meşgul sayılmaz
+  const view = activeView(p);
+  assert.ok(view.items.length < p.items.length);
+  assert.ok(!runChecks(p).some((i) => i.code === 'chk.portBusy'), 'port meşgul yok');
+  assert.deepEqual(errors(p), []);
+  const pw = analyzePower(p);
+  const root = (q: Project) => {
+    const n = analyzePower(q).nodes.get(gp.id)!;
+    return q.items.find((i) => i.id === n.rootId)!.defId;
+  };
+  assert.ok(pw.nodes.get(gp.id)!.feed, 'GP-1 beslenmiş');
+  assert.equal(root(p), 'wall-cee32r');
+  // C seçilince: Schuko priz kök olur, adaptörler "alternatifler için" listede
+  const pc = produce(p, (d) => {
+    d.variants![0].active = d.variants![0].variants[2].id;
+  });
+  assert.equal(root(pc), 'wall-schuko');
+  assert.ok(isOff(pc, pc.items.find((i) => i.defId === 'adp-cee32-16')!));
+  const bom = buildBom(pc, t, 'tr');
+  const alt = bom.rows.filter((r) => r.group === 'alt');
+  assert.ok(alt.some((r) => r.defId === 'adp-cee32-16' && r.qty === 1), 'adaptör 32→16 yanına');
+  assert.ok(alt.some((r) => r.defId === 'adp-cee16r-schuko'), 'adaptör 16→Schuko yanına');
+  assert.ok(bom.rows.some((r) => r.defId === 'prcd' && r.group !== 'alt'), 'PRCD seçili planda');
+  // kurulum talimatında karar adımı
+  const steps = buildSetup(pc, t, 'tr');
+  const vg = steps.find((s) => s.id === 'vg:' + g.id)!;
+  assert.ok(vg && vg.lines.length === 4, 'A/B/C + seçim notu');
+  assert.ok(vg.lines[2].startsWith('✓ C)'));
+  assert.ok(vg.lines[0].includes('→'), 'zincir yazılı');
+  // ikinci kez kurulamaz
+  let again: ReturnType<typeof buildPowerAlternatives> | undefined;
+  produce(pc, (d) => {
+    again = buildPowerAlternatives(d as Project, gp.id, t);
+  });
+  assert.ok(again && !again.ok);
+});
+
+test('elektrik alternatifleri: 3 fazlı dağıtıcı için A (32→16) / B (16 A)', async () => {
+  const { produce } = await import('immer');
+  const { buildPowerAlternatives, findEntry } = await import('../src/engine/powerAlt');
+  const base = wiz({ power: 'cee16', guests: 200 });
+  const wall = base.items.find((i) => i.label === 'CEE-1')!;
+  const dist = findEntry(base, wall.id)!;
+  assert.equal(dist.defId, 'distro-16');
+  let res: ReturnType<typeof buildPowerAlternatives> | undefined;
+  const p = produce(base, (d) => {
+    res = buildPowerAlternatives(d as Project, dist.id, t);
+  });
+  assert.ok(res && res.ok);
+  assert.equal(p.variants![0].variants.length, 2);
+  assert.ok(!p.items.some((i) => i.id === wall.id), 'eski priz kaldırıldı');
+  assert.deepEqual(errors(p), []);
+  const n = analyzePower(p).nodes.get(dist.id)!;
+  assert.equal(n.phase, '3P');
+});
+
+test('kayıtlı salon: sadece salon + elektrik A/B/C kaydedilir, yeni bölüm olarak eklenir', async () => {
+  const { produce } = await import('immer');
+  const { buildPowerAlternatives } = await import('../src/engine/powerAlt');
+  const { venueFromArea, insertVenue } = await import('../src/store/venueActions');
+  const base = wiz({ power: 'schuko', guests: 120 });
+  const gp = base.items.find((i) => i.label === 'GP-1')!;
+  const p = produce(base, (d) => void buildPowerAlternatives(d as Project, gp.id, t));
+  const v = venueFromArea(p, p.areas[0].id, 'Salon X', false)!;
+  assert.equal(v.variants.length, 1);
+  assert.ok(v.items.some((i) => i.id === gp.id), 'sistem girişi kayıtlı');
+  assert.ok(!v.items.some((i) => i.defId.startsWith('top-') || i.defId.startsWith('sub-')), 'hoparlör yok');
+  assert.ok(v.cables.every((c) => c.variant), 'sadece plan kabloları');
+  const q = produce(p, (d) => void insertVenue(d as Project, v));
+  assert.equal(q.areas.length, 2);
+  assert.equal(q.variants!.length, 2);
+  const g2 = q.variants![1];
+  assert.notEqual(g2.id, p.variants![0].id);
+  const a2 = q.areas[1].id;
+  assert.ok(q.items.filter((i) => i.areaId === a2 && i.variant).every((i) => g2.variants.some((x) => x.id === i.variant)), 'yeni plan kimlikleri');
+  assert.deepEqual(errors(q), []);
+  // boş projeye eklenince boş bölümün yerine geçer
+  const e = produce(newProject(), (d) => void insertVenue(d as Project, v));
+  assert.equal(e.areas.length, 1);
+  assert.equal(e.meta.venue, 'Salon X');
+});
+
+test('paketleme: öneri her şeyi çantalara dağıtır, mobilya girmez, işaret ilerlemesi', async () => {
+  const { packingNeeds, suggestCases, caseProgress } = await import('../src/engine/packing');
+  const p0 = wiz({ guests: 200, tables: true });
+  const needs = packingNeeds(p0, t, 'tr');
+  assert.ok(needs.length > 5);
+  assert.ok(!needs.some((n) => n.ref === 'table-round' || n.ref === 'chair'), 'masa/sandalye yok');
+  assert.ok(needs.some((n) => n.kind === 'cable'), 'kablolar var');
+  const cases = suggestCases(p0, t, 'tr');
+  const p = { ...p0, cases };
+  assert.ok(packingNeeds(p, t, 'tr').every((n) => n.packed >= n.need), 'hepsi çantada');
+  assert.ok(cases.some((c) => c.name === 'Elektrik çantası'));
+  // ikinci öneri bir şey eklemez
+  assert.equal(JSON.stringify(suggestCases(p, t, 'tr')), JSON.stringify(cases));
+  const c0 = cases[0];
+  const pk = { ...p, packing: { [c0.id + ':' + c0.lines[0].id]: { out: c0.lines[0].qty } } };
+  const pr = caseProgress(pk, c0);
+  assert.equal(pr.out, c0.lines[0].qty);
+  assert.equal(pr.back, 0);
+});

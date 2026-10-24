@@ -103,8 +103,46 @@ await ph.waitForTimeout(7000);
 await ph.locator('[data-testid="measure-view"]').evaluate((e) => e.scrollTo(0, 250));
 await ph.waitForTimeout(300);
 await ph.screenshot({ path: `${out}/iphone-db.jpg`, type: 'jpeg', quality: 78 });
+await ph.locator('[data-testid="ms-stop"]').click().catch(() => {});
+// iPhone: ana sayfa ve çanta sayfası
+await ph.goto(url + '#ana');
+await ph.waitForSelector('[data-testid="home-view"]');
+await ph.waitForTimeout(500);
+await ph.screenshot({ path: `${out}/iphone-ana.jpg`, type: 'jpeg', quality: 78 });
+await ph.locator('[data-testid="bnav-pack"]').tap();
+await ph.locator('[data-testid="pack-suggest"]').first().tap();
+await ph.waitForTimeout(300);
+await ph.locator('[data-testid="pack-card"]').nth(2).tap();
+await ph.waitForSelector('[data-testid="case-lines"]');
+const nl = Math.min(3, (await ph.locator('[data-testid="case-line"]').count()) - 1);
+for (let i = 0; i < nl; i++) await ph.locator('[data-testid="case-line"] .pk-check').nth(i).tap();
+await ph.waitForTimeout(300);
+await ph.screenshot({ path: `${out}/iphone-paket.jpg`, type: 'jpeg', quality: 78 });
 await phone.close();
 fs.rmSync(wav, { force: true });
+// elektrik girişi alternatifleri (A/B) ve paketleme
+await page.evaluate(() => {
+  const s = window.__sahnecad.getState();
+  const w = s.project.items.find((i) => i.defId === 'wall-cee16r');
+  s.set({ view: 'schema', schemaMode: 'power', layers: { ...s.layers, alts: true }, rightOpen: true, installer: false });
+  s.select({ items: [w.id] });
+});
+await page.waitForSelector('[data-testid="make-alts"]');
+await page.locator('[data-testid="make-alts"]').click();
+await page.evaluate(() => {
+  const s = window.__sahnecad.getState();
+  s.select({ cables: [s.project.cables.find((c) => c.variant).id] });
+});
+await page.waitForTimeout(900);
+await snap('elektrik-alternatif');
+await page.evaluate(() => window.__sahnecad.getState().set({ view: 'setup' }));
+await page.waitForTimeout(500);
+await page.locator('.step .var-card').first().evaluate((e) => e.scrollIntoView({ block: 'center' }));
+await snap('elektrik-kurulum');
+await page.evaluate(() => window.__sahnecad.getState().set({ view: 'pack', packCase: null, sel: { items: [], cables: [], zones: [], notes: [] } }));
+await page.locator('[data-testid="pack-suggest"]').first().click();
+await page.waitForTimeout(400);
+await snap('paketleme');
 await page.locator('[data-testid="view-plan"]').click();
 await page.locator('[data-testid="open-wizard"]').click();
 await page.waitForTimeout(800);

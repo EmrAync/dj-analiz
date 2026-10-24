@@ -4,6 +4,7 @@ import { listenZones, offAxis, roomAcoustics, sourcesOf, splGrid, subClusters, s
 import { analyzeCables, cablesAt } from './cables';
 import { derive, segHitsRect } from './derive';
 import { analyzePower } from './power';
+import { activeView } from '../model/variants';
 
 export type Level = 'error' | 'warn' | 'info';
 
@@ -36,6 +37,8 @@ const CABLE_LEVEL: Record<string, Level> = {
 
 // Kablo yolu yürüme yolu / kaçış yolu bölgesinden geçiyor mu?
 export function walkwayCrossings(p: Project): { zoneId: string; cables: string[] }[] {
+  const pv = activeView(p);
+  if (pv !== p) return walkwayCrossings(pv);
   return derive(p, 'walkway', () => {
     const ci = analyzeCables(p);
     const res: { zoneId: string; cables: string[] }[] = [];
@@ -59,6 +62,8 @@ export function walkwayCrossings(p: Project): { zoneId: string; cables: string[]
 }
 
 export function runChecks(p: Project): Issue[] {
+  const pv = activeView(p);
+  if (pv !== p) return runChecks(pv);
   return derive(p, 'checks', () => {
     const out: Issue[] = [];
     let n = 0;

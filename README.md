@@ -17,11 +17,13 @@ boyunu, elektrik yükünü ve ses dağılımını hesaplar. Sonunda sahneyi hiç
 
 ## iPhone'da kullan (UMIK-1 ile)
 
-Adres: **https://emraync.github.io/dj-analiz/#olcum**
+Adres: **https://emraync.github.io/dj-analiz/**
 
 1. iPhone'da Safari ile aç → **Paylaş** → **Ana Ekrana Ekle**. Simgeden açınca tam ekran çalışır.
 2. Bir kez açıldıktan sonra **internetsiz de** açılır (salonda internet olmasa da).
-3. Diğer ekranlar aynı adreste: `#plan`, `#3d`, `#sema`, `#listeler`, `#analiz`, `#kurulum`.
+3. Telefonda bir uygulama gibi: altta **Ana sayfa · Plan · Kurulum · Paket · Ölçüm** sekmeleri,
+   sağ üstte **⋯** (3D, şema, listeler, analiz). Ana sayfa işin adımlarını sırayla gösterir.
+4. Doğrudan açmak için: `#ana`, `#plan`, `#kurulum`, `#paket`, `#olcum`, `#3d`, `#sema`, `#listeler`, `#analiz`.
 
 UMIK-1'i bağlama:
 
@@ -33,10 +35,62 @@ Adres herkese açıktır ama içinde senin bilgin yoktur. Projelerin sadece tele
 
 ![iPhone dB ölçer](docs/iphone-db.jpg)
 
+## Yeni (0.4)
+
+### Elektrik girişi: A/B/C alternatifleri
+
+Salonda hangi priz olduğunu her zaman önceden bilemezsin. Elektrik şemasında prize ya da elektrik kablosuna
+tıkla → **A/B/C planlarını kur**:
+
+- **A** — duvarda 32 A 5 pin (kırmızı CEE) varsa: 32 A → adaptör 16 A → adaptör Schuko → **PRCD-S+** → sistem
+- **B** — 32 A yok, 16 A 5 pin varsa: 16 A → adaptör Schuko → **PRCD-S+** → sistem
+- **C** — CEE yoksa: Schuko priz → **PRCD-S+** → sistem
+
+Her planın **ne zaman** kullanılacağı yazılı. **Bunu kullan** ile seçilen plan hesaplara (akım, faz, kontroller),
+listelere ve kurulum talimatına girer. Diğer planların parçaları malzeme listesinde
+**"Alternatifler için yanına al"** olarak çıkar. **Çiz** ile bir planı elle değiştirebilir, **kopya** ile yeni
+plan (D…) yapabilir, sırasını (önceliğini) değiştirebilirsin. 3 fazlı dağıtıcılarda A (32→16) / B (16 A) kurulur.
+
+İşçi kurulum talimatında **"Elektrik girişi — önce prizi kontrol et"** adımını görür: A/B/C kartları, her birinin
+zinciri ve "Bunu kullan" düğmesi. Şemada **Alternatifler** düğmesi seçili olmayan planları soluk gösterir.
+
+| | |
+|---|---|
+| ![Elektrik alternatifleri](docs/elektrik-alternatif.jpg) | ![Kurulumda A/B](docs/elektrik-kurulum.jpg) |
+
+### Kayıtlı salonlar
+
+**Bölüm** sekmesinde salonun yanındaki bina simgesi → **Salon olarak kaydet**. Salon ölçüleri, bölgeler, prizler
+ve **elektrik girişi A/B/C** kütüphaneye kaydedilir (istersen tüm malzemelerle). Aynı salona tekrar gidince
+**Kayıtlı salonlar → Ekle** (ya da ana sayfada **Kayıtlı salondan**).
+
+### Paketleme: hangi malzeme hangi çantada
+
+**Paketleme** ekranında çantalarını / kasalarını tanımla: ad, açıklama, renk, fotoğraf ve içindekiler.
+
+- **Öner**: malzeme listesindeki her şeyi türüne göre çantalara dağıtır (elektrik, kablo, mikrofon, DJ, ışık…).
+- **"Malzeme listesinde var, çantada yok"** listesi hiçbir şeyin unutulmamasını sağlar.
+- Çantaya dokun → o çantanın sayfası: **Giderken yükle** ve **Dönüşte topla** için ayrı işaretler, büyük
+  dokunma alanları, "Çanta hazır" / "Eksik yok" mesajı. Etiket/liste yazdırılır.
+- **Çantalarıma kaydet**: çantaların her işte aynıysa bir kez tanımla, sonraki işte **Çantalarım**'dan ekle.
+
+| | |
+|---|---|
+| ![Paketleme](docs/paketleme.jpg) | ![iPhone çanta](docs/iphone-paket.jpg) |
+
+### Telefonda uygulama gibi
+
+Ana sayfa işi adım adım götürür: iş bilgisi → salon → ses/ışık → elektrik → paketleme → kurulum → ölçüm.
+Her adımın durumu (✓ / !) ve **sıradaki adım** büyük düğme olarak görünür. Planda bir şeye dokununca özellikleri
+alttan açılır. **İşçi modu** ile telefonu işçiye verirken plan yanlışlıkla değişmez, işaretler çalışır.
+
+![iPhone ana sayfa](docs/iphone-ana.jpg)
+
 ## Neler var?
 
 | Ekran | Ne işe yarar |
 |---|---|
+| **Ana sayfa** | İşin adımları sırayla, her birinin durumu ve sıradaki adım. Telefonda başlangıç ekranı. |
 | **Plan** | Ölçekli kuşbakışı çizim. Salon, sahne podesti, dans pisti, masalar, kaçış yolları. Duvarlara mesafeler, kablo etiketleri (Cisco gibi: `A-012 · XLR 10m`), hoparlör kapsama alanı, **ses basıncı ısı haritası**. Mekan krokisi resim olarak altına konabilir. |
 | **3D** | Her cihazın 3D modeli: hoparlör standları, line array açıları, sub, monitör, Prime 4, mikser, davul seti, moving head, truss, masa ve sandalyeler. Kamera: genel / üstten / salondan / sahneden / FOH. 3D'de taşı, yükselt, döndür. |
 | **Bağlantı şeması** | Sinyal akışı blok şeması: cihazlar portlarıyla, kablolar etiketiyle. **Porttan porta sürükleyerek bağla.** Elektrik şeması (faz, watt, amper). Tüm bölümler birlikte gösterilebilir. |
@@ -44,6 +98,7 @@ Adres herkese açıktır ama içinde senin bilgin yoktur. Projelerin sadece tele
 | **Analiz** | Ortalama/maksimum dB, dağılım, oda yankısı (RT60), kritik mesafe, delay önerileri, sıcaklığa göre ses hızı, rüzgar ve komşu ses sınırı, faz yükleri, öneriler. |
 | **Ölçüm** | **miniDSP UMIK-1** (USB, iPhone dahil) veya **Behringer ECM8000** (ses kartı) ile: **dB ölçer** (LAeq, LAF, LCpeak, geçmiş, isteğe bağlı yasal sınır, protokol), **RTA**, **gecikme ölçümü** (sub–tepe, ana–delay, yankı süresi), **EQ önerisi** (hangi frekansı ne kadar indireceğin) ve geri besleme avcısı. |
 | **Kurulum** | Kurulumu yapacak kişi için **akış diyagramı** (ekip şeritleri, kritik yol), **zaman çizelgesi** (etkinlik saatine göre en geç başlangıç) ve adım adım talimat. Her adım işaretlenebilir. Başka dilde yazdırılabilir. |
+| **Paketleme** | Çantalar/kasalar ve içindekiler; giderken yükle / dönüşte topla işaretleri; çantasız kalan malzeme. |
 
 ### Ses dağılımı: pist yüksek, masalar konforlu
 
@@ -145,7 +200,7 @@ Diğer özellikler:
   Technics), mikrofonlar (kablolu ve kablosuz), **enstrümanlar** (davul seti, davul, zurna, klarnet,
   bağlama, ud, kanun, keman, kemençe, darbuka, def, tulum, org, piyano, gitar/bas ve amfileri),
   ışık (moving head, PAR, uplight, strob, hazer, soğuk kıvılcım, yer bulutu), truss/motor, LED ekran,
-  projeksiyon, elektrik (Schuko, CEE 16/32/63 A, jeneratör, dağıtıcılar, grup priz, PRCD, UPS),
+  projeksiyon, elektrik (Schuko, CEE 16/32/63 A, jeneratör, dağıtıcılar, grup priz, adaptörler, PRCD-S+, UPS),
   ağ, sahne/dekor (podest, gelin–damat koltuğu, pasta masası, çiçek kemeri, yuvarlak masa) ve mekan
   (sütun, kapı, acil çıkış).
 - **Kendi malzemen**: "Yeni malzeme" veya bir modeli "Özelleştir" ile ölçü, güç, hoparlör verisi ve

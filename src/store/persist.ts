@@ -1,4 +1,4 @@
-import type { Asset, EquipDef, Project } from '../model/types';
+import type { Asset, CaseDef, EquipDef, Project, VenueTpl } from '../model/types';
 
 // IndexedDB: projeler ve kişisel kütüphane (özel malzemeler + resimler).
 // Tarayıcı izin vermezse (gizli pencere vb.) bellek içi yedeğe düşer.
@@ -94,6 +94,8 @@ export function lastProjectId(): string | null {
 export interface Library {
   defs: EquipDef[];
   assets: Record<string, Asset>;
+  venues?: VenueTpl[]; // kayıtlı salonlar
+  cases?: CaseDef[]; // çantalar / kasalar (her işte aynı)
 }
 
 export async function loadLibrary(): Promise<Library> {

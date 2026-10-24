@@ -3,6 +3,7 @@ import { CATALOG, getDef, makeItem, nextCableLabel, portsOf, uid } from '../mode
 import { ownWatt } from './power';
 import type { Cable, Domain, Item, PortInst, Project } from '../model/types';
 import { suggestCableTypes } from './cables';
+import { isOff } from '../model/variants';
 
 // Kablo oluştur (proje üzerinde doğrudan — immer taslağı ile çağrılır)
 export function addCable(p: Project, a: Item, pa: PortInst, b: Item, pb: PortInst, typeId?: string, extra?: Partial<Cable>): Cable {
@@ -37,6 +38,7 @@ export function addCable(p: Project, a: Item, pa: PortInst, b: Item, pb: PortIns
 function used(p: Project): Set<string> {
   const s = new Set<string>();
   for (const c of p.cables) {
+    if (isOff(p, c)) continue; // seçili olmayan alternatif plan
     s.add(c.a.item + '#' + c.a.port);
     s.add(c.b.item + '#' + c.b.port);
   }
@@ -54,14 +56,15 @@ function d2(a: Item, b: Item): number {
 export function autoPower(p: Project, onlyItems?: string[], allowStrips = true): number {
   let n = 0;
   const u = used(p);
-  const targets = p.items.filter((it) => (!onlyItems || onlyItems.includes(it.id)) && !it.hidden && (ownWatt(p, it) > 0 || isDistro(p, it)));
+  // alternatif plan parçaları (adaptör, PRCD…) zincirdedir; ne hedef ne kaynak olur
+  const targets = p.items.filter((it) => (!onlyItems || onlyItems.includes(it.id)) && !it.hidden && !it.variant && (ownWatt(p, it) > 0 || isDistro(p, it)));
   targets.sort((a, b) => (isDistro(p, b) ? 1 : 0) - (isDistro(p, a) ? 1 : 0));
   const phaseLoad = new Map<string, number>();
   const itemPhase = new Map<string, { root: string; phase: string }>();
   const phaseCount = new Map<string, number>();
   // sadece enerjili kaynaklardan besle (zincir döngüsü olmasın)
   const fed = new Set<string>();
-  for (const c of p.cables) if (CABLE_TYPES.find((t) => t.id === c.type)?.domain === 'power') fed.add(c.b.item);
+  for (const c of p.cables) if (!isOff(p, c) && CABLE_TYPES.find((t) => t.id === c.type)?.domain === 'power') fed.add(c.b.item);
   const energized = (it: Item) => !!getDef(p, it.defId).source || fed.has(it.id);
   const circLoad = new Map<string, number>(); // sigortalı devre başına yük (W)
   const circCap = new Map<string, number>();
@@ -86,7 +89,7 @@ export function autoPower(p: Project, onlyItems?: string[], allowStrips = true):
     const targetIsStrip = isDistro(p, it);
     let best: Cand | null = null;
     for (const src of p.items) {
-      if (src.id === it.id || src.hidden || !energized(src)) continue;
+      if (src.id === it.id || src.hidden || src.variant || !energized(src)) continue;
       const sdef = getDef(p, src.defId);
       for (const po of freePorts(p, src, u, (x) => x.group.domain === 'power' && (x.group.dir === 'out' || x.group.dir === 'io'))) {
         const types = suggestCableTypes(po, pin).filter((t) => t.domain === 'power');
@@ -174,7 +177,7 @@ export function autoPower(p: Project, onlyItems?: string[], allowStrips = true):
     const dIn = portsOf(dDef).find((x) => x.group.dir === 'in')!;
     let bestSrc: { src: Item; port: PortInst; dist: number } | null = null;
     for (const src of p.items) {
-      if (!energized(src) || src.areaId !== near.areaId) continue;
+      if (src.variant || !energized(src) || src.areaId !== near.areaId) continue;
       for (const po of freePorts(p, src, u, (x) => x.group.domain === 'power' && x.group.dir === 'out' && (x.group.conn === 'cee16r' || x.group.conn === 'cee32r'))) {
         const dist = d2(src, near);
         if (!bestSrc || dist < bestSrc.dist) bestSrc = { src, port: po, dist };
@@ -192,7 +195,7 @@ export function autoPower(p: Project, onlyItems?: string[], allowStrips = true):
 // 3 fazlı dağıtıcıda çıkış prizlerini, fazlar dengeli olacak şekilde yeniden dağıt.
 // Aynı kutunun prizleri olduğundan bu fiziksel olarak serbesttir.
 export function balancePhases(p: Project): void {
-  const pc = p.cables.filter((c) => CABLE_TYPES.find((t) => t.id === c.type)?.domain === 'power');
+  const pc = p.cables.filter((c) => !isOff(p, c) && CABLE_TYPES.find((t) => t.id === c.type)?.domain === 'power');
   const children = new Map<string, string[]>();
   for (const c of pc) {
     const l = children.get(c.a.item);
@@ -243,7 +246,7 @@ function isDistro(p: Project, it: Item): boolean {
 export function autoSignal(p: Project, areaId?: string): number {
   let n = 0;
   const u = used(p);
-  const inArea = (it: Item) => !it.hidden && (!areaId || it.areaId === areaId);
+  const inArea = (it: Item) => !it.hidden && !isOff(p, it) && (!areaId || it.areaId === areaId);
   const all = p.items.filter(inArea);
   const def = (it: Item) => getDef(p, it.defId);
   const link = (a: Item, pa: PortInst, b: Item, pb: PortInst, type?: string) => {

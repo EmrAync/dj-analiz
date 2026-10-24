@@ -256,7 +256,7 @@ await page.locator('[title="Light / dark theme"], [title="Açık / koyu tema"]')
 const m = await ctx.newPage();
 m.on('pageerror', (e) => errors.push('mobile pageerror: ' + e.message));
 await m.setViewportSize({ width: 390, height: 844 });
-await m.goto(url);
+await m.goto(url + '#plan'); // telefonda adres boşsa ana sayfa açılır
 await m.waitForSelector('[data-testid="plan-svg"]');
 await m.waitForTimeout(800);
 if (await m.locator('[data-testid="help-close"]').count()) await m.locator('[data-testid="help-close"]').click();

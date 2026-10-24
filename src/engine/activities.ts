@@ -4,6 +4,7 @@ import { getDef } from '../model/project';
 import type { Item, Project } from '../model/types';
 import { analyzeCables } from './cables';
 import type { SetupPhase, SetupStep } from './setup';
+import { activeView } from '../model/variants';
 
 export type Team = 'general' | 'stage' | 'rigging' | 'power' | 'sound' | 'light';
 export const TEAMS: Team[] = ['general', 'stage', 'rigging', 'power', 'sound', 'light'];
@@ -90,6 +91,8 @@ function itemMinutes(p: Project, it: Item, phase: SetupPhase): number {
 }
 
 export function buildPlan(p: Project, steps: SetupStep[]): Plan {
+  const pv = activeView(p);
+  if (pv !== p) return buildPlan(pv, steps);
   const ci = analyzeCables(p);
   const byId = new Map(p.items.map((i) => [i.id, i]));
   const acc = new Map<ActKey, { steps: string[]; min: number; n: number; done: number }>();

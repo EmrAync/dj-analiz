@@ -2,11 +2,17 @@ import { current, type Draft } from 'immer';
 import { addCable as addCableRaw, autoPower, autoSignal } from '../engine/autowire';
 import { suggestDelay } from '../engine/acoustics';
 import { applyPlan, moveDance } from '../engine/coverage';
+import { portUse } from '../engine/cables';
 import { CATALOG, findPort, getDef, makeItem, newArea, uid } from '../model/project';
 import type { Area, Asset, Cable, EquipDef, Item, Measurement, Note, NoteKind, Project, Zone, ZoneKind } from '../model/types';
 import { EMPTY_SEL, st, type Selection } from './store';
 import { makeT } from '../i18n';
-import { imageToAsset, loadLibrary, saveLibrary } from './persist';
+import { imageToAsset, loadLibrary, saveLibrary, type Library } from './persist';
+
+// kütüphaneyi arayüze yayınla
+export function publishLibrary(lib: Library): void {
+  st().set({ library: { defs: lib.defs, venues: lib.venues || [], cases: lib.cases || [] } });
+}
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
@@ -36,6 +42,7 @@ export function addItem(defId: string, x: number, y: number, extra?: Partial<Ite
     }
     const pt = snapPt(x, y);
     const it = makeItem(p, def, s.areaId, pt.x, pt.y, extra);
+    if (s.editVariant && d.variants?.some((g) => g.variants.some((v) => v.id === s.editVariant))) it.variant = s.editVariant;
     d.items.push(it);
     id = it.id;
   });
@@ -209,15 +216,19 @@ export function connect(aItem: string, aPort: string, bItem: string, bPort: stri
   const pa = findPort(getDef(p, a.defId), aPort);
   const pb = findPort(getDef(p, b.defId), bPort);
   if (!pa || !pb) return null;
-  // bir porta tek kablo
-  const busy = p.cables.some((c) => (c.a.item === aItem && c.a.port === aPort) || (c.b.item === aItem && c.b.port === aPort) || (c.a.item === bItem && c.a.port === bPort) || (c.b.item === bItem && c.b.port === bPort));
+  // bir porta tek kablo (seçili olmayan alternatif planların kabloları sayılmaz)
+  const pu = portUse(p);
+  const busy = pu.has(aItem + '#' + aPort) || pu.has(bItem + '#' + bPort);
   if (busy) {
     s.notify(makeT(s.lang)('toast.portBusy'), 'warn');
     return null;
   }
   let id: string | null = null;
+  // alternatif plan: çizilen plan, yoksa uçlardaki parçanın planı
+  const ev = s.editVariant && p.variants?.some((g) => g.variants.some((v) => v.id === s.editVariant)) ? s.editVariant : null;
+  const variant = ev || a.variant || b.variant;
   s.mutate((d) => {
-    const c = addCableRaw(d as unknown as Project, a, pa, b, pb, typeId);
+    const c = addCableRaw(d as unknown as Project, a, pa, b, pb, typeId, variant ? { variant } : undefined);
     id = c.id;
   });
   if (id) s.select({ cables: [id] });
@@ -393,14 +404,14 @@ export async function saveCustomDef(def: EquipDef, assetForLib?: Asset): Promise
   else lib.defs.push(def);
   if (assetForLib) lib.assets[assetForLib.id] = assetForLib;
   await saveLibrary(lib);
-  st().set({ library: { defs: lib.defs } });
+  publishLibrary(lib);
 }
 
 export async function removeLibraryDef(defId: string): Promise<void> {
   const lib = await loadLibrary();
   lib.defs = lib.defs.filter((d) => d.id !== defId);
   await saveLibrary(lib);
-  st().set({ library: { defs: lib.defs } });
+  publishLibrary(lib);
 }
 
 // item'ı başka bir modele çevir (bağlantıları port id'si aynı olanlar korunur)

@@ -65,6 +65,7 @@ function groupName(g: string, lang: 'tr' | 'de' | 'en', t: ReturnType<typeof use
   if (g === 'acc') return t('bomg.acc');
   if (g === 'stage') return t('bomg.stage');
   if (g === 'cons') return t('bomg.cons');
+  if (g === 'alt') return t('bomg.alt');
   return L(CAT_BY_ID[g as keyof typeof CAT_BY_ID]?.name, lang) || g;
 }
 
@@ -92,7 +93,7 @@ function BomTable({ bom }: { bom: ReturnType<typeof buildBom> }) {
     if (g) g.push(r);
     else groups.set(r.group, [r]);
   }
-  const order = ['hoparlor', 'sub', 'linearray', 'monitor', 'mikser', 'islem', 'dj', 'mikrofon', 'enstruman', 'isik', 'truss', 'video', 'elektrik', 'ag', 'sahne', 'hazirlik', 'stage', 'acc', 'cons'];
+  const order = ['hoparlor', 'sub', 'linearray', 'monitor', 'mikser', 'islem', 'dj', 'mikrofon', 'enstruman', 'isik', 'truss', 'video', 'elektrik', 'ag', 'sahne', 'hazirlik', 'stage', 'acc', 'cons', 'alt'];
   const keys = [...groups.keys()].sort((a, b) => order.indexOf(a) - order.indexOf(b));
   return (
     <>

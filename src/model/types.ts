@@ -182,6 +182,7 @@ export interface Item {
   target?: string; // hazırlık noktası: hedef bölüm / ekip / program
   sch?: { x: number; y: number }; // bağlantı şemasındaki konum
   pwr?: { x: number; y: number }; // elektrik şemasındaki konum
+  variant?: string; // alternatif plan (Variant.id) — sadece o plan seçiliyken kullanılır
 }
 
 export interface PortRef {
@@ -204,6 +205,58 @@ export interface Cable {
   channel?: string;
   notes?: string;
   hidden?: boolean;
+  variant?: string; // alternatif plan (Variant.id)
+}
+
+// —— Alternatif planlar (örn. elektrik girişi: A 32 A CEE / B 16 A CEE / C Schuko) ——
+export interface Variant {
+  id: string;
+  label: string; // A, B, C…
+  name: string; // kısa ad: "32 A 5 pin"
+  when: string; // ne zaman: "Duvarda 32 A 5 pin (kırmızı CEE) priz varsa"
+}
+
+export interface VariantGroup {
+  id: string;
+  name: string;
+  kind: 'power' | 'other';
+  variants: Variant[]; // öncelik sırasıyla
+  active: string; // şu an kullanılan / çizili plan
+}
+
+// —— Paketleme: çantalar / kasalar ——
+export interface CaseLine {
+  id: string;
+  kind: 'def' | 'cable' | 'acc' | 'text';
+  ref: string; // defId | kabloTipi@boy | malzeme listesi satırı (acc:stand) | serbest metin
+  qty: number;
+  name?: string; // görünen ad (listede yoksa)
+  note?: string;
+}
+
+export interface CaseDef {
+  id: string;
+  name: string;
+  desc: string;
+  color: string;
+  image?: string; // küçültülmüş fotoğraf (data URL)
+  lines: CaseLine[];
+}
+
+// —— Kayıtlı salon (kütüphane): ölçüler, bölgeler, sabitler, elektrik girişi alternatifleri ——
+export interface VenueTpl {
+  id: string;
+  name: string;
+  saved: number;
+  gear: boolean; // tüm malzemeler de kayıtlı mı
+  area: Area;
+  zones: Zone[];
+  notes: Note[];
+  items: Item[];
+  cables: Cable[];
+  variants: VariantGroup[];
+  defs: EquipDef[];
+  assets: Record<string, Asset>;
 }
 
 export type ZoneKind =
@@ -387,6 +440,9 @@ export interface Project {
   assets: Record<string, Asset>;
   done: Record<string, boolean>; // kurulum kontrol listesi
   measurements?: Measurement[];
+  variants?: VariantGroup[];
+  cases?: CaseDef[];
+  packing?: Record<string, { out?: number; back?: number }>; // "caseId:lineId" → işaretlenen adet
 }
 
 export interface PortInst {

@@ -12,6 +12,7 @@ import { Icon } from '../../ui/kit';
 import { HeatLegend } from '../HeatLegend';
 import { cableColor, cableVisible, catColor, itemImage, itemVisible, ZONE_STYLE } from '../common';
 import { DEG, mats, Model, Tripod } from './models';
+import { isOff } from '../../model/variants';
 import { checkerTexture, woodTexture } from './textures';
 
 type TMode = 'translate' | 'height' | 'rotate';
@@ -139,14 +140,14 @@ function Scene({ area, p, mode, preset, dark }: { area: Area; p: Project; mode: 
       {layers.zones ? zones.map((z) => <Zone3D key={z.id} z={z} sel={sel.zones.includes(z.id)} />) : null}
       {items.map((it) => {
         const def = getDef(p, it.defId);
-        if (!itemVisible(it, def, layers)) return null;
+        if (!itemVisible(it, def, layers) || isOff(p, it)) return null;
         const dm = itemDims(it, def);
         const major = !!def.acoustic || ['mikser', 'dj', 'enstruman', 'video', 'elektrik', 'hazirlik'].includes(def.cat) || Math.max(dm.w, dm.d) > 1.2;
         return <ItemMesh key={it.id} p={p} it={it} def={def} area={area} sel={sel.items.includes(it.id)} label={layers.labels && major && def.cat !== 'sahne' && items.length < 220} support={supports.get(it.id)} registerSel={it.id === selId ? setSelObj : undefined} />;
       })}
       {layers.cables
         ? [...ci.values()].map((inf) => {
-            if (!inf.path || inf.a?.areaId !== area.id || !cableVisible(inf, layers)) return null;
+            if (!inf.path || inf.a?.areaId !== area.id || !cableVisible(inf, layers) || isOff(p, inf.cable)) return null;
             return <Cable3D key={inf.cable.id} p={p} inf={inf} sel={sel.cables.includes(inf.cable.id)} tag={false} />;
           })
         : null}

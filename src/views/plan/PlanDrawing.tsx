@@ -9,6 +9,7 @@ import type { Area, EquipDef, Item, Lang, Note, Project, Zone } from '../../mode
 import type { HeatOpts, Layers, Selection } from '../../store/store';
 import { cableColor, cableVisible, catColor, fmtM, itemImage, itemVisible, ZONE_STYLE } from '../common';
 import type { TFn } from '../../i18n';
+import { isOff, variantMap } from '../../model/variants';
 
 export interface ViewBox {
   x0: number;
@@ -77,7 +78,16 @@ export function PlanDrawing({ p, area, layers, sel, k, lang, t, vb, heat, hover,
         <g className="cables">
           {[...cinfo.values()].map((inf) => {
             if (!cableVisible(inf, layers)) return null;
-            if (inf.path && inf.a?.areaId === area.id) return <PlanCable key={inf.cable.id} inf={inf} k={k} sel={selCables.has(inf.cable.id)} tags={layers.cableTags} hover={hover === inf.cable.id} />;
+            const off = isOff(p, inf.cable);
+            if (off && !layers.alts) return null;
+            if (inf.path && inf.a?.areaId === area.id)
+              return off ? (
+                <g key={inf.cable.id} opacity={0.3}>
+                  <PlanCable inf={inf} k={k} sel={selCables.has(inf.cable.id)} tags={false} hover={false} />
+                </g>
+              ) : (
+                <PlanCable key={inf.cable.id} inf={inf} k={k} sel={selCables.has(inf.cable.id)} tags={layers.cableTags} hover={hover === inf.cable.id} />
+              );
             if (inf.crossArea && (inf.a?.areaId === area.id || inf.b?.areaId === area.id)) return <CrossCable key={inf.cable.id} inf={inf} p={p} areaId={area.id} k={k} sel={selCables.has(inf.cable.id)} />;
             return null;
           })}
@@ -88,9 +98,12 @@ export function PlanDrawing({ p, area, layers, sel, k, lang, t, vb, heat, hover,
         {items.map((it) => {
           const def = getDef(p, it.defId);
           if (!itemVisible(it, def, layers)) return null;
+          const off = isOff(p, it);
+          if (off && !layers.alts) return null;
           const dm = itemDims(it, def);
           const big = Math.max(dm.w, dm.d) * k >= 15 || !!def.acoustic || k >= 48;
-          return <PlanItem key={it.id} it={it} def={def} img={itemImage(p, it, def)} k={k} sel={selItems.has(it.id)} labels={(showLabels && big) || selItems.has(it.id) || hover === it.id} model={k > 55 && layers.labels} hover={hover === it.id} />;
+          const badge = it.variant ? variantMap(p).get(it.variant)?.v.label : undefined;
+          return <PlanItem key={it.id} it={it} def={def} img={itemImage(p, it, def)} k={k} sel={selItems.has(it.id)} labels={(showLabels && big) || selItems.has(it.id) || hover === it.id} model={k > 55 && layers.labels} hover={hover === it.id} badge={badge} faded={off} />;
         })}
       </g>
       {/* ölçüm noktaları */}
@@ -186,7 +199,7 @@ const PlanZone = memo(function PlanZone({ z, k, sel, lang, t, target }: { z: Zon
   );
 });
 
-export const PlanItem = memo(function PlanItem({ it, def, img, k, sel, labels, model, hover, ghost }: { it: Item; def: EquipDef; img?: string; k: number; sel: boolean; labels: boolean; model?: boolean; hover?: boolean; ghost?: boolean }) {
+export const PlanItem = memo(function PlanItem({ it, def, img, k, sel, labels, model, hover, ghost, badge, faded }: { it: Item; def: EquipDef; img?: string; k: number; sel: boolean; labels: boolean; model?: boolean; hover?: boolean; ghost?: boolean; badge?: string; faded?: boolean }) {
   const { w, d } = itemDims(it, def);
   const col = def.color && def.custom ? def.color : catColor(def);
   const minS = 12 / k;
@@ -197,7 +210,7 @@ export const PlanItem = memo(function PlanItem({ it, def, img, k, sel, labels, m
   const directional = !!def.acoustic || ['dj', 'mikser', 'islem', 'video', 'isik', 'enstruman'].includes(def.cat);
   const R = Math.max(W, D) / 2;
   return (
-    <g data-kind={ghost ? undefined : 'item'} data-id={it.id} data-label={it.label} transform={`translate(${it.x} ${it.y})`} style={{ cursor: it.locked ? 'default' : 'move', opacity: ghost ? 0.55 : 1, pointerEvents: ghost ? 'none' : undefined }}>
+    <g data-kind={ghost ? undefined : 'item'} data-id={it.id} data-label={it.label} transform={`translate(${it.x} ${it.y})`} style={{ cursor: it.locked ? 'default' : 'move', opacity: ghost ? 0.55 : faded ? 0.3 : 1, pointerEvents: ghost ? 'none' : undefined }}>
       <g transform={`rotate(${it.rot})`}>
         {circle ? (
           <circle r={R} fill={col} fillOpacity={0.1} stroke={sel ? 'var(--sel)' : hover ? col : col} strokeOpacity={sel ? 1 : 0.85} strokeWidth={sel ? 2.2 : 1.3} {...NS} />
@@ -213,6 +226,14 @@ export const PlanItem = memo(function PlanItem({ it, def, img, k, sel, labels, m
         <g transform={`translate(${-iconS / 2} ${-iconS / 2}) scale(${iconS / 32})`} stroke={col} fill="none" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" style={{ color: col, pointerEvents: 'none' }} dangerouslySetInnerHTML={{ __html: iconMarkup(def.icon) }} />
       )}
       {it.locked ? <circle cx={R * 0.85} cy={-R * 0.85} r={4 / k} fill="var(--muted)" /> : null}
+      {badge ? (
+        <g transform={`translate(${-R * 0.9} ${-R * 0.9})`} style={{ pointerEvents: 'none' }}>
+          <circle r={7 / k} fill={faded ? 'var(--warn)' : 'var(--ok)'} />
+          <text y={3.4 / k} fontSize={9.5 / k} textAnchor="middle" fill="#fff" fontWeight={800}>
+            {badge}
+          </text>
+        </g>
+      ) : null}
       {labels ? (
         <text y={R + 12 / k} fontSize={11 / k} textAnchor="middle" fontWeight={700} className="plan-label">
           {it.label}

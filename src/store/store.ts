@@ -5,9 +5,9 @@ import { makeT } from '../i18n';
 import type { Dept, Domain, Lang, Project } from '../model/types';
 import { newProject } from '../model/project';
 import type { Band } from '../engine/acoustics';
-import type { EquipDef } from '../model/types';
+import type { CaseDef, EquipDef, VenueTpl } from '../model/types';
 
-export type View = 'plan' | '3d' | 'schema' | 'lists' | 'analysis' | 'measure' | 'setup';
+export type View = 'plan' | '3d' | 'schema' | 'lists' | 'analysis' | 'measure' | 'setup' | 'pack' | 'home';
 export type Tool = 'select' | 'cable' | 'zone' | 'measure' | 'text' | 'pan';
 export type LeftTab = 'library' | 'layers' | 'areas' | 'checks';
 
@@ -35,6 +35,7 @@ export interface Layers {
   notes: boolean;
   room: boolean; // 3D duvarlar
   measure: boolean; // ölçüm noktaları
+  alts: boolean; // seçili olmayan alternatif planları soluk göster
 }
 
 export interface HeatOpts {
@@ -77,10 +78,13 @@ export interface State extends PrefState {
   toast: { msg: string; kind: 'ok' | 'warn' | 'err'; at: number } | null;
   schemaMode: 'signal' | 'power';
   cableDraft: { item: string; port?: string } | null;
-  library: { defs: EquipDef[] };
+  library: { defs: EquipDef[]; venues: VenueTpl[]; cases: CaseDef[] };
   focus: { x: number; y: number; at: number } | null; // planı bir noktaya odakla
   installer: boolean; // kurulumcu (salt-okunur) modu
   ghosts: boolean; // kapsama önerilerini planda göster
+  editVariant: string | null; // çizilen alternatif plan: yeni parça ve kablolar bu plana girer
+  packCase: string | null; // paketlemede açık çanta
+  packMode: 'out' | 'back'; // giderken yükle / dönüşte topla
 
   mutate: (fn: (d: Draft<Project>) => void, history?: boolean) => void;
   checkpoint: () => void;
@@ -115,6 +119,7 @@ function defaultPrefs(): PrefState {
       notes: true,
       room: true,
       measure: true,
+      alts: false,
     },
     heat: { band: 'mid', freq: 63, coherent: true, mode: 'abs' },
     snap: true,
@@ -169,10 +174,13 @@ export const useStore = create<State>()((set, get) => ({
   toast: null,
   schemaMode: 'signal',
   cableDraft: null,
-  library: { defs: [] },
+  library: { defs: [], venues: [], cases: [] },
   focus: null,
   installer: false,
   ghosts: false,
+  editVariant: null,
+  packCase: null,
+  packMode: 'out',
 
   mutate: (fn, history = true) =>
     set((s) => {
@@ -198,7 +206,7 @@ export const useStore = create<State>()((set, get) => ({
       const nx = s.future[0];
       return { project: nx, future: s.future.slice(1), past: [...s.past, s.project], sel: pruneSel(nx, s.sel), areaId: nx.areas.some((a) => a.id === s.areaId) ? s.areaId : nx.areas[0].id };
     }),
-  setProject: (p) => set({ project: freeze(p, true), past: [], future: [], sel: EMPTY_SEL, areaId: p.areas[0]?.id || '', placing: null, cableDraft: null }),
+  setProject: (p) => set({ project: freeze(p, true), past: [], future: [], sel: EMPTY_SEL, areaId: p.areas[0]?.id || '', placing: null, cableDraft: null, editVariant: null }),
   set: (patch) => set(patch),
   select: (s, add) =>
     set((st) => {

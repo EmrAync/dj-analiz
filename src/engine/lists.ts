@@ -4,6 +4,7 @@ import { getDef, itemDims, localToPlan, portLabel, portsOf } from '../model/proj
 import type { Item, Lang, Project } from '../model/types';
 import { analyzeCables, type CableInfo } from './cables';
 import { analyzePower } from './power';
+import { activeView } from '../model/variants';
 
 export function itemTitle(p: Project, it: Item, lang: Lang): string {
   const d = getDef(p, it.defId);
@@ -26,6 +27,8 @@ export interface PatchRow {
 }
 
 export function patchList(p: Project, lang: Lang): PatchRow[] {
+  const pv = activeView(p);
+  if (pv !== p) return patchList(pv, lang);
   const ci = analyzeCables(p);
   const rows: PatchRow[] = [];
   for (const inf of ci.values()) {
@@ -76,6 +79,8 @@ export function toCSV(rows: (string | number | boolean | undefined)[][]): string
 }
 
 export function cableRows(p: Project, t: TFn, lang: Lang): (string | number)[][] {
+  const pv = activeView(p);
+  if (pv !== p) return cableRows(pv, t, lang);
   const ci = analyzeCables(p);
   const head = [t('col.label'), t('col.type'), t('col.domain'), t('col.length'), t('col.from'), t('col.fromPort'), t('col.to'), t('col.toPort'), t('col.channel'), t('col.notes')];
   const rows: (string | number)[][] = [head];
@@ -100,6 +105,8 @@ export function cableRow(inf: CableInfo, lang: Lang): (string | number)[] {
 }
 
 export function powerRows(p: Project, t: TFn, lang: Lang): (string | number)[][] {
+  const pv = activeView(p);
+  if (pv !== p) return powerRows(pv, t, lang);
   const pw = analyzePower(p);
   const rows: (string | number)[][] = [[t('col.circuit'), t('col.phase'), t('col.load'), t('col.current'), t('col.breaker'), t('col.usage')]];
   for (const c of pw.circuits) rows.push([c.label, c.phase || '', Math.round(c.loadW), fmt(c.amps, 1, lang), c.breakerA, Math.round(c.pct * 100) + ' %']);
@@ -125,6 +132,8 @@ const DXF_LAYERS: Record<string, number> = {
 };
 
 export function toDXF(p: Project, areaId: string, lang: Lang): string {
+  const pv = activeView(p);
+  if (pv !== p) return toDXF(pv, areaId, lang);
   const area = p.areas.find((a) => a.id === areaId) || p.areas[0];
   const o: string[] = [];
   const g = (code: number, v: string | number) => o.push(String(code), typeof v === 'number' ? v.toFixed(4) : v);
@@ -234,6 +243,8 @@ export function toDXF(p: Project, areaId: string, lang: Lang): string {
 }
 
 export function powerTreeOrder(p: Project): string[] {
+  const pv = activeView(p);
+  if (pv !== p) return powerTreeOrder(pv);
   const pw = analyzePower(p);
   const out: string[] = [];
   const walk = (id: string, depth: number) => {

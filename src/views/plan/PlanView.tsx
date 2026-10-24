@@ -10,6 +10,7 @@ import { HeatLegend } from '../HeatLegend';
 import { coveragePlan } from '../../engine/coverage';
 import { ZONE_KINDS } from '../common';
 import { PlanDrawing, PlanItem, type ViewBox } from './PlanDrawing';
+import { isOff } from '../../model/variants';
 
 interface Cam {
   tx: number;
@@ -362,7 +363,7 @@ export function PlanView() {
       const y0 = Math.min(dg.y0, dg.y1);
       const y1 = Math.max(dg.y0, dg.y1);
       if (x1 - x0 < 0.05 && y1 - y0 < 0.05) return;
-      const items = s.project.items.filter((i) => i.areaId === area.id && !i.hidden && i.x >= x0 && i.x <= x1 && i.y >= y0 && i.y <= y1).map((i) => i.id);
+      const items = s.project.items.filter((i) => i.areaId === area.id && !i.hidden && (s.layers.alts || !isOff(s.project, i)) && i.x >= x0 && i.x <= x1 && i.y >= y0 && i.y <= y1).map((i) => i.id);
       const zones = s.project.zones.filter((z) => z.areaId === area.id && z.x >= x0 && z.x + z.w <= x1 && z.y >= y0 && z.y + z.d <= y1).map((z) => z.id);
       s.select({ items, zones }, dg.add);
     } else if (dg.kind === 'zone-draw') {

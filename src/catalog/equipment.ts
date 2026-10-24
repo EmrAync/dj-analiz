@@ -816,12 +816,23 @@ export const EQUIPMENT: EquipDef[] = [
     ports: [pg('in', N.in, 'cee16', 'in', 'power'), pg('out', N.sock, 'schuko', 'out', 'power', 3)], mount: 'floor', tags: ['cee', 'adaptör', 'verteiler'],
   },
   {
+    id: 'adp-cee32-16', cat: 'elektrik', dept: 'elektrik', name: nm('Adaptör CEE 32 A → CEE 16 A (5 pin, sigortalı)', 'Adapter CEE 32 A → CEE 16 A (rot, abgesichert)', 'Adapter CEE 32 A → CEE 16 A (red, fused)'), icon: 'cee', shape: 'box', w: 0.14, d: 0.1, h: 0.22, kg: 1.4,
+    ports: [pg('in', N.in, 'cee32r', 'in', 'power'), pg('out', N.sock, 'cee16r', 'out', 'power', 1, undefined, { breakerA: 16 })], mount: 'floor', tags: ['adaptör', 'adapter', '32a', '16a', 'cee', 'kırmızı'],
+    desc: nm('Prize doğrudan takılır. 16 A sigortalı olanı kullan.', 'Direkt in die Dose. Abgesicherte Version verwenden.', 'Plugs straight into the socket. Use a fused one.'),
+  },
+  {
+    id: 'adp-cee16r-schuko', cat: 'elektrik', dept: 'elektrik', name: nm('Adaptör CEE 16 A 5 pin → 3× Schuko', 'Adapter CEE 16 A rot → 3× Schuko', 'Adapter CEE 16 A red → 3× Schuko'), icon: 'distro', shape: 'distro', w: 0.22, d: 0.16, h: 0.18, kg: 2,
+    ports: [pg('in', N.in, 'cee16r', 'in', 'power'), pg('out', N.sock, 'schuko', 'out', 'power', 3, undefined, { phases: ['L1', 'L2', 'L3'], breakerA: 16 })], mount: 'floor', tags: ['adaptör', 'adapter', 'cee', 'schuko', '16a', 'kırmızı'],
+    desc: nm('Her Schuko ayrı fazda.', 'Jede Schuko auf eigener Phase.', 'Each Schuko on its own phase.'),
+  },
+  {
     id: 'strip6', cat: 'elektrik', dept: 'elektrik', name: nm('Grup priz 6× Schuko', 'Steckdosenleiste 6×', 'Power strip 6× Schuko'), icon: 'powerstrip', shape: 'strip', w: 0.45, d: 0.07, h: 0.05, kg: 1,
     ports: [pg('in', N.in, 'schuko', 'in', 'power'), pg('out', N.sock, 'schuko', 'out', 'power', 6)], mount: 'floor', tags: ['grup priz', 'steckdosenleiste', 'çoklu priz'],
   },
   {
-    id: 'prcd', cat: 'elektrik', dept: 'elektrik', name: nm('Taşınabilir kaçak akım rölesi (PRCD-S)', 'PRCD-S (Personenschutz)', 'Portable RCD (PRCD-S)'), icon: 'ups', shape: 'box', w: 0.1, d: 0.08, h: 0.06, kg: 0.6,
-    ports: [pg('in', N.in, 'schuko', 'in', 'power'), pg('out', N.sock, 'schuko', 'out', 'power')], mount: 'floor', tags: ['fi', 'rcd', 'prcd', 'kaçak akım'],
+    id: 'prcd', cat: 'elektrik', dept: 'elektrik', name: nm('PRCD-S+ kişi koruma şalteri (30 mA)', 'PRCD-S+ Personenschutzschalter (30 mA)', 'PRCD-S+ personal protection (30 mA)'), icon: 'ups', shape: 'box', w: 0.1, d: 0.08, h: 0.06, kg: 0.6,
+    ports: [pg('in', N.in, 'schuko', 'in', 'power'), pg('out', N.sock, 'schuko', 'out', 'power')], mount: 'floor', tags: ['fi', 'rcd', 'prcd', 'prcd-s+', 'kaçak akım', 'personenschutz', 'kişi koruma'],
+    desc: nm('Hattın başına tak; her kurulumda test düğmesiyle dene.', 'An den Anfang der Leitung; bei jedem Aufbau Testtaste drücken.', 'At the start of the line; press the test button every setup.'),
   },
   {
     id: 'ups', cat: 'elektrik', dept: 'elektrik', name: nm('UPS (kesintisiz güç, 1500 VA)', 'USV (1500 VA)', 'UPS (1500 VA)'), icon: 'ups', shape: 'rack', w: 0.48, d: 0.45, h: 0.09, kg: 25, watt: 30,

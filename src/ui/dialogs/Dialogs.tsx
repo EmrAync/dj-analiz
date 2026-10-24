@@ -56,7 +56,7 @@ function HelpDialog({ welcome }: { welcome: boolean }) {
     ['L', t('help.k.lock')],
     ['F', t('help.k.fit')],
     ['H / C / G', t('help.k.layers')],
-    ['1 … 7', t('help.k.views')],
+    ['1 … 9', t('help.k.views')],
     [t('help.k.mouse'), t('help.k.mouseDesc')],
   ];
   return (
@@ -89,6 +89,7 @@ function HelpDialog({ welcome }: { welcome: boolean }) {
             <li>{t('help.s4')}</li>
             <li>{t('help.s5')}</li>
             <li>{t('help.s6')}</li>
+            <li>{t('help.s7')}</li>
           </ol>
         </div>
         <div>

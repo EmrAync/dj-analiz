@@ -5,6 +5,7 @@ import { Icon, Menu } from './kit';
 import { exportDXF, exportJSON, exportPlanPNG, exportPlanSVG, export3DPNG, importJSON, newEmptyProject, saveNow } from './fileOps';
 
 const VIEWS: { id: View; icon: string; key: string }[] = [
+  { id: 'home', icon: 'home', key: '9' },
   { id: 'plan', icon: 'plan', key: '1' },
   { id: '3d', icon: 'cube', key: '2' },
   { id: 'schema', icon: 'schema', key: '3' },
@@ -12,6 +13,15 @@ const VIEWS: { id: View; icon: string; key: string }[] = [
   { id: 'analysis', icon: 'wave', key: '5' },
   { id: 'measure', icon: 'mic', key: '6' },
   { id: 'setup', icon: 'checklist', key: '7' },
+  { id: 'pack', icon: 'bag', key: '8' },
+];
+
+// Telefonda alt çubukta olmayan görünümler (⋯ menüsünde)
+const MORE: { id: View; icon: string }[] = [
+  { id: '3d', icon: 'cube' },
+  { id: 'schema', icon: 'schema' },
+  { id: 'lists', icon: 'list' },
+  { id: 'analysis', icon: 'wave' },
 ];
 
 export function TopBar() {
@@ -25,11 +35,15 @@ export function TopBar() {
   const leftOpen = useStore((s) => s.leftOpen);
   const rightOpen = useStore((s) => s.rightOpen);
   const installer = useStore((s) => s.installer);
+  const canvas = view === 'plan' || view === '3d' || view === 'schema';
   return (
     <header className="topbar">
-      <button className="ibtn mob-only" onClick={() => st().set({ leftOpen: !leftOpen, rightOpen: false })} aria-label="menu">
-        <Icon name="menu" size={18} />
-      </button>
+      {canvas ? (
+        <button className="ibtn mob-only" onClick={() => st().set({ leftOpen: !leftOpen, rightOpen: false })} aria-label="menu">
+          <Icon name="menu" size={18} />
+        </button>
+      ) : null}
+      <span className="phone-title">{t(('view.' + view) as 'view.plan')}</span>
       <div className="brand">
         <span className="brand-mark">
           <Icon name="speakerline" size={17} color="#fff" stroke={2} />
@@ -53,7 +67,7 @@ export function TopBar() {
             <button className="ibtn" disabled={!canUndo} onClick={() => st().undo()} title={t('top.undo') + ' (Ctrl+Z)'} data-testid="undo">
               <Icon name="undo" size={17} />
             </button>
-            <button className="ibtn" disabled={!canRedo} onClick={() => st().redo()} title={t('top.redo') + ' (Ctrl+Y)'}>
+            <button className="ibtn hide-phone" disabled={!canRedo} onClick={() => st().redo()} title={t('top.redo') + ' (Ctrl+Y)'}>
               <Icon name="redo" size={17} />
             </button>
             <span className="sep hide-sm" />
@@ -128,6 +142,36 @@ export function TopBar() {
         </Menu>
         <Menu
           button={(_, toggle) => (
+            <button className="ibtn phone-only" onClick={toggle} title={t('top.more')} data-testid="more-menu">
+              <Icon name="dots" size={18} />
+            </button>
+          )}
+        >
+          {(close) => (
+            <>
+              <div className="mh">{t('top.views')}</div>
+              {MORE.map((v) => (
+                <button key={v.id} onClick={() => (close(), st().set({ view: v.id }))} data-testid={'more-' + v.id}>
+                  <Icon name={v.icon} size={15} /> {t(('view.' + v.id) as 'view.plan')}
+                </button>
+              ))}
+              <hr />
+              {!installer ? (
+                <button onClick={() => (close(), st().set({ dialog: { kind: 'wizard' } }))}>
+                  <Icon name="magic" size={15} /> {t('menu.wizard')}
+                </button>
+              ) : null}
+              <button onClick={() => (close(), st().set({ theme: theme === 'dark' ? 'light' : 'dark' }))}>
+                <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={15} /> {t('top.theme')}
+              </button>
+              <button onClick={() => (close(), st().set({ dialog: { kind: 'help' } }))}>
+                <Icon name="question" size={15} /> {t('top.help')}
+              </button>
+            </>
+          )}
+        </Menu>
+        <Menu
+          button={(_, toggle) => (
             <button className="ibtn" onClick={toggle} title={t('top.language')}>
               <Icon name="globe" size={17} />
               <span style={{ fontSize: 11, fontWeight: 700 }}>{lang.toUpperCase()}</span>
@@ -150,9 +194,11 @@ export function TopBar() {
         <button className="ibtn hide-sm" onClick={() => st().set({ dialog: { kind: 'help' } })} title={t('top.help')}>
           <Icon name="question" size={17} />
         </button>
-        <button className={'ibtn mob-only' + (rightOpen ? ' on' : '')} onClick={() => st().set({ rightOpen: !rightOpen, leftOpen: false })} aria-label="properties">
-          <Icon name="gear" size={18} />
-        </button>
+        {canvas ? (
+          <button className={'ibtn mob-only' + (rightOpen ? ' on' : '')} onClick={() => st().set({ rightOpen: !rightOpen, leftOpen: false })} aria-label="properties">
+            <Icon name="gear" size={18} />
+          </button>
+        ) : null}
       </div>
     </header>
   );

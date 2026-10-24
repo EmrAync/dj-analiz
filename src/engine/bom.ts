@@ -4,6 +4,8 @@ import type { Lang, Project } from '../model/types';
 import { analyzeCables } from './cables';
 import { walkwayCrossings } from './checks';
 import { ownWatt } from './power';
+import { activeView } from '../model/variants';
+import { cableType } from '../catalog/connectors';
 
 export interface BomRow {
   key: string;
@@ -34,7 +36,8 @@ export interface CableRow {
 
 const EXCLUDE = new Set(['person', 'external', 'vokal']);
 
-export function buildBom(p: Project, t: TFn, lang: Lang): { rows: BomRow[]; cables: CableRow[]; totalKg: number; totalW: number } {
+export function buildBom(full: Project, t: TFn, lang: Lang): { rows: BomRow[]; cables: CableRow[]; totalKg: number; totalW: number } {
+  const p = activeView(full); // seçili elektrik planı vb.; diğer planlar aşağıda "alternatifler" olarak eklenir
   const rows = new Map<string, BomRow>();
   const add = (key: string, r: Omit<BomRow, 'key' | 'items' | 'qty' | 'kg' | 'watt'> & { kg?: number; watt?: number }, qty: number, itemId?: string) => {
     let row = rows.get(key);
@@ -106,7 +109,7 @@ export function buildBom(p: Project, t: TFn, lang: Lang): { rows: BomRow[]; cabl
   const crow = new Map<string, CableRow>();
   for (const c of p.cables) {
     const inf = ci.get(c.id)!;
-    if (inf.type.wireless) continue;
+    if (inf.type.wireless || inf.type.id === 'plug') continue;
     const key = c.type + '@' + inf.len;
     let r = crow.get(key);
     if (!r) {
@@ -125,8 +128,52 @@ export function buildBom(p: Project, t: TFn, lang: Lang): { rows: BomRow[]; cabl
     add('cons:gaffa', { group: 'cons', name: t('bom.gaffa'), kg: 0.4 }, 2 + Math.floor(nCables / 25));
     add('cons:velcro', { group: 'cons', name: t('bom.velcro') }, nCables + 10);
   }
+  // alternatif planlar: seçili plana ek olarak yanına alınacaklar (planlar arası en büyük − seçili)
+  const fci = analyzeCables(full);
+  for (const g of full.variants || []) {
+    const per = new Map<string, Map<string, number>>();
+    const info = new Map<string, { name: string; kg: number; cat: string; defId?: string }>();
+    const bump = (vid: string, k: string) => {
+      let m = per.get(vid);
+      if (!m) per.set(vid, (m = new Map()));
+      m.set(k, (m.get(k) || 0) + 1);
+    };
+    for (const it of full.items) {
+      if (!it.variant || !g.variants.some((v) => v.id === it.variant)) continue;
+      const def = getDef(full, it.defId);
+      if (def.source && def.mount === 'wall') continue;
+      const k = 'd:' + def.id;
+      info.set(k, { name: L(def.name, lang), kg: def.kg || 0, cat: def.cat, defId: def.id });
+      bump(it.variant, k);
+    }
+    for (const c of full.cables) {
+      if (!c.variant || !g.variants.some((v) => v.id === c.variant)) continue;
+      const inf = fci.get(c.id);
+      const ct = cableType(c.type);
+      if (!inf || ct.wireless || ct.id === 'plug') continue;
+      const k = 'c:' + c.type + '@' + inf.len;
+      info.set(k, { name: `${L(ct.name, lang)} · ${fmtLen(inf.len)} m`, kg: (ct.kgPerM || 0.1) * inf.len, cat: 'cable' });
+      bump(c.variant, k);
+    }
+    const act = per.get(g.active) || new Map<string, number>();
+    for (const [k, inf] of info) {
+      let mx = 0;
+      const uses: string[] = [];
+      for (const v of g.variants) {
+        const n = per.get(v.id)?.get(k) || 0;
+        if (n > mx) mx = n;
+        if (n && v.id !== g.active) uses.push(v.label);
+      }
+      const extra = mx - (act.get(k) || 0);
+      if (extra > 0) add('alt:' + g.id + ':' + k, { group: 'alt', name: inf.name, defId: inf.defId, kg: inf.kg, note: t('bom.altNote', { g: g.name, v: uses.join(', ') }) }, extra);
+    }
+  }
   const list = [...rows.values()];
   const totalKg = list.reduce((s, r) => s + r.kg, 0) + cables.reduce((s, r) => s + r.kg, 0);
   const totalW = list.reduce((s, r) => s + r.watt, 0);
   return { rows: list, cables, totalKg, totalW };
+}
+
+function fmtLen(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }

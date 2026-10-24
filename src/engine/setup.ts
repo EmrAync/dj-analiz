@@ -6,6 +6,7 @@ import { sourcesOf, suggestDelay } from './acoustics';
 import { analyzeCables } from './cables';
 import { walkwayCrossings } from './checks';
 import { analyzePower } from './power';
+import { activeView, variantChain } from '../model/variants';
 
 export type SetupPhase = 'prep' | 'stage' | 'rigging' | 'power' | 'speakers' | 'foh' | 'performers' | 'lights' | 'signal' | 'powercables' | 'poweron' | 'test';
 
@@ -21,6 +22,22 @@ export interface SetupStep {
   icon?: string;
   compact?: boolean;
   warn?: string[];
+  group?: string; // alternatif plan grubu (karar adımı)
+}
+
+// Bir alternatif planın zinciri, okunur parçalar halinde: "Duvar prizi CEE 32 A", "direkt", "Adaptör…", "CEE 16 · 10 m"…
+export function chainParts(p: Project, vid: string, lang: Lang, t: TFn): { text: string; kind: 'item' | 'cable' | 'plug'; id: string }[] {
+  const ci = analyzeCables(p);
+  return variantChain(p, vid).map((n) => {
+    if (n.kind === 'item') {
+      const d = getDef(p, n.it.defId);
+      // sistem girişi: etiketiyle (DIST-1); zincir parçaları: adıyla
+      return { text: n.inPlan ? n.it.name || L(d.name, lang) : n.it.label, kind: 'item' as const, id: n.it.id };
+    }
+    const inf = ci.get(n.c.id);
+    if (!inf || inf.type.id === 'plug') return { text: t('setup.plugDirect'), kind: 'plug' as const, id: n.c.id };
+    return { text: `${inf.type.short} · ${fmt(inf.len, inf.len % 1 ? 1 : 0, lang)} m`, kind: 'cable' as const, id: n.c.id };
+  });
 }
 
 export function posText(t: TFn, lang: Lang, area: Area, x: number, y: number): string {
@@ -75,7 +92,8 @@ function mountText(t: TFn, lang: Lang, p: Project, it: Item): string {
   }
 }
 
-export function buildSetup(p: Project, t: TFn, lang: Lang): SetupStep[] {
+export function buildSetup(full: Project, t: TFn, lang: Lang): SetupStep[] {
+  const p = activeView(full); // seçili alternatif planlar
   const steps: SetupStep[] = [];
   const ci = analyzeCables(p);
   const pw = analyzePower(p);
@@ -89,6 +107,7 @@ export function buildSetup(p: Project, t: TFn, lang: Lang): SetupStep[] {
     const c = inf.cable;
     const a = inf.a && inf.portA ? `${inf.a.label} (${nm(inf.a)}) · ${portLabel(inf.portA, lang)}` : '?';
     const b = inf.b && inf.portB ? `${inf.b.label} (${nm(inf.b)}) · ${portLabel(inf.portB, lang)}` : '?';
+    if (inf.type.id === 'plug') return `${c.label} · ${a} → ${b} · ${t('setup.plugDirect')}`;
     const len = inf.type.wireless ? t('setup.wireless') : `${fmt(inf.len, inf.len % 1 ? 1 : 0, lang)} m`;
     return `${c.label} · ${inf.type.short} ${len}${c.channel ? ` · „${c.channel}"` : ''}: ${a} → ${b}`;
   };
@@ -139,6 +158,18 @@ export function buildSetup(p: Project, t: TFn, lang: Lang): SetupStep[] {
     if (d.cat !== 'truss' || d.id === 'spk-stand') continue;
     const a = area(it.areaId);
     steps.push({ id: 'it:' + it.id, phase: 'rigging', title: `${it.label} · ${nm(it)}${areaTag(it)}`, lines: [posText(t, lang, a, it.x, it.y), mountText(t, lang, p, it), t('setup.rotation', { r: Math.round(((it.rot % 360) + 360) % 360) })], items: [it.id], icon: d.icon, warn: d.id === 'hoist' ? [t('setup.riggingWarn')] : undefined });
+  }
+
+  // 4 — Elektrik girişi: alternatif planlar (A/B/C) — önce prizi kontrol et
+  for (const g of full.variants || []) {
+    if (g.variants.length < 2) continue;
+    const lines: string[] = [];
+    for (const v of g.variants) {
+      const chain = chainParts(full, v.id, lang, t).map((x) => x.text).join(' → ');
+      lines.push(`${v.id === g.active ? '✓ ' : ''}${v.label}) ${v.when || v.name}${chain ? ': ' + chain : ''}`);
+    }
+    lines.push(t('setup.altPick'));
+    steps.push({ id: 'vg:' + g.id, phase: 'power', title: t('setup.altTitle', { g: g.name }), lines, icon: 'bolt', group: g.id, warn: [t('setup.altWarn')] });
   }
 
   // 4 — Elektrik dağıtımı

@@ -11,6 +11,7 @@ import { connect, updateItems } from '../../store/actions';
 import { st, useStore, useT } from '../../store/store';
 import { Icon, Seg, useSize } from '../../ui/kit';
 import { itemImage, itemVisible } from '../common';
+import { isOff, variantMap } from '../../model/variants';
 
 const BW = 230; // blok genişliği
 const HEAD = 40;
@@ -198,7 +199,7 @@ export function SchemaView() {
     }
   };
 
-  const edges = [...ci.values()].filter((inf) => byId.has(inf.cable.a.item) && byId.has(inf.cable.b.item) && (power ? inf.type.domain === 'power' : inf.type.domain !== 'power') && !inf.cable.hidden && layers.domains[inf.type.domain] !== false);
+  const edges = [...ci.values()].filter((inf) => byId.has(inf.cable.a.item) && byId.has(inf.cable.b.item) && (power ? inf.type.domain === 'power' : inf.type.domain !== 'power') && !inf.cable.hidden && layers.domains[inf.type.domain] !== false && (layers.alts || !isOff(p, inf.cable)));
   // kanal ofsetleri
   const laneOf = new Map<string, number>();
   {
@@ -228,10 +229,11 @@ export function SchemaView() {
             const b = byId.get(inf.cable.b.item)!;
             const pa = portPos(a, inf.cable.a.port)!;
             const pb = portPos(b, inf.cable.b.port)!;
-            return <Edge key={inf.cable.id} inf={inf} pa={pa} pb={pb} lane={laneOf.get(inf.cable.id) || 0} sel={sel.cables.includes(inf.cable.id)} power={power} lang={lang} amps={inf.amps} />;
+            const off = isOff(p, inf.cable);
+            return <Edge key={inf.cable.id} inf={inf} pa={pa} pb={pb} lane={laneOf.get(inf.cable.id) || 0} sel={sel.cables.includes(inf.cable.id)} power={power} lang={lang} amps={off ? undefined : inf.amps} faded={off} />;
           })}
           {blocks.map((b) => (
-            <BlockView key={b.it.id} b={b} p={p} sel={sel.items.includes(b.it.id)} lang={lang} power={power} showArea={areasMulti} pw={pw.nodes.get(b.it.id)} used={ci} t={t} />
+            <BlockView key={b.it.id} b={b} p={p} sel={sel.items.includes(b.it.id)} lang={lang} power={power} showArea={areasMulti} pw={pw.nodes.get(b.it.id)} used={ci} t={t} faded={isOff(p, b.it)} badge={b.it.variant ? variantMap(p).get(b.it.variant)?.v.label : undefined} />
           ))}
           {wire ? <path d={`M ${wire.x1} ${wire.y1} C ${wire.x1 + 60} ${wire.y1}, ${wire.x2 - 60} ${wire.y2}, ${wire.x2} ${wire.y2}`} stroke="var(--accent)" strokeWidth={2} fill="none" strokeDasharray="6 4" style={{ pointerEvents: 'none' }} /> : null}
         </g>
@@ -258,6 +260,12 @@ export function SchemaView() {
           />
         </div>
         <div className="tool-card">
+          {p.variants?.length ? (
+            <button className={'ibtn' + (layers.alts ? ' on' : '')} onClick={() => st().set({ layers: { ...layers, alts: !layers.alts } })} title={t('var.showAltsTip')} data-testid="toggle-alts">
+              <Icon name="bolt" size={16} />
+              <span className="hide-sm">{t('var.showAlts')}</span>
+            </button>
+          ) : null}
           <button className={'ibtn' + (showFree ? ' on' : '')} onClick={() => setShowFree(!showFree)} title={t('schema.showFree')}>
             <Icon name="eye" size={16} />
             <span className="hide-sm">{t('schema.showFree')}</span>
@@ -308,11 +316,12 @@ function relevantPorts(def: EquipDef, power: boolean): PortInst[] {
 }
 
 function layoutBlocks(p: Project, ci: Map<string, CableInfo>, areaId: string | null, power: boolean, allPorts: boolean, layers: ReturnType<typeof st>['layers'], showFree: boolean): Block[] {
-  let items = p.items.filter((it) => (!areaId || it.areaId === areaId) && itemVisible(it, getDef(p, it.defId), layers) && relevantPorts(getDef(p, it.defId), power).length > 0);
+  let items = p.items.filter((it) => (!areaId || it.areaId === areaId) && (layers.alts || !isOff(p, it)) && itemVisible(it, getDef(p, it.defId), layers) && relevantPorts(getDef(p, it.defId), power).length > 0);
   if (!showFree) {
     const linked = new Set<string>();
     for (const inf of ci.values()) {
       if ((inf.type.domain === 'power') !== power) continue;
+      if (!layers.alts && isOff(p, inf.cable)) continue;
       linked.add(inf.cable.a.item);
       linked.add(inf.cable.b.item);
     }
@@ -325,6 +334,7 @@ function layoutBlocks(p: Project, ci: Map<string, CableInfo>, areaId: string | n
   const edges: [string, string][] = [];
   for (const inf of ci.values()) {
     if (!inf.a || !inf.b || !ids.has(inf.a.id) || !ids.has(inf.b.id)) continue;
+    if (!layers.alts && isOff(p, inf.cable)) continue;
     const isPow = inf.type.domain === 'power';
     if (isPow !== power) continue;
     used.add(inf.cable.a.item + '#' + inf.cable.a.port);
@@ -379,18 +389,18 @@ function layoutBlocks(p: Project, ci: Map<string, CableInfo>, areaId: string | n
   return blocks;
 }
 
-function BlockView({ b, p, sel, lang, power, showArea, pw, used, t }: { b: Block; p: Project; sel: boolean; lang: Lang; power: boolean; showArea: boolean; pw?: { ownW: number; downW: number; phase?: string; children?: unknown[] }; used: Map<string, CableInfo>; t: ReturnType<typeof useT> }) {
+function BlockView({ b, p, sel, lang, power, showArea, pw, used, t, faded, badge }: { b: Block; p: Project; sel: boolean; lang: Lang; power: boolean; showArea: boolean; pw?: { ownW: number; downW: number; phase?: string; children?: unknown[] }; used: Map<string, CableInfo>; t: ReturnType<typeof useT>; faded?: boolean; badge?: string }) {
   const col = CAT_BY_ID[b.def.cat]?.color || '#64748b';
   const img = itemImage(p, b.it, b.def);
   const title = [b.def.brand, b.def.model].filter(Boolean).join(' ') || b.it.name || L(b.def.name, lang);
   const area = showArea ? p.areas.find((a) => a.id === b.it.areaId)?.name : null;
   const isUsed = (pi: PortInst) => {
-    for (const inf of used.values()) if ((inf.cable.a.item === b.it.id && inf.cable.a.port === pi.id) || (inf.cable.b.item === b.it.id && inf.cable.b.port === pi.id)) return true;
+    for (const inf of used.values()) if (!isOff(p, inf.cable) && (inf.cable.a.item === b.it.id && inf.cable.a.port === pi.id) || (inf.cable.b.item === b.it.id && inf.cable.b.port === pi.id)) return true;
     return false;
   };
   const rows = Math.max(b.left.length, b.right.length);
   return (
-    <g transform={`translate(${b.x} ${b.y})`}>
+    <g transform={`translate(${b.x} ${b.y})`} opacity={faded ? 0.35 : 1}>
       <g data-k="block" data-id={b.it.id} style={{ cursor: 'move' }}>
         <rect width={BW} height={b.h} rx={8} fill="var(--panel)" stroke={sel ? 'var(--sel)' : 'var(--line2)'} strokeWidth={sel ? 2.4 : 1.2} style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,.08))' }} />
         <path d={`M 0 8 a 8 8 0 0 1 8 -8 h ${BW - 16} a 8 8 0 0 1 8 8 v ${HEAD - 8} h ${-BW} z`} fill={col} fillOpacity={0.12} />
@@ -411,6 +421,14 @@ function BlockView({ b, p, sel, lang, power, showArea, pw, used, t }: { b: Block
           <text x={BW - 8} y={17} fontSize={10.5} textAnchor="end" fill="var(--err)" fontWeight={700}>
             {Math.round(pw.children?.length ? pw.downW : pw.ownW)} W{pw.phase ? ` · ${pw.phase}` : ''}
           </text>
+        ) : null}
+        {badge ? (
+          <g transform={`translate(${BW - 4} -4)`}>
+            <circle r={10} fill={faded ? 'var(--warn)' : 'var(--ok)'} />
+            <text y={4} fontSize={11} textAnchor="middle" fill="#fff" fontWeight={800}>
+              {badge}
+            </text>
+          </g>
         ) : null}
         {Array.from({ length: rows }, (_, i) => (i % 2 ? <rect key={i} x={1} y={HEAD + i * ROW} width={BW - 2} height={ROW} fill="var(--panel2)" /> : null))}
         {b.hidden ? (
@@ -446,7 +464,7 @@ function PortRow({ b, pi, i, side, used, lang }: { b: Block; pi: PortInst; i: nu
   );
 }
 
-function Edge({ inf, pa, pb, lane, sel, power, lang, amps }: { inf: CableInfo; pa: { x: number; y: number; side: 'l' | 'r' }; pb: { x: number; y: number; side: 'l' | 'r' }; lane: number; sel: boolean; power: boolean; lang: Lang; amps?: number }) {
+function Edge({ inf, pa, pb, lane, sel, power, lang, amps, faded }: { inf: CableInfo; pa: { x: number; y: number; side: 'l' | 'r' }; pb: { x: number; y: number; side: 'l' | 'r' }; lane: number; sel: boolean; power: boolean; lang: Lang; amps?: number; faded?: boolean }) {
   const col = inf.cable.color || DOMAINS[inf.type.domain].color;
   let d: string;
   let mx: number;
@@ -467,14 +485,15 @@ function Edge({ inf, pa, pb, lane, sel, power, lang, amps }: { inf: CableInfo; p
     mx = (pa.x + pb.x) / 2;
     my = (pa.y + pb.y) / 2;
   }
-  const label = `${inf.cable.label} · ${inf.type.short}${inf.type.wireless ? '' : ' ' + fmt(inf.len, inf.len % 1 ? 1 : 0, lang) + 'm'}${power && amps != null ? ` · ${fmt(amps, 1, lang)} A` : ''}`;
+  const plug = inf.type.id === 'plug';
+  const label = plug ? inf.type.short : `${inf.cable.label} · ${inf.type.short}${inf.type.wireless ? '' : ' ' + fmt(inf.len, inf.len % 1 ? 1 : 0, lang) + 'm'}${power && amps != null ? ` · ${fmt(amps, 1, lang)} A` : ''}`;
   const tw = label.length * 5.7 + 10;
   const bad = inf.issues.some((x) => x !== 'chk.cableCrossArea' && x !== 'chk.cableNoLen');
   return (
-    <g data-k="edge" data-id={inf.cable.id} style={{ cursor: 'pointer' }}>
+    <g data-k="edge" data-id={inf.cable.id} style={{ cursor: 'pointer' }} opacity={faded ? 0.3 : 1}>
       <path d={d} stroke="transparent" strokeWidth={10} fill="none" />
       {sel ? <path d={d} stroke={col} strokeOpacity={0.25} strokeWidth={7} fill="none" /> : null}
-      <path d={d} stroke={col} strokeWidth={sel ? 2.4 : 1.6} fill="none" strokeDasharray={inf.type.wireless ? '6 4' : undefined} />
+      <path d={d} stroke={col} strokeWidth={sel ? 2.4 : 1.6} fill="none" strokeDasharray={inf.type.wireless || plug ? '6 4' : undefined} />
       <g transform={`translate(${mx} ${my})`}>
         <rect x={-tw / 2} y={-8} width={tw} height={16} rx={4} fill="var(--panel)" stroke={bad ? 'var(--warn)' : col} strokeWidth={sel ? 2 : 1.1} />
         <text y={3.6} fontSize={9.5} textAnchor="middle" fill={col} fontWeight={600} style={{ fontFamily: 'var(--mono)' }}>

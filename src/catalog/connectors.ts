@@ -111,6 +111,7 @@ export const CABLE_TYPES: CableType[] = [
   { id: 'cee16r', name: { tr: 'CEE 16 A kırmızı 5G2,5 (3 faz)', de: 'CEE 16 A rot 5G2,5', en: 'CEE 16 A red 5G2.5' }, short: 'CEE16 3~', domain: 'power', ends: [['cee16r'], ['cee16r']], stock: [5, 10, 25, 50], mm2: 2.5, ampMax: 16, maxLen: 100, kgPerM: 0.3 },
   { id: 'cee32r', name: { tr: 'CEE 32 A kırmızı 5G6 (3 faz)', de: 'CEE 32 A rot 5G6', en: 'CEE 32 A red 5G6' }, short: 'CEE32 3~', domain: 'power', ends: [['cee32r'], ['cee32r']], stock: [5, 10, 25, 50], mm2: 6, ampMax: 32, maxLen: 100, kgPerM: 0.65 },
   { id: 'cee63r', name: { tr: 'CEE 63 A kırmızı 5G16 (3 faz)', de: 'CEE 63 A rot 5G16', en: 'CEE 63 A red 5G16' }, short: 'CEE63 3~', domain: 'power', ends: [['cee63r'], ['cee63r']], stock: [10, 25, 50], mm2: 16, ampMax: 63, maxLen: 150, kgPerM: 1.5 },
+  { id: 'plug', name: { tr: 'Doğrudan takılır (kablo yok)', de: 'Direkt gesteckt (kein Kabel)', en: 'Plugged directly (no cable)' }, short: 'direkt', domain: 'power', ends: [[], []], stock: [0], maxLen: 0 },
   { id: 'cee32-16', name: { tr: 'Adaptör CEE 32 A → CEE 16 A (kırmızı)', de: 'Adapter CEE 32 A → 16 A (rot)', en: 'Adapter CEE 32 A → 16 A (red)' }, short: '32→16', domain: 'power', ends: [['cee32r'], ['cee16r']], stock: [0.5, 1.5], mm2: 2.5, ampMax: 16, maxLen: 3, kgPerM: 0.3 },
   { id: 'powerlock', name: { tr: 'Powerlock tek damar seti (125 A+)', de: 'Powerlock Einleiter-Satz (125 A+)', en: 'Powerlock single-core set (125 A+)' }, short: 'Powerlock', domain: 'power', ends: [['powerlock'], ['powerlock']], stock: [10, 25, 50], mm2: 35, ampMax: 125, maxLen: 150, kgPerM: 2 },
   // — Kablosuz —
@@ -138,6 +139,7 @@ export function connFits(port: ConnFamily, end: ConnFamily[]): boolean {
 
 // a: çıkış (kaynak) tarafı, b: giriş tarafı. Elektrik kabloları yönlüdür (priz → fiş).
 export function cableFits(ct: CableType, a: ConnFamily, b: ConnFamily): boolean {
+  if (ct.id === 'plug') return a === b; // fiş prize doğrudan: aynı konnektör
   if (ct.domain === 'power') return connFits(a, ct.ends[0]) && connFits(b, ct.ends[1]);
   return (connFits(a, ct.ends[0]) && connFits(b, ct.ends[1])) || (connFits(a, ct.ends[1]) && connFits(b, ct.ends[0]));
 }

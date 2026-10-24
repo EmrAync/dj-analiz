@@ -1,6 +1,7 @@
 import { getDef, itemBaseZ, itemDims, floorElevAt } from '../model/project';
 import type { AcousticKind, Area, Item, L10n, MaterialId, Project, Zone } from '../model/types';
 import { derive } from './derive';
+import { activeView } from '../model/variants';
 
 // ———————————————— Malzemeler (Sabine yutum katsayıları 125 / 500 / 2000 Hz) ————————————————
 export const MATERIALS: Record<MaterialId, { name: L10n; a: [number, number, number] }> = {
@@ -113,6 +114,8 @@ export function arrayElements(it: Item, elemH: number, elemD: number, baseZ: num
 }
 
 export function sourcesOf(p: Project, areaId: string): Source[] {
+  const pv = activeView(p);
+  if (pv !== p) return sourcesOf(pv, areaId);
   return derive(p, 'src:' + areaId, () => {
     const out: Source[] = [];
     const s = p.settings;
@@ -386,6 +389,8 @@ export function farField(p: Project, dist: number): number {
 
 // Sub kümeleri (power alley uyarısı için)
 export function subClusters(p: Project, areaId: string): { x: number; y: number; n: number }[] {
+  const pv = activeView(p);
+  if (pv !== p) return subClusters(pv, areaId);
   const subs = p.items.filter((i) => i.areaId === areaId && !i.hidden && getDef(p, i.defId).acoustic?.kind === 'sub');
   const cl: { x: number; y: number; n: number }[] = [];
   for (const s of subs) {
