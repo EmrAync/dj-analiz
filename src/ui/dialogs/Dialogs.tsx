@@ -90,6 +90,7 @@ function HelpDialog({ welcome }: { welcome: boolean }) {
             <li>{t('help.s5')}</li>
             <li>{t('help.s6')}</li>
             <li>{t('help.s7')}</li>
+            <li>{t('help.s8')}</li>
           </ol>
         </div>
         <div>

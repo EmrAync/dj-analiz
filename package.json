@@ -1,7 +1,7 @@
 {
   "name": "sahne-cad",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/engine.test.ts",
-    "test:ui": "node tests/ui_smoke.mjs http://127.0.0.1:4173/ shots && node tests/ui_flows.mjs http://127.0.0.1:4173/ shots && node tests/ui_power.mjs http://127.0.0.1:4173/ shots",
+    "test:ui": "node tests/ui_smoke.mjs http://127.0.0.1:4173/ shots && node tests/ui_flows.mjs http://127.0.0.1:4173/ shots && node tests/ui_power.mjs http://127.0.0.1:4173/ shots && node tests/ui_linecheck.mjs http://127.0.0.1:4173/ shots",
     "release": "npm run build:tek && node scripts/release.mjs",
     "docs:shots": "node tests/docs_shots.mjs http://127.0.0.1:4173/ docs",
     "icons": "node scripts/icons.mjs",

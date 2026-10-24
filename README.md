@@ -35,7 +35,42 @@ Adres herkese açıktır ama içinde senin bilgin yoktur. Projelerin sadece tele
 
 ![iPhone dB ölçer](docs/iphone-db.jpg)
 
-## Yeni (0.4)
+## Yeni (0.5): Kanal EQ asistanı (line check)
+
+**Ölçüm → Kanal EQ**. Her kanalı tek tek dinler ve **senin mikserine göre** ne yapacağını söyler:
+"250 Hz'i 3 dB kıs (boğukluk), 3 kHz'i 2 dB aç (netlik), HPF 120 Hz, kompresör 3:1, reverb az".
+
+- **Mikserler**: Soundcraft **Ui24R**, Behringer **XR18**, Midas **MR12**, Allen & Heath **CQ-20B**, Yamaha **DM3**
+  (ve diğerleri). Talimat o mikserin diliyle yazılır: XR18'de *Low Cut / PEQ / HShv / HCut*, DM3'te *Dynamics 1/2*,
+  CQ'da *Gain Assistant / AMM*, Ui24R'de *de-esser / LPF*. Kanal sayısı yetmezse uyarır (MR12: 4 mikrofon girişi).
+- **Kaynaklar**: erkek / kadın vokal, anons, koro (karışık), bağlama (uzun / kısa sap, elektro), ud, kanun, keman,
+  kemençe, akustik / elektro gitar, bas, klarnet, mey, ney, zurna, kaval, tulum, darbuka, bendir, davul, bateri
+  (kick, trampet, tom, overhead), piyano, klavye, **Korg Pa5X (L, R, Out 1–4 tek tıkla 6 kanal)**, DJ mikseri.
+- **Vokal için**: *Şarkı / Konuşma / İkisi* ve *Normal / Boğuk / Sert / İnce* seçilir. Boğuk, ne dediği
+  anlaşılmayan seslerde boğukluğu daha çok keser, netliği açar, mikrofon tutuşu için ipucu verir.
+  **Anlaşılırlık** göstergesi öneriden önce ve sonra yüzde olarak görünür.
+- **Dinle**: kişi 8–20 saniye söyler / çalar. Program sadece sesli anları ortalar, ses perdesini bulur (erkek /
+  kadın), hedef ton dengesiyle karşılaştırır ve en fazla **4 bant + HPF** önerir: önce kısma, az ve geniş yükseltme.
+  *Salon mikrofonu* (UMIK-1 / ECM8000) ya da *mikserden doğrudan* (SOLO / PFL çıkışı → ses kartı) dinler.
+  Salonda dinlerken, önce ölçülen sistem eğrisini çıkarır: salonun rengi kanal EQ'suna yüklenmez.
+  "Mikserde girdim" dersen sonraki dinlemede o EQ hesaba katılır ve sadece değişecekler gösterilir.
+- **Mono ve frekans haritası**: tek PRX915/918 setinde mono önerilir; ayrım pan ile değil EQ ile yapılır.
+  Harita kimin hangi frekansta olduğunu gösterir; vokale yer açmak için enstrümanlarda 3 kHz kısılır, bas ile
+  davul ayrılır, Pa5X bası ayrıysa L/R'ye HPF 100 Hz konur. Bu kısmalar kanal ayarlarına otomatik eklenir.
+- **Unutma listesi**: önce sistem, sonra kanallar; +48V; aynı kaynağa iki mikrofonda polarite; monitör geri
+  beslemesi; sub hizası; yankılı salonda az reverb; kablosuz pil; ses kontrolünden sonra **sahneyi kaydet**;
+  USB ile kayıt alıp bir dahaki işe **sanal ses kontrolü**.
+- **Kadrolarım**: aynı grup her işte aynıysa kanal listesini bir kez kaydet, sonra tek tıkla yükle.
+
+| | |
+|---|---|
+| ![Kanal EQ](docs/kanal-eq.jpg) | ![Dinleme sonucu](docs/kanal-eq-sonuc.jpg) |
+| ![Frekans haritası](docs/frekans-haritasi.jpg) | ![iPhone kanal EQ](docs/iphone-kanal-eq.jpg) |
+
+Not: öneriler bir başlangıç noktasıdır; son karar kulağındır. Kanalı tek başına değil, grupla birlikte dinle.
+
+## 0.4
+
 
 ### Elektrik girişi: A/B/C alternatifleri
 
@@ -96,7 +131,7 @@ alttan açılır. **İşçi modu** ile telefonu işçiye verirken plan yanlışl
 | **Bağlantı şeması** | Sinyal akışı blok şeması: cihazlar portlarıyla, kablolar etiketiyle. **Porttan porta sürükleyerek bağla.** Elektrik şeması (faz, watt, amper). Tüm bölümler birlikte gösterilebilir. |
 | **Listeler** | Malzeme listesi (standlar, ara direk, kum torbası, podest, kablo köprüsü, gaffa otomatik eklenir), kablo listesi, **kablo paketi** (hangi boydan kaç kablo + yedek), **input listesi**, elektrik devreleri. CSV (Excel) ve yazdırma. |
 | **Analiz** | Ortalama/maksimum dB, dağılım, oda yankısı (RT60), kritik mesafe, delay önerileri, sıcaklığa göre ses hızı, rüzgar ve komşu ses sınırı, faz yükleri, öneriler. |
-| **Ölçüm** | **miniDSP UMIK-1** (USB, iPhone dahil) veya **Behringer ECM8000** (ses kartı) ile: **dB ölçer** (LAeq, LAF, LCpeak, geçmiş, isteğe bağlı yasal sınır, protokol), **RTA**, **gecikme ölçümü** (sub–tepe, ana–delay, yankı süresi), **EQ önerisi** (hangi frekansı ne kadar indireceğin) ve geri besleme avcısı. |
+| **Ölçüm** | **miniDSP UMIK-1** (USB, iPhone dahil) veya **Behringer ECM8000** (ses kartı) ile: **dB ölçer** (LAeq, LAF, LCpeak, geçmiş, isteğe bağlı yasal sınır, protokol), **RTA**, **gecikme ölçümü** (sub–tepe, ana–delay, yankı süresi), **sistem EQ önerisi**, **kanal EQ asistanı** (line check, mikserine göre) ve geri besleme avcısı. |
 | **Kurulum** | Kurulumu yapacak kişi için **akış diyagramı** (ekip şeritleri, kritik yol), **zaman çizelgesi** (etkinlik saatine göre en geç başlangıç) ve adım adım talimat. Her adım işaretlenebilir. Başka dilde yazdırılabilir. |
 | **Paketleme** | Çantalar/kasalar ve içindekiler; giderken yükle / dönüşte topla işaretleri; çantasız kalan malzeme. |
 

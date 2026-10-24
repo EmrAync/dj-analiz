@@ -11,7 +11,7 @@ import { imageToAsset, loadLibrary, saveLibrary, type Library } from './persist'
 
 // kütüphaneyi arayüze yayınla
 export function publishLibrary(lib: Library): void {
-  st().set({ library: { defs: lib.defs, venues: lib.venues || [], cases: lib.cases || [] } });
+  st().set({ library: { defs: lib.defs, venues: lib.venues || [], cases: lib.cases || [], lineups: lib.lineups || [] } });
 }
 
 const r2 = (v: number) => Math.round(v * 100) / 100;

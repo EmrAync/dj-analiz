@@ -5,7 +5,7 @@ import { makeT } from '../i18n';
 import type { Dept, Domain, Lang, Project } from '../model/types';
 import { newProject } from '../model/project';
 import type { Band } from '../engine/acoustics';
-import type { CaseDef, EquipDef, VenueTpl } from '../model/types';
+import type { CaseDef, EquipDef, LineupTpl, VenueTpl } from '../model/types';
 
 export type View = 'plan' | '3d' | 'schema' | 'lists' | 'analysis' | 'measure' | 'setup' | 'pack' | 'home';
 export type Tool = 'select' | 'cable' | 'zone' | 'measure' | 'text' | 'pan';
@@ -78,7 +78,7 @@ export interface State extends PrefState {
   toast: { msg: string; kind: 'ok' | 'warn' | 'err'; at: number } | null;
   schemaMode: 'signal' | 'power';
   cableDraft: { item: string; port?: string } | null;
-  library: { defs: EquipDef[]; venues: VenueTpl[]; cases: CaseDef[] };
+  library: { defs: EquipDef[]; venues: VenueTpl[]; cases: CaseDef[]; lineups: LineupTpl[] };
   focus: { x: number; y: number; at: number } | null; // planı bir noktaya odakla
   installer: boolean; // kurulumcu (salt-okunur) modu
   ghosts: boolean; // kapsama önerilerini planda göster
@@ -174,7 +174,7 @@ export const useStore = create<State>()((set, get) => ({
   toast: null,
   schemaMode: 'signal',
   cableDraft: null,
-  library: { defs: [], venues: [], cases: [] },
+  library: { defs: [], venues: [], cases: [], lineups: [] },
   focus: null,
   installer: false,
   ghosts: false,

@@ -30,6 +30,7 @@ node tests/ui_smoke.mjs http://127.0.0.1:4173/ shots   # every view, fails on JS
 node tests/ui_flows.mjs http://127.0.0.1:4173/ shots   # cable tool, undo, drag, zone, schema drag-connect,
                                                        # exports (DXF/SVG/PNG/JSON), installer mode, DE setup, mobile
 node tests/ui_power.mjs http://127.0.0.1:4173/ shots   # power A/B/C, venues, packing, phone shell
+node tests/ui_linecheck.mjs http://127.0.0.1:4173/ shots   # channel EQ assistant with a fake voice mic
 npm run release             # SahneCAD.html (single file, file://) + docs/ (app files for Pages)
 npm run pages               # publish docs/ app files to the gh-pages branch → https://emraync.github.io/dj-analiz/
 node tests/docs_shots.mjs http://127.0.0.1:4173/ docs  # README screenshots
@@ -105,7 +106,37 @@ pitch `rotation.x = -tilt`. Item `z` is the bottom edge above the local floor (s
 - Approximate brand data: keep the "values are approximate" hint; never claim manufacturer accuracy.
 - Safety hints stay: 400 V by an electrician, rigging by a qualified rigger, keep escape routes clear.
 
-## 5. Status (v0.4.0)
+## 5. Status (v0.5.0)
+
+v0.5.0 (user: male/female vocals, muffled voices, singing vs speech; channel-by-channel EQ guidance during line
+check — "cut here, boost there" — for Ui24R, XR18, MR12, CQ-20B, DM3; mono PRX915/918 so instruments must be
+separated by EQ; Turkish band line-up: choir, bağlama long/short/electric, klarnet, mey, ney, zurna, kaval,
+darbuka, bendir, davul, guitars, piano, Korg Pa5X with 6 outs, drums; think of the fine details):
+- `engine/sources.ts` knowledge base (SourceDef: f0, core, HPF, regions, target tonal balance anchors in 1/6-oct
+  band power, start moves, allowed boosts, key ranges for slotting, priority, comp/gate/de-ess/fx, default mic,
+  loud flag, tips; REGIONS with cut/boost phrases; MICS; PA5X_OUTS / DRUMKIT sets). `targetAt` adjusts vocals for
+  speech. Texts are inline L10n objects (tr/de/en), not i18n keys.
+- `engine/mixers.ts` mixer specs (verified from spec sheets/retailers: Ui24R 20 mic, HPF ≤1 kHz with slopes,
+  LPF, de-esser, ±20 dB, Q 0.05–15; XR18 16 mic, Low Cut 20–400 Hz, X AIR band types; MR12 4 mic preamps;
+  CQ-20B 16 mic + stereo line, Gain/Feedback Assistant, AMM; DM3 16 mic, HPF 20–600 Hz, Dyn1 gate / Dyn2 comp).
+  `engine/mixerText.ts` renders a channel's settings in that mixer's words (`mixerLines`).
+- `audio/voice.ts`: `analyzeTake` (Hann 4096, voiced-frame LTAS → 1/6-oct bands 45 Hz–16 kHz), `pitchStats`
+  (YIN on ~12 kHz decimated signal), `synthVoice` (test/fixture voice with melody, formants, mud/presence knobs).
+  `audio/engine.ts` adds `captureBegin/captureEnd/captureSecs` (from the 20 s ring buffer) and `micCorr`.
+- `engine/chanEq.ts`: `startEq` (rules: use, voice character, mic type, Pa5X bass split), `suggestFromMeas`
+  (harmonic-aware smoothing `smoothLtas`, deviation vs target normalised on the core range, minus system deviation
+  in room mode (`systemDev` from a saved pink-noise Measurement vs `settings.eq` target), minus the EQ that was on
+  the mixer during the measurement (`eqAt`), greedy fit with real filter responses: broad excess → cut, broad
+  deficit in allowed ranges → limited boost/shelf, narrow resonance (not for vocals, above 5×F0) → narrow cut;
+  max 4 bands assigned low→high (`assignBands`), clarity % for vocals), `procAdvice` (comp/gate/de-ess/fx from
+  RT60, phantom), `mixAdvice` (vocal presence/body slot cuts on lower-priority channels, bass–drum pocket,
+  HPF plan, notes), `mergeSlots`/`channelPlan`/`eqDiff`, `capacity`, `monoNotes`, `guessSource`.
+- Model: `Project.mix: MixSetup` (mixer, mono, channels[], sysId); `MixChannel` (src, use, voice, mic, meas,
+  applied, done); `Library.lineups`. Actions: `store/mixActions.ts`. UI: `views/measure/LineCheck.tsx` (Ölçüm →
+  "Kanal EQ" tab `ch`), home step "Ses kontrolü (kanal EQ)" opens it.
+- Tests: engine (31) + `tests/ui_linecheck.mjs` (fake mic = `tests/make_voice_fixture.ts`, muffled female voice).
+
+### v0.4.0
 
 v0.4.0 (user: "power alternatives — first 32 A 5-pin, else 16 A, else Schuko with PRCD-S+; click power cables
 to see the alternatives; the worker must see it; save them for the venue; packing — which gear in which bag,

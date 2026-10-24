@@ -445,3 +445,106 @@ test('paketleme: öneri her şeyi çantalara dağıtır, mobilya girmez, işaret
   assert.equal(pr.out, c0.lines[0].qty);
   assert.equal(pr.back, 0);
 });
+
+test('kanal dinleme: uzun süreli spektrum ve ses perdesi (erkek / kadın)', async () => {
+  const { analyzeTake, pitchStats, synthVoice } = await import('../src/audio/voice');
+  for (const [f0, lo, hi] of [[120, 110, 160], [230, 210, 300]] as const) {
+    const x = synthVoice(48000, 8, f0, { noise: 0.0004 });
+    const l = analyzeTake(x, 48000)!;
+    assert.ok(l.active > 0.3 && l.active < 0.95, 'sessiz anlar atlanır: ' + l.active);
+    assert.equal(l.fc.length, l.db.length);
+    const p = pitchStats(x, 48000)!;
+    assert.ok(p.med > lo && p.med < hi, `perde ${f0}: ${p.med}`);
+  }
+  // sessizlikte sonuç yok
+  assert.equal(analyzeTake(new Float32Array(1000), 48000), null);
+});
+
+test('kanal EQ: boğuk sese boğukluğu kıs, netliği aç; en fazla 4 bant, sıralı', async () => {
+  const { analyzeTake, pitchStats, synthVoice } = await import('../src/audio/voice');
+  const { suggestFromMeas, startEq } = await import('../src/engine/chanEq');
+  const x = synthVoice(48000, 10, 125, { mudDb: 6, presenceDb: -5, noise: 0.0004 });
+  const l = analyzeTake(x, 48000)!;
+  const p = pitchStats(x, 48000)!;
+  const ch: import('../src/model/types').MixChannel = { id: 'a', ch: 1, name: 'Vokal', src: 'voc-m', meas: { at: 0, fc: l.fc, db: l.db, f0: p, active: l.active, peak: l.peak, crest: l.crest, mode: 'direct' } };
+  const s = suggestFromMeas(ch, { mixer: 'xr18', mono: true, channels: [ch] })!;
+  const m = s.eq.moves;
+  assert.ok(m.length >= 2 && m.length <= 4);
+  assert.ok(m.some((x) => x.gain < 0 && x.f >= 200 && x.f <= 650), 'boğukluk kesimi');
+  assert.ok(m.some((x) => x.gain > 0 && x.f >= 2000 && x.f <= 5500), 'netlik yükseltmesi');
+  assert.ok(m.every((x) => x.gain <= 5 && x.gain >= -8), 'makul kazançlar');
+  const bands = m.map((x) => x.band!);
+  assert.deepEqual(bands, [...bands].sort((a, b) => a - b));
+  assert.equal(new Set(bands).size, bands.length);
+  assert.ok(s.clarity && s.clarity.after > s.clarity.before, 'anlaşılırlık artar');
+  assert.equal(s.detected, 'male');
+  assert.ok(s.eq.hpf >= 70 && s.eq.hpf <= 140, 'HPF ' + s.eq.hpf);
+  // başlangıç: konuşmada HPF daha yüksek, boğukta netlik daha fazla
+  const sing = startEq({ id: 'b', ch: 1, name: 'v', src: 'voc-m' });
+  const speech = startEq({ id: 'b', ch: 1, name: 'v', src: 'voc-m', use: 'speech' });
+  assert.ok(speech.hpf > sing.hpf);
+  const muff = startEq({ id: 'b', ch: 1, name: 'v', src: 'voc-m', voice: 'muffled' });
+  const pres = (e: typeof sing) => e.moves.find((x) => x.why === 'presence')?.gain || 0;
+  assert.ok(pres(muff) > pres(sing));
+});
+
+test('kanal EQ: salon mikrofonunda sistemin rengi kanal EQ\'suna yüklenmez', async () => {
+  const { suggestFromMeas } = await import('../src/engine/chanEq');
+  const { LTAS_BANDS } = await import('../src/audio/voice');
+  const { SOURCE_BY_ID, targetAt } = await import('../src/engine/sources');
+  const s = SOURCE_BY_ID['voc-m'];
+  const bump = (f: number) => 6 * Math.exp(-Math.pow(Math.log2(f / 300) / 0.5, 2));
+  const fc = LTAS_BANDS.fc;
+  const db = fc.map((f) => -30 + targetAt(s, f, 'sing') + bump(f));
+  const sys: import('../src/model/types').Measurement = { id: 'sys', name: 'pembe', areaId: 'a', at: 0, device: '', calibrated: true, freqs: fc, bands: fc.map((f) => 90 + bump(f)), spl: { a: 0, c: 0, z: 0, leq: 0, max: 0 }, secs: 10 };
+  const ch: import('../src/model/types').MixChannel = { id: 'a', ch: 1, name: 'Vokal', src: 'voc-m', meas: { at: 0, fc, db, active: 0.6, peak: -10, crest: 12, mode: 'room' } };
+  const setup = { mixer: 'dm3' as const, mono: true, channels: [ch] };
+  const without = suggestFromMeas(ch, setup, null)!;
+  const withSys = suggestFromMeas(ch, setup, sys, { curve: 'flat', bass: 0, tilt: 0, lo: 40, hi: 16000, boost: false })!;
+  const mudCut = (x: typeof without) => x.eq.moves.filter((m) => m.gain < 0 && m.f >= 180 && m.f <= 500).reduce((t, m) => t + m.gain, 0);
+  assert.ok(mudCut(without) <= -2.5, 'sistem bilinmiyorsa kesim önerir');
+  assert.ok(mudCut(withSys) > -1, 'sistem rengi çıkarılınca kesim yok');
+  assert.ok(without.notes.some((n) => /sistem ölçümü yok/.test((n.text as { tr: string }).tr)));
+});
+
+test('mix: vokale yer açma, bas–davul ayrımı, kapasite, miksere göre talimat', async () => {
+  const { capacity, mixAdvice, channelPlan, procAdvice, eqDiff } = await import('../src/engine/chanEq');
+  const { mixerLines } = await import('../src/engine/mixerText');
+  type MC = import('../src/model/types').MixChannel;
+  const chans: MC[] = [
+    { id: 'v', ch: 1, name: 'Vokal', src: 'voc-f' },
+    { id: 'b', ch: 2, name: 'Bağlama', src: 'baglama-long' },
+    { id: 'k', ch: 3, name: 'Akor', src: 'pa-chord' },
+    { id: 'bs', ch: 4, name: 'Bas', src: 'pa-bass' },
+    { id: 'd', ch: 5, name: 'Davul', src: 'davul' },
+    { id: 'lr', ch: 6, name: 'Pa5X L', src: 'pa-lr' },
+    { id: 'g', ch: 7, name: 'Gitar', src: 'gtr-el' },
+  ];
+  const setup = { mixer: 'xr18' as const, mono: true, channels: chans };
+  const adv = mixAdvice(setup);
+  const cutOn = (id: string, lo: number, hi: number) => adv.cuts.find((c) => c.chId === id && c.f >= lo && c.f <= hi);
+  assert.ok(cutOn('b', 2500, 4500), 'bağlamada netlik kesimi');
+  assert.ok(cutOn('k', 2500, 4500)!.gain <= cutOn('b', 2500, 4500)!.gain, 'pad daha çok kısılır');
+  assert.ok(cutOn('bs', 50, 90), 'basta davula yer');
+  assert.ok(!adv.cuts.some((c) => c.chId === 'v'), 'vokale kesim yok');
+  assert.equal(adv.hpf.find((h) => h.chId === 'lr')!.hpf, 100, 'bas ayrıyken Pa5X L/R HPF 100');
+  // plan: bağlama son EQ'sunda mix kesimi var
+  const plan = channelPlan(chans[1], setup, adv);
+  assert.ok(plan.eq.moves.some((m) => m.slot));
+  assert.ok(plan.eq.moves.length <= 4);
+  // X AIR dili: Low Cut, PEQ; elektro gitarda LPF → HCut
+  const lines = mixerLines(setup, chans[6], channelPlan(chans[6], setup, adv).eq, procAdvice(chans[6]), 'tr');
+  assert.ok(lines.some((l) => l.key === 'hpf' && l.k === 'Low Cut'));
+  assert.ok(lines.some((l) => l.key === 'lpf' && /HCut/.test(l.sub || '')));
+  assert.ok(lines.some((l) => l.key === 'pan' && /Ortada/.test(l.v)));
+  // Ui24R: kadın vokalde de-esser kendi içinde
+  const ui = mixerLines({ ...setup, mixer: 'ui24r' }, chans[0], channelPlan(chans[0], setup, adv).eq, procAdvice(chans[0]), 'tr');
+  const de = ui.find((l) => l.key === 'deess');
+  assert.ok(de && !de.sub, 'Ui24R de-esser');
+  // kapasite: MR12'de 4 mikrofon girişi
+  const many: MC[] = Array.from({ length: 6 }, (_, i) => ({ id: 'm' + i, ch: i + 1, name: 'V' + i, src: 'voc-m' }));
+  assert.equal(capacity({ mixer: 'mr12', mono: true, channels: many }).micOk, false);
+  assert.equal(capacity({ mixer: 'xr18', mono: true, channels: many }).ok, true);
+  // fark: aynı EQ → değişiklik yok
+  assert.equal(eqDiff(plan.eq, plan.eq).length, 0);
+});

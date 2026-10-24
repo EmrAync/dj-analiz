@@ -15,6 +15,7 @@ import { Check, Icon, Num, Seg } from '../../ui/kit';
 import { PlanDrawing } from '../plan/PlanDrawing';
 import { SplTab } from './SplTab';
 import { DelayTab } from './DelayTab';
+import { LineCheck } from './LineCheck';
 import { limitsOf, rollingLeq } from '../../audio/meter';
 import { meterHistory } from '../../audio/engine';
 
@@ -34,7 +35,7 @@ function avgMeasurements(list: Measurement[]): number[] | null {
   return s.map((v) => dB(v / list.length));
 }
 
-type MsTab = 'spl' | 'rta' | 'delay' | 'eq' | 'points';
+type MsTab = 'spl' | 'rta' | 'delay' | 'eq' | 'ch' | 'points';
 
 const IS_IOS = typeof navigator !== 'undefined' && (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
 
@@ -95,6 +96,7 @@ export function MeasureView() {
               { v: 'rta', l: 'RTA' },
               { v: 'delay', l: t('ms.tab.delay') },
               { v: 'eq', l: 'EQ' },
+              { v: 'ch', l: t('ms.tab.ch') },
               { v: 'points', l: t('ms.tab.points') },
             ]}
             onChange={setTab}
@@ -133,6 +135,7 @@ export function MeasureView() {
         ) : null}
         {tab === 'delay' ? <DelayTab p={p} area={area} lang={lang} t={t} /> : null}
         {tab === 'eq' ? <EqPanel p={p} eq={eq} chosen={chosen} lang={lang} t={t} /> : null}
+        {tab === 'ch' ? <LineCheck p={p} area={area} lang={lang} t={t} goTab={setTab} /> : null}
         {tab === 'points' ? <MeasList p={p} area={area} meas={meas} sel={sel} setSel={setSel} pos={pos} setPos={setPos} lang={lang} t={t} /> : null}
       </div>
     </div>

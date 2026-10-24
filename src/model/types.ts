@@ -243,6 +243,66 @@ export interface CaseDef {
   lines: CaseLine[];
 }
 
+// —— Kanal EQ asistanı (line check) ——
+export type MixerId = 'ui24r' | 'xr18' | 'mr12' | 'cq20b' | 'dm3' | 'other';
+
+export interface EqMove {
+  f: number;
+  gain: number;
+  q: number;
+  type: 'bell' | 'lshelf' | 'hshelf';
+  why: string; // bölge (RegionKey)
+  band?: number; // mikserde bant (1–4)
+  slot?: boolean; // mix içinde başka kanala yer açmak için
+}
+
+export interface ChanEq {
+  hpf: number;
+  lpf?: number;
+  moves: EqMove[];
+}
+
+export interface ChanAnalysis {
+  at: number;
+  fc: number[];
+  db: number[]; // 1/6 oktav, dBFS (mikrofon kalibrasyonu düzeltilmiş)
+  noise?: number[]; // sessizlik ölçümü
+  f0?: { med: number; lo: number; hi: number; voiced: number };
+  active: number;
+  peak: number;
+  crest: number;
+  mode: 'room' | 'direct'; // salon mikrofonu / mikserden doğrudan
+  eqAt?: ChanEq; // ölçüm sırasında mikserde olan EQ
+  sysId?: string; // sistem ölçümü (Measurement.id)
+}
+
+export interface MixChannel {
+  id: string;
+  ch: number;
+  name: string;
+  src: string; // SourceId
+  use?: 'sing' | 'speech' | 'both';
+  voice?: 'normal' | 'muffled' | 'harsh' | 'thin';
+  mic?: string; // MicType
+  meas?: ChanAnalysis;
+  applied?: ChanEq; // mikserde girilen (uygulandı)
+  done?: boolean;
+}
+
+export interface MixSetup {
+  mixer: MixerId;
+  mono: boolean;
+  channels: MixChannel[];
+  sysId?: string; // salon modunda düzeltme için sistem ölçümü
+}
+
+export interface LineupTpl {
+  id: string;
+  name: string;
+  mixer: MixerId;
+  channels: Omit<MixChannel, 'meas' | 'applied' | 'done'>[];
+}
+
 // —— Kayıtlı salon (kütüphane): ölçüler, bölgeler, sabitler, elektrik girişi alternatifleri ——
 export interface VenueTpl {
   id: string;
@@ -443,6 +503,7 @@ export interface Project {
   variants?: VariantGroup[];
   cases?: CaseDef[];
   packing?: Record<string, { out?: number; back?: number }>; // "caseId:lineId" → işaretlenen adet
+  mix?: MixSetup; // kanal EQ asistanı
 }
 
 export interface PortInst {

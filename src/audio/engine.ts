@@ -443,6 +443,39 @@ function tick(): void {
   set({ frame, lv, histN: meter?.hist.length ?? 0, fb: fb.filter((x) => now - x.at < 15000 || x.seen >= 8).slice(-12) });
 }
 
+// —— Kanal dinleme: halka tampondan kayıt (en fazla 20 s) ——
+let capStart = -1;
+
+export function captureBegin(): boolean {
+  if (!get().running) return false;
+  capStart = ringPos;
+  return true;
+}
+
+export function captureSecs(): number {
+  return capStart >= 0 && ctx ? (ringPos - capStart) / ctx.sampleRate : 0;
+}
+
+export function captureEnd(): { x: Float32Array; fs: number } | null {
+  if (capStart < 0 || !ctx || !ring.length) return null;
+  const n = Math.min(ringPos - capStart, ring.length);
+  capStart = -1;
+  if (n <= 0) return null;
+  const x = new Float32Array(n);
+  const start = ringPos - n;
+  for (let i = 0; i < n; i++) x[i] = ring[(start + i) % ring.length];
+  return { x, fs: ctx.sampleRate };
+}
+
+export function captureCancel(): void {
+  capStart = -1;
+}
+
+// Mikrofon kalibrasyon dosyası düzeltmesi (dB, eklenir)
+export function micCorr(f: number): number {
+  return -calAt(get().cal.file, f);
+}
+
 // —— Sinyal üreteci ——
 function noiseBuffer(c: AudioContext, kind: 'pink' | 'white'): AudioBuffer {
   const len = c.sampleRate * 8;

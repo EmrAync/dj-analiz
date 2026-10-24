@@ -48,6 +48,8 @@ export function HomeView() {
   const out = prog.reduce((s, x) => s + x.out, 0);
   const doneSteps = setup.filter((s) => p.done[s.id]).length;
   const meas = p.measurements?.length || 0;
+  const mixCh = p.mix?.channels.length || 0;
+  const mixDone = p.mix?.channels.filter((c) => c.done).length || 0;
   const errors = issues.filter((i) => i.level === 'error').length;
 
   const steps: Step[] = [
@@ -120,6 +122,21 @@ export function HomeView() {
       info: t('home.setupInfo', { a: doneSteps, b: setup.length }),
       status: setup.length && doneSteps >= setup.length ? 'ok' : doneSteps ? 'warn' : 'todo',
       go: () => go('setup'),
+    },
+    {
+      id: 'linecheck',
+      icon: 'mixer',
+      title: t('home.linecheck'),
+      info: mixCh ? t('home.lcInfo', { n: mixCh, d: mixDone }) : t('home.lcTodo'),
+      status: mixCh && mixDone >= mixCh ? 'ok' : mixDone ? 'warn' : 'todo',
+      go: () => {
+        try {
+          localStorage.setItem('sahnecad.msTab', 'ch');
+        } catch {
+          /* yok */
+        }
+        go('measure');
+      },
     },
     {
       id: 'measure',
